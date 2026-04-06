@@ -1,0 +1,1966 @@
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════ */
+const S = {
+  files: [],
+  currentFile: null,
+  doc: null,
+  modified: false,
+  ui: {
+    tab: 'process',
+    procId: null, taskId: null,
+    entityId: null,
+    sbCollapse: {}   // { 'proc-P1': true, 'grp-销售': false }
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   API
+═══════════════════════════════════════════════════════════ */
+const api = {
+  async files()         { return fetch('/api/files').then(r => r.json()); },
+  async load(name)      { return fetch(`/api/load/${encodeURIComponent(name)}`).then(r => r.json()); },
+  async save(name, doc) {
+    return fetch(`/api/save/${encodeURIComponent(name)}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(doc)
+    }).then(r => r.json());
+  },
+  async create(name) {
+    return fetch('/api/new', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})
+    }).then(r => r.json());
+  },
+  async del(name) {
+    return fetch(`/api/delete/${encodeURIComponent(name)}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+    }).then(r => r.json());
+  },
+  async exportMd(name) { return fetch(`/api/export/${encodeURIComponent(name)}`).then(r => r.text()); }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════ */
+const STEP_TYPES = [
+  {value:'Query',  label:'查询'}, {value:'Check',  label:'校验'},
+  {value:'Fill',   label:'填写'}, {value:'Select', label:'选择'},
+  {value:'Compute',label:'计算'}, {value:'Mutate', label:'变更'},
+];
+const FIELD_TYPES = [
+  {value:'string',  label:'字符'},  {value:'number',  label:'数值'},
+  {value:'decimal', label:'金额'},  {value:'date',    label:'日期'},
+  {value:'datetime',label:'日期时间'},{value:'boolean',label:'布尔'},
+  {value:'enum',   label:'枚举'},   {value:'text',    label:'长文本'},
+  {value:'id',     label:'标识ID'},
+];
+
+/* ═══════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════ */
+function nextId(prefix, items) {
+  const used = new Set((items||[]).map(x=>x.id));
+  let i=1; while(used.has(`${prefix}${i}`))i++;
+  return `${prefix}${i}`;
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function markModified() {
+  if (!S.modified) {
+    S.modified = true;
+    document.getElementById('modified-dot')?.classList.remove('hidden');
+  }
+}
+function getEntityName(id) { return S.doc?.entities?.find(e=>e.id===id)?.name||id; }
+function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.procId)||null; }
+function currentTask()  { return currentProc()?.tasks?.find(t=>t.id===S.ui.taskId)||null; }
+function getRoles()     { return S.doc?.roles||[]; }
+
+function getTasksReferencingEntity(entityId) {
+  const result=[];
+  for(const proc of (S.doc?.processes||[])) {
+    for(const task of (proc.tasks||[])) {
+      if((task.entity_ops||[]).some(eo=>eo.entity_id===entityId))
+        result.push({proc,task});
+    }
+  }
+  return result;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MERMAID HELPERS
+═══════════════════════════════════════════════════════════ */
+/* 6色循环色板（pastel，不刺眼） */
+const ROLE_COLORS = [
+  { fill:'#dbeafe', stroke:'#3b82f6', color:'#1e3a8a' }, // 蓝
+  { fill:'#dcfce7', stroke:'#22c55e', color:'#14532d' }, // 绿
+  { fill:'#fef9c3', stroke:'#eab308', color:'#713f12' }, // 黄
+  { fill:'#fce7f3', stroke:'#ec4899', color:'#831843' }, // 粉
+  { fill:'#ede9fe', stroke:'#8b5cf6', color:'#3b0764' }, // 紫
+  { fill:'#ffedd5', stroke:'#f97316', color:'#7c2d12' }, // 橙
+];
+
+/* buildProcMermaid：仅用于 MD 预览/导出，保持简洁的线性流程图 */
+function buildProcMermaid(proc) {
+  const tasks = proc?.tasks||[];
+  if(!tasks.length) return null;
+
+  const roleMap = {};
+  let colorIdx = 0;
+  for(const t of tasks) {
+    const r = t.role||'';
+    if(!(r in roleMap)) { roleMap[r] = colorIdx % ROLE_COLORS.length; colorIdx++; }
+  }
+
+  const lines = ['flowchart LR'];
+  Object.values(roleMap).forEach(idx => {
+    const c = ROLE_COLORS[idx];
+    lines.push(`  classDef rc${idx} fill:${c.fill},stroke:${c.stroke},color:${c.color},stroke-width:2px`);
+  });
+  lines.push('  classDef startEnd fill:#f1f5f9,stroke:#94a3b8,color:#475569');
+  lines.push('  classDef entTag fill:#f8fafc,stroke:#cbd5e1,color:#64748b,font-size:11px');
+  lines.push('  Start([开始]):::startEnd');
+
+  for(const t of tasks) {
+    const name = (t.name||'').replace(/"/g,"'");
+    const repeat = t.repeatable ? ' ↺' : '';
+    let label = `${name}${repeat}`;
+    if(t.role) label += `\\n(${t.role})`;
+    const ci = roleMap[t.role||''];
+    lines.push(`  ${t.id}["${label}"]:::rc${ci}`);
+    /* 实体标签：横向附注（MD 导出用，不影响 app 内实时图） */
+    const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
+    if(eops.length) {
+      const tag = eops.map(eo=>`${getEntityName(eo.entity_id).replace(/"/g,"'")}·${(eo.ops||[]).join('')}`).join('  ');
+      lines.push(`  et_${t.id}(["${tag}"]):::entTag`);
+      lines.push(`  ${t.id} -.-> et_${t.id}`);
+    }
+  }
+
+  lines.push('  End([结束]):::startEnd');
+  lines.push('  '+['Start',...tasks.map(t=>t.id),'End'].join(' --> '));
+  return lines.join('\n');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PROCESS FLOW — 自定义 HTML 渲染器（不依赖 Mermaid）
+   布局：任务横向直线 + 实体在任务正下方垂直虚线连接
+═══════════════════════════════════════════════════════════ */
+function renderProcFlow(containerId, proc, onClickMap) {
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const tasks = proc?.tasks||[];
+  if(!tasks.length) { el.innerHTML=`<div class="diag-empty">暂无任务，点击上方"添加任务"</div>`; initZoom(containerId); return; }
+
+  /* 角色→颜色 */
+  const roleMap = {};
+  let ci = 0;
+  for(const t of tasks) {
+    const r = t.role||'';
+    if(!(r in roleMap)) roleMap[r] = ci++ % ROLE_COLORS.length;
+  }
+
+  let h = '<div class="pf-wrap">';
+  h += `<div class="pf-se">开始</div>`;
+
+  for(const t of tasks) {
+    const idx = roleMap[t.role||''];
+    const c   = ROLE_COLORS[idx];
+    const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
+    const repeat = t.repeatable ? `<span class="pf-repeat"> ↺</span>` : '';
+    const clickable = onClickMap?.[t.id] ? ' pf-clickable' : '';
+
+    h += `<div class="pf-arrow">→</div>`;
+    h += `<div class="pf-col" data-id="${t.id}">`;
+    /* 任务节点 */
+    h += `<div class="pf-task${clickable}" data-id="${t.id}"
+      style="background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
+    h += `<div class="pf-tn">${esc(t.name||'')}${repeat}</div>`;
+    if(t.role) h += `<div class="pf-tr">(${esc(t.role)})</div>`;
+    h += `</div>`;
+    /* 实体标签（正下方） */
+    if(eops.length) {
+      h += `<div class="pf-vline"></div>`;
+      h += `<div class="pf-tags">`;
+      for(const eo of eops) {
+        const en  = getEntityName(eo.entity_id);
+        const ops = (eo.ops||[]).join('');
+        h += `<span class="pf-tag">${esc(en)}·${esc(ops)}</span>`;
+      }
+      h += `</div>`;
+    }
+    h += `</div>`; /* pf-col */
+  }
+
+  h += `<div class="pf-arrow">→</div>`;
+  h += `<div class="pf-se">结束</div>`;
+  h += '</div>';
+
+  el.innerHTML = h;
+
+  /* 绑定点击 */
+  if(onClickMap) {
+    for(const [taskId, handler] of Object.entries(onClickMap)) {
+      const node = el.querySelector(`.pf-task[data-id="${taskId}"]`);
+      if(node) { node.style.cursor='pointer'; node.addEventListener('click', handler); }
+    }
+  }
+
+  initZoom(containerId);
+  if(ZOOM[containerId] && ZOOM[containerId]!==1) applyZoom(containerId);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ENTITY FLOW — 自定义 HTML swimlane 渲染（不依赖 Mermaid）
+   布局：每个 group 一行（swimlane），SVG overlay 画关系线
+═══════════════════════════════════════════════════════════ */
+/* ── ER 图工具函数 ──────────────────────────────────────── */
+/* 按连通度排序实体（组内连接多的靠前），并按跨组连接数排序组顺序 */
+function _efSortLayout(entities, relations) {
+  const deg = {};  // entity id → degree
+  for(const e of entities) deg[e.id] = 0;
+  for(const r of relations) {
+    if(deg[r.from]!==undefined) deg[r.from]++;
+    if(deg[r.to]  !==undefined) deg[r.to]++;
+  }
+
+  // 组间连接权重（用于排序组顺序，让关联紧密的组相邻）
+  const grpScore = {};
+  for(const e of entities) { const g=e.group||''; grpScore[g]=(grpScore[g]||0)+deg[e.id]; }
+
+  const allGroups = [...new Set(entities.map(e=>e.group||''))];
+  allGroups.sort((a,b)=>(grpScore[b]||0)-(grpScore[a]||0));
+
+  // 组内实体按度排序（度高的放中间——先排序后放中间位置）
+  const sorted = [];
+  for(const grp of allGroups) {
+    const ge = entities.filter(e=>(e.group||'')=== grp)
+                       .sort((a,b)=>(deg[b.id]||0)-(deg[a.id]||0));
+    sorted.push({grp, entities: ge});
+  }
+  return sorted;
+}
+
+/* ── ER 图节点默认布局计算 ── */
+const EF_NODE_W = 120;   // 预估节点宽
+const EF_NODE_H = 38;    // 预估节点高
+const EF_GAP_X  = 40;    // 同行间距
+const EF_GAP_Y  = 70;    // 行间距
+const EF_PAD    = 20;    // 边距
+
+function _efComputeDefaultPos(entities, relations) {
+  const lanes = _efSortLayout(entities, relations);
+  const posMap = {};
+  let y = EF_PAD;
+  for(const {entities: ge} of lanes) {
+    let x = EF_PAD;
+    for(const e of ge) { posMap[e.id]={x,y}; x+=EF_NODE_W+EF_GAP_X; }
+    y += EF_NODE_H + EF_GAP_Y;
+  }
+  return posMap;
+}
+
+let efDragState = null;
+let efDragMoved = false;
+
+function startEfNodeDrag(containerId, entityId, e) {
+  e.preventDefault();
+  efDragMoved = false;
+  const entity = S.doc?.entities?.find(en=>en.id===entityId);
+  if(!entity) return;
+  efDragState = { containerId, entityId, entity,
+    startX:e.clientX, startY:e.clientY,
+    origX:entity.pos?.x||0, origY:entity.pos?.y||0 };
+  document.addEventListener('mousemove', onEfNodeDrag);
+  document.addEventListener('mouseup',   endEfNodeDrag);
+}
+
+function onEfNodeDrag(e) {
+  if(!efDragState) return;
+  const dx = e.clientX - efDragState.startX;
+  const dy = e.clientY - efDragState.startY;
+  if(Math.abs(dx)>3||Math.abs(dy)>3) efDragMoved = true;
+  if(!efDragMoved) return;
+  const newX = Math.max(0, efDragState.origX + dx);
+  const newY = Math.max(0, efDragState.origY + dy);
+  efDragState.entity.pos = {x:newX, y:newY};
+  const node = document.querySelector(
+    `#ef-canvas-${efDragState.containerId} .ef-node[data-id="${efDragState.entityId}"]`);
+  if(node){ node.style.left=newX+'px'; node.style.top=newY+'px'; }
+  /* 动态扩展画板 */
+  const board = document.getElementById(`ef-board-${efDragState.containerId}`);
+  const svgEl = document.getElementById(`ef-svg-${efDragState.containerId}`);
+  if(board){
+    const neededW = newX + EF_NODE_W + 80;
+    const neededH = newY + EF_NODE_H + 100;
+    if(neededW > parseInt(board.style.width||'0')) {
+      board.style.width = neededW+'px';
+      if(svgEl) svgEl.setAttribute('width', neededW);
+    }
+    if(neededH > parseInt(board.style.height||'0')) {
+      board.style.height = neededH+'px';
+      if(svgEl) svgEl.setAttribute('height', neededH);
+    }
+  }
+  drawEfLines(efDragState.containerId, S.doc?.relations||[]);
+}
+
+function endEfNodeDrag(e) {
+  if(!efDragState) return;
+  document.removeEventListener('mousemove', onEfNodeDrag);
+  document.removeEventListener('mouseup',   endEfNodeDrag);
+  if(efDragMoved) markModified();
+  efDragState = null;
+  setTimeout(()=>{ efDragMoved=false; }, 80);
+}
+
+function resetEfLayout() {
+  if(!S.doc?.entities?.length) return;
+  for(const e of S.doc.entities) delete e.pos;
+  markModified();
+  renderEntityDiagramNow();
+}
+
+function renderEntityFlow(containerId, doc, onClickMap) {
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const entities  = doc?.entities||[];
+  const relations = doc?.relations||[];
+  if(!entities.length) {
+    el.innerHTML = `<div class="diag-empty">暂无实体，点击上方"新建实体"</div>`;
+    initZoom(containerId);
+    return;
+  }
+
+  /* 颜色索引（原始 group 顺序保持颜色不变） */
+  const grpMap = {};
+  let ci = 0;
+  for(const e of entities) {
+    const g = e.group||'';
+    if(!(g in grpMap)) { grpMap[g] = ci % ROLE_COLORS.length; ci++; }
+  }
+
+  /* 按连通度排序的组和实体 */
+  const lanes = _efSortLayout(entities, relations);
+
+  let h = `<div class="ef-canvas" id="ef-canvas-${containerId}">`;
+  h += `<svg class="ef-svg" id="ef-svg-${containerId}" width="0" height="0"></svg>`;
+  h += `<div class="ef-lanes" id="ef-lanes-${containerId}">`;
+
+  for(const {grp, entities: grpEntities} of lanes) {
+    const idx = grpMap[grp];
+    const c   = ROLE_COLORS[idx];
+    h += `<div class="ef-lane">`;
+    if(grp) h += `<div class="ef-lane-label">${esc(grp)}</div>`;
+    h += `<div class="ef-lane-entities">`;
+    for(const e of grpEntities) {
+      const clickable = onClickMap?.[e.id] ? ' ef-clickable' : '';
+      h += `<div class="ef-node${clickable}" data-id="${e.id}"
+        style="background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
+      h += `<span class="ef-nid">${esc(e.id)}</span>`;
+      h += `<span class="ef-nname">${esc(e.name||e.id)}</span>`;
+      h += `</div>`;
+    }
+    h += `</div></div>`; /* ef-lane-entities, ef-lane */
+  }
+
+  h += `</div></div>`; /* ef-lanes, ef-canvas */
+
+  el.innerHTML = h;
+
+  /* 绑定点击 */
+  if(onClickMap) {
+    for(const [entityId, handler] of Object.entries(onClickMap)) {
+      const node = el.querySelector(`.ef-node[data-id="${entityId}"]`);
+      if(node) node.addEventListener('click', handler);
+    }
+  }
+
+  initZoom(containerId);
+  if(ZOOM[containerId] && ZOOM[containerId] !== 1) applyZoom(containerId);
+
+  /* 等 DOM 渲染完后画连接线 */
+  requestAnimationFrame(() => drawEfLines(containerId, relations));
+}
+
+function drawEfLines(containerId, relations) {
+  const canvas = document.getElementById(`ef-canvas-${containerId}`);
+  const svg    = document.getElementById(`ef-svg-${containerId}`);
+  if(!canvas || !svg) return;
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const z = ZOOM[containerId] || 1;
+  const W = canvas.scrollWidth, H = canvas.scrollHeight;
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+
+  /* 节点矩形（canvas 坐标系，已消除 zoom 影响） */
+  function nr(id) {
+    const el = canvas.querySelector(`.ef-node[data-id="${id}"]`);
+    if(!el) return null;
+    const r = el.getBoundingClientRect();
+    const l=(r.left-canvasRect.left)/z, t=(r.top-canvasRect.top)/z;
+    const w=r.width/z, h=r.height/z;
+    return {l, t, r:l+w, b:t+h, cx:l+w/2, cy:t+h/2, w, h};
+  }
+
+  const rl = {'1:1':'1:1','1:N':'1:N','N:N':'N:N'};
+  const markerId = `arr-${containerId.replace(/\W/g,'_')}`;
+
+  /*
+   * 分层弯道路由策略：
+   * ① 同行（|Δcy| < 35px）：从底边出发，走"U形"弯道绕过下方
+   *    多条同行线按各自"深度通道"错开，间距 14px
+   * ② 跨行：走行间"水平高速公路"
+   *    在两组之间取中线，多条线按 ±offset 错开，间距 12px
+   */
+
+  // 预先收集各行底部坐标和行间通道位置
+  const laneEls = canvas.querySelectorAll('.ef-lane-entities');
+  const laneBounds = [...laneEls].map(el => {
+    const r = el.getBoundingClientRect();
+    return { top:(r.top-canvasRect.top)/z, bot:(r.bottom-canvasRect.top)/z };
+  });
+
+  // 通道计数器 key→使用次数
+  const chanCount = {};
+  function chanIdx(key) {
+    const i = chanCount[key]||0; chanCount[key]=i+1; return i;
+  }
+
+  // 颜色组
+  const STROKE_COLORS = ['#3b82f6','#22c55e','#eab308','#ec4899','#8b5cf6','#f97316'];
+  let pathsHtml = '';
+
+  relations.forEach((rel, ri) => {
+    const S = nr(rel.from), T = nr(rel.to);
+    if(!S||!T) return;
+
+    const color = STROKE_COLORS[ri % STROKE_COLORS.length];
+    const lbl   = (rl[rel.type]||rel.type||'') + (rel.label ? ` ${rel.label}` : '');
+    const dash  = rel.type==='N:N' ? 'stroke-dasharray="5,3"' : '';
+
+    let pathD, lx, ly;
+
+    if(Math.abs(S.cy - T.cy) < 35) {
+      /* ── 同行 U形弯道 ── */
+      const laneBot = Math.max(S.b, T.b);
+      // 按两实体中点距离哈希出一个稳定 key
+      const key = `row-${Math.round((S.cx+T.cx)/2)}-${Math.round(laneBot)}`;
+      const depth = chanIdx(key);
+      const yBot = laneBot + 12 + depth * 14;  // 每条线分一层
+
+      if(S.cx < T.cx) {
+        // S 在左：S右边 → 向下 → 过 → T左边（U形朝下）
+        pathD = `M ${S.r} ${S.cy} L ${S.r+6} ${S.cy} L ${S.r+6} ${yBot} L ${T.l-6} ${yBot} L ${T.l-6} ${T.cy} L ${T.l} ${T.cy}`;
+      } else {
+        pathD = `M ${S.l} ${S.cy} L ${S.l-6} ${S.cy} L ${S.l-6} ${yBot} L ${T.r+6} ${yBot} L ${T.r+6} ${T.cy} L ${T.r} ${T.cy}`;
+      }
+      lx = (S.cx + T.cx) / 2; ly = yBot + 10;
+
+    } else {
+      /* ── 跨行 水平通道 ── */
+      const topNode = S.cy < T.cy ? S : T;
+      const botNode = S.cy < T.cy ? T : S;
+      const goDown  = S.cy < T.cy;
+
+      // 找两行之间的通道区间
+      let chanTop = topNode.b, chanBot = botNode.t;
+      // 若在 laneBounds 中找到更精确的间隙
+      for(let i=0;i<laneBounds.length-1;i++) {
+        if(laneBounds[i].bot <= topNode.b+4 && laneBounds[i+1].top >= botNode.t-4) {
+          chanTop = laneBounds[i].bot; chanBot = laneBounds[i+1].top; break;
+        }
+      }
+      const chanMid = (chanTop + chanBot) / 2;
+      const key = `col-${Math.round(chanTop)}-${Math.round(chanBot)}`;
+      const idx  = chanIdx(key);
+      const sign = idx % 2 === 0 ? 1 : -1;
+      const yMid = chanMid + sign * Math.ceil(idx/2) * 10;
+
+      const sx = S.cx, sy = goDown ? S.b : S.t;
+      const ex = T.cx, ey = goDown ? T.t : T.b;
+      pathD = `M ${sx} ${sy} L ${sx} ${yMid} L ${ex} ${yMid} L ${ex} ${ey}`;
+      lx = (sx + ex) / 2; ly = yMid - 5;
+    }
+
+    pathsHtml += `<path d="${pathD}" stroke="${color}" stroke-width="1.5" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
+    if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="10" fill="${color}">${esc(lbl)}</text>`;
+  });
+
+  // 每条线独立箭头颜色
+  const markerDefs = relations.map((rel,ri)=>{
+    const color = STROKE_COLORS[ri%STROKE_COLORS.length];
+    return `<marker id="${markerId}-${ri}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="${color}"/>
+    </marker>`;
+  }).join('');
+
+  svg.innerHTML = `<defs>${markerDefs}</defs>${pathsHtml}`;
+}
+
+/* 实体图颜色：按主题域分配，无组的用第0色 */
+function buildEntityMermaid(doc) {
+  const entities = doc?.entities||[];
+  if(!entities.length) return null;
+  const relations = doc?.relations||[];
+
+  /* 主题域 → 颜色索引 */
+  const grpMap = {};
+  let ci = 0;
+  for(const e of entities) {
+    const g = e.group||'';
+    if(!(g in grpMap)) { grpMap[g] = ci % ROLE_COLORS.length; ci++; }
+  }
+
+  const lines = ['flowchart LR'];
+  /* classDef */
+  Object.values(grpMap).forEach(idx => {
+    const c = ROLE_COLORS[idx];
+    lines.push(`  classDef ec${idx} fill:${c.fill},stroke:${c.stroke},color:${c.color},stroke-width:2px`);
+  });
+
+  for(const e of entities) {
+    const n   = (e.name||e.id).replace(/"/g,"'");
+    const idx = grpMap[e.group||''];
+    lines.push(`  ${e.id}["${n}"]:::ec${idx}`);
+  }
+  const rl = {'1:1':'1对1','1:N':'1对多','N:N':'多对多'};
+  for(const r of relations) {
+    const lbl = (rl[r.type]||r.type) + (r.label?`\\n${r.label}`:'');
+    lines.push(`  ${r.from} -- "${lbl}" --> ${r.to}`);
+  }
+  return lines.join('\n');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ZOOM
+   原理：读取 SVG viewBox 得到自然尺寸，通过修改 width/height 属性缩放。
+   Mermaid 会给 SVG 加 style="max-width:...;height:auto"，必须先清除。
+═══════════════════════════════════════════════════════════ */
+const ZOOM = {};
+
+/* ── Card Map 常量 ── */
+const CARD_W = 300;
+const CARD_H = 200;
+let dragState = null;
+
+function _captureSvgSize(svg) {
+  /* 去掉 Mermaid 的 max-width 约束，记录 SVG 自然尺寸 */
+  svg.style.maxWidth = 'none';
+  const vb = svg.getAttribute('viewBox');
+  if(vb) {
+    const p = vb.trim().split(/\s+/).map(Number);
+    svg._zW = p[2] || 600;
+    svg._zH = p[3] || 200;
+  } else {
+    svg._zW = parseFloat(svg.getAttribute('width'))  || 600;
+    svg._zH = parseFloat(svg.getAttribute('height')) || 200;
+  }
+}
+
+function applyZoom(id) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  const s = ZOOM[id]||1;
+  /* Entity Flow HTML diagram (.ef-canvas) */
+  const efLanes = el.querySelector('.ef-lanes');
+  if(efLanes) {
+    efLanes.style.zoom = String(s);
+    /* Redraw lines after zoom change */
+    const relations = S.doc?.relations||[];
+    requestAnimationFrame(() => drawEfLines(id, relations));
+    return;
+  }
+  /* Mermaid SVG（实体关系图等）— only when no ef-canvas present */
+  const svg = el.querySelector('svg');
+  if(svg && !el.querySelector('.ef-canvas')) {
+    if(!svg._zW) _captureSvgSize(svg);
+    svg.setAttribute('width',  Math.round(svg._zW * s));
+    svg.setAttribute('height', Math.round(svg._zH * s));
+    return;
+  }
+  /* 自定义 HTML 流程图（pf-wrap），用 CSS zoom 属性（影响布局，容器会出现滚动条） */
+  const wrap = el.querySelector('.pf-wrap');
+  if(wrap) wrap.style.zoom = String(s);
+}
+
+function zoomBy(id, delta) {
+  ZOOM[id] = Math.max(0.3, Math.min(4, (ZOOM[id]||1) + delta));
+  applyZoom(id);
+}
+function resetZoom(id) { ZOOM[id] = 1; applyZoom(id); }
+
+function initZoom(id) {
+  const el  = document.getElementById(id);
+  if(!el) return;
+  /* 每次渲染后刷新 SVG 自然尺寸（SVG DOM 已替换；跳过 ef-canvas overlay SVG） */
+  const svg = el.querySelector('svg');
+  if(svg && !el.querySelector('.ef-canvas')) _captureSvgSize(svg);
+  /* 只绑定一次 wheel 监听（el 不变时复用） */
+  if(el._zoomBound) return;
+  el._zoomBound = true;
+  el.addEventListener('wheel', e => {
+    if(!e.ctrlKey) return;
+    e.preventDefault();
+    zoomBy(id, e.deltaY < 0 ? 0.15 : -0.15);
+  }, {passive: false});
+}
+
+
+async function renderDiagram(containerId, code, onClickMap) {
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML = '';
+  if(!code) {
+    el.innerHTML = `<div class="diag-empty">暂无内容</div>`;
+    return;
+  }
+  if(!window.mermaidLib) {
+    el.innerHTML = `<div class="diag-empty">图表需联网加载 Mermaid CDN</div>`;
+    return;
+  }
+  try {
+    const {svg} = await window.mermaidLib.render('d'+Date.now(), code);
+    el.innerHTML = svg;
+    initZoom(containerId);   /* 先捕获 SVG 自然尺寸，绑定滚轮 */
+    if(ZOOM[containerId] && ZOOM[containerId]!==1) applyZoom(containerId); /* 再恢复缩放 */
+    if(onClickMap) {
+      for(const [nodeId, handler] of Object.entries(onClickMap)) {
+        // Mermaid v10 generates g elements with id like "flowchart-T1-N"
+        const nodes = el.querySelectorAll(`[id*="flowchart-${nodeId}-"],[id="${nodeId}"]`);
+        nodes.forEach(n => {
+          n.style.cursor='pointer';
+          n.addEventListener('click', handler);
+        });
+      }
+    }
+  } catch(e) {
+    el.innerHTML = `<div class="diag-empty" style="color:var(--danger)">图表渲染错误</div>`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════════════ */
+function navigate(tab, opts) {
+  S.ui.tab = tab;
+  if(opts) {
+    if('procId'   in opts) S.ui.procId   = opts.procId;
+    if('taskId'   in opts) S.ui.taskId   = opts.taskId;
+    if('entityId' in opts) S.ui.entityId = opts.entityId;
+  }
+  render();
+}
+
+function toggleCollapse(key) {
+  S.ui.sbCollapse[key] = !S.ui.sbCollapse[key];
+  renderSidebar();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Meta / Domain (domain IS the filename)
+═══════════════════════════════════════════════════════════ */
+function setDomain(val) {
+  if(!S.doc) return;
+  S.doc.meta.domain = val;
+  S.doc.meta.title  = val;   // title mirrors domain
+  markModified();
+  document.getElementById('file-name').textContent = val || '未命名';
+}
+
+function setMeta(key, val) { if(S.doc){S.doc.meta[key]=val; markModified();} }
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Roles
+═══════════════════════════════════════════════════════════ */
+function addRole() {
+  const inp = document.getElementById('role-input');
+  const role = (inp?.value||'').trim();
+  if(!role) return;
+  if(!S.doc.roles) S.doc.roles=[];
+  if(!S.doc.roles.includes(role)){S.doc.roles.push(role); markModified(); render();}
+  if(inp) inp.value='';
+}
+function removeRole(idx) { S.doc.roles.splice(idx,1); markModified(); render(); }
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Language
+═══════════════════════════════════════════════════════════ */
+function addTerm()            { S.doc.language.push({term:'',definition:''}); markModified(); render(); }
+function removeTerm(idx)      { S.doc.language.splice(idx,1); markModified(); render(); }
+function setTerm(idx,k,val)   { S.doc.language[idx][k]=val; markModified(); }
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Processes
+═══════════════════════════════════════════════════════════ */
+function addProcess() {
+  const id  = nextId('P', S.doc.processes);
+  const pos = _nextFreePos(S.doc.processes, null); /* 自动填补空缺格子 */
+  S.doc.processes.push({id, name:'新流程', trigger:'', outcome:'', tasks:[], pos});
+  markModified();
+  navigate('process',{procId:id, taskId:null});
+}
+function removeProcess(id) {
+  if(!confirm('确认删除此流程及所有任务？')) return;
+  S.doc.processes = S.doc.processes.filter(p=>p.id!==id);
+  if(S.ui.procId===id){S.ui.procId=S.doc.processes[0]?.id||null; S.ui.taskId=null;}
+  markModified(); render();
+}
+function setProc(procId,key,val) {
+  const p=S.doc.processes.find(p=>p.id===procId);
+  if(p){p[key]=val; markModified();}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Tasks
+═══════════════════════════════════════════════════════════ */
+function addTask(procId) {
+  const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
+  const allTasks=S.doc.processes.flatMap(p=>p.tasks||[]);
+  const id=nextId('T',allTasks);
+  proc.tasks.push({id, name:'新任务', role:'', steps:[], entity_ops:[], repeatable:false});
+  markModified();
+  navigate('process',{procId, taskId:id});
+}
+function removeTask(procId,taskId) {
+  const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
+  proc.tasks=proc.tasks.filter(t=>t.id!==taskId);
+  if(S.ui.taskId===taskId) S.ui.taskId=null;
+  markModified(); render();
+}
+function moveTask(procId,taskId,dir) {
+  const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
+  const idx=proc.tasks.findIndex(t=>t.id===taskId);
+  const nidx=idx+dir;
+  if(nidx<0||nidx>=proc.tasks.length) return;
+  [proc.tasks[idx],proc.tasks[nidx]]=[proc.tasks[nidx],proc.tasks[idx]];
+  markModified(); render();
+}
+function setTask(procId,taskId,key,val) {
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  if(t){t[key]=val; markModified();}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Steps
+═══════════════════════════════════════════════════════════ */
+function addStep(procId,taskId) {
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  if(!t) return;
+  t.steps.push({name:'',type:'Query',note:''}); markModified(); render();
+}
+function removeStep(procId,taskId,idx) {
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  if(!t) return; t.steps.splice(idx,1); markModified(); render();
+}
+function setStep(procId,taskId,idx,key,val) {
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  if(t?.steps[idx]!==undefined){t.steps[idx][key]=val; markModified();}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Entity Ops
+═══════════════════════════════════════════════════════════ */
+function addEntityOp(procId,taskId,entityId) {
+  if(!entityId) return;
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  if(!t) return;
+  if(!t.entity_ops) t.entity_ops=[];
+  if(t.entity_ops.some(eo=>eo.entity_id===entityId)) return;
+  t.entity_ops.push({entity_id:entityId, ops:['R']});
+  markModified(); render();
+}
+function removeEntityOp(procId,taskId,entityId) {
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  if(!t) return; t.entity_ops=(t.entity_ops||[]).filter(eo=>eo.entity_id!==entityId);
+  markModified(); render();
+}
+function toggleEntityOp(procId,taskId,entityId,op,checked) {
+  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  const eo=t?.entity_ops?.find(eo=>eo.entity_id===entityId);
+  if(!eo) return;
+  if(checked){if(!eo.ops.includes(op))eo.ops.push(op);}
+  else{eo.ops=eo.ops.filter(o=>o!==op);}
+  markModified();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Entities
+═══════════════════════════════════════════════════════════ */
+function addEntity(group) {
+  const id=nextId('E',S.doc.entities);
+  S.doc.entities.push({id, name:'新实体', group:group||'', fields:[]});
+  markModified(); navigate('data',{entityId:id});
+}
+function removeEntity(id) {
+  if(!confirm('确认删除此实体？')) return;
+  S.doc.entities=S.doc.entities.filter(e=>e.id!==id);
+  S.doc.relations=(S.doc.relations||[]).filter(r=>r.from!==id&&r.to!==id);
+  for(const proc of S.doc.processes)
+    for(const task of (proc.tasks||[]))
+      task.entity_ops=(task.entity_ops||[]).filter(eo=>eo.entity_id!==id);
+  if(S.ui.entityId===id) S.ui.entityId=null;
+  markModified(); render();
+}
+function setEntity(id,key,val) {
+  const e=S.doc.entities.find(e=>e.id===id);
+  if(e){e[key]=val; markModified();}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Fields
+═══════════════════════════════════════════════════════════ */
+function addField(entityId) {
+  const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
+  e.fields.push({name:'',type:'string',is_key:false,is_status:false,note:''});
+  markModified(); render();
+}
+function removeField(entityId,idx) {
+  const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
+  e.fields.splice(idx,1); markModified(); render();
+}
+function setField(entityId,idx,key,val) {
+  const e=S.doc.entities.find(e=>e.id===entityId);
+  if(e?.fields[idx]!==undefined){e.fields[idx][key]=val; markModified();}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MUTATIONS — Relations
+═══════════════════════════════════════════════════════════ */
+function addRelation() {
+  const ents=S.doc.entities||[];
+  if(ents.length<2){alert('至少需要2个实体才能建立关系');return;}
+  S.doc.relations=S.doc.relations||[];
+  S.doc.relations.push({from:ents[0].id,to:ents[1].id,type:'1:N',label:''});
+  markModified(); render();
+}
+function removeRelation(idx){S.doc.relations.splice(idx,1);markModified();render();}
+function setRelation(idx,key,val){if(S.doc.relations[idx]){S.doc.relations[idx][key]=val;markModified();}}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — entry
+═══════════════════════════════════════════════════════════ */
+function render() {
+  if(!S.doc){renderNoDoc();return;}
+  renderToolbar();
+  renderSidebar();
+  renderTabBar();
+  const t=S.ui.tab;
+  if     (t==='domain') renderDomainTab();
+  else if(t==='process') renderProcessTab();
+  else if(t==='data')   renderDataTab();
+  else if(t==='preview') renderPreviewTab();
+}
+
+function renderToolbar() {
+  const name = S.doc?.meta?.domain || S.currentFile || '—';
+  document.getElementById('file-name').textContent = name;
+  document.getElementById('modified-dot')?.classList.toggle('hidden',!S.modified);
+}
+
+function renderNoDoc() {
+  document.getElementById('sidebar-content').innerHTML =
+    `<div class="sb-empty" style="padding:20px 12px;line-height:1.8">新建或打开文档<br>开始建模</div>`;
+  document.getElementById('tab-bar').innerHTML='';
+  document.getElementById('tab-content').innerHTML=`
+    <div class="empty-state">
+      <h2>BML 业务建模工具</h2>
+      <p>结构化记录业务理解，生成可读文档</p>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary" onclick="App.cmdNew()">新建文档</button>
+        <button class="btn btn-outline" onclick="App.cmdOpen()">打开文档</button>
+      </div>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — Sidebar (collapsible tree)
+═══════════════════════════════════════════════════════════ */
+function renderSidebar() {
+  const procs    = S.doc.processes||[];
+  const entities = S.doc.entities||[];
+  let h='';
+
+  /* ── 流程区 ── */
+  h+=`<div class="sb-section">
+    <div class="sb-header">
+      <span>流程</span>
+      <button class="sb-add-btn" onclick="addProcess()" title="新建流程">＋</button>
+    </div>`;
+
+  if(!procs.length){
+    h+=`<div class="sb-empty">暂无流程</div>`;
+  } else {
+    for(const p of procs) {
+      const procKey=`proc-${p.id}`;
+      const collapsed=S.ui.sbCollapse[procKey];
+      const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
+      h+=`<div class="sb-proc-head ${procActive?'active':''}"
+        onclick="navigate('process',{procId:'${p.id}',taskId:null})">
+        <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
+        <span class="sb-id">${esc(p.id)}</span>
+        <span class="sb-name">${esc(p.name||'未命名')}</span>
+      </div>`;
+      if(!collapsed) {
+        for(const t of (p.tasks||[])) {
+          const tActive=S.ui.tab==='process'&&S.ui.taskId===t.id;
+          h+=`<div class="sb-task-item ${tActive?'active':''}"
+            onclick="navigate('process',{procId:'${p.id}',taskId:'${t.id}'})">
+            <span class="sb-id">${esc(t.id)}</span>
+            <span class="sb-name">${esc(t.name||'未命名')}</span>
+            ${t.repeatable?'<span class="sb-repeat" title="可重复">↺</span>':''}
+          </div>`;
+        }
+      }
+    }
+  }
+  h+=`</div>`;
+
+  /* ── 实体区（按主题域分组） ── */
+  h+=`<div class="sb-section">
+    <div class="sb-header">
+      <span>实体</span>
+      <button class="sb-add-btn" onclick="addEntity()" title="新建实体">＋</button>
+    </div>`;
+
+  if(!entities.length){
+    h+=`<div class="sb-empty">暂无实体</div>`;
+  } else {
+    /* 收集主题域 */
+    const groups=[...new Set(entities.map(e=>e.group||''))];
+    for(const grp of groups) {
+      const grpEntities=entities.filter(e=>(e.group||'')===grp);
+      if(grp) {
+        const grpKey=`grp-${grp}`;
+        const collapsed=S.ui.sbCollapse[grpKey];
+        h+=`<div class="sb-grp-head" onclick="toggleCollapse('${grpKey}')">
+          <button class="sb-caret">${collapsed?'▶':'▾'}</button>
+          <span class="sb-name">${esc(grp)}</span>
+          <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>
+        </div>`;
+        if(!collapsed) {
+          for(const e of grpEntities) {
+            const active=S.ui.tab==='data'&&S.ui.entityId===e.id;
+            h+=`<div class="sb-entity-item ${active?'active':''}"
+              onclick="navigate('data',{entityId:'${e.id}'})">
+              <span class="sb-id">${esc(e.id)}</span>
+              <span class="sb-name">${esc(e.name||'未命名')}</span>
+            </div>`;
+          }
+        }
+      } else {
+        /* 无主题域的实体直接列出 */
+        for(const e of grpEntities) {
+          const active=S.ui.tab==='data'&&S.ui.entityId===e.id;
+          h+=`<div class="sb-item ${active?'active':''}"
+            onclick="navigate('data',{entityId:'${e.id}'})">
+            <span class="sb-id">${esc(e.id)}</span>
+            <span class="sb-name">${esc(e.name||'未命名')}</span>
+          </div>`;
+        }
+      }
+    }
+  }
+  h+=`</div>`;
+
+  document.getElementById('sidebar-content').innerHTML=h;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — Tab Bar
+═══════════════════════════════════════════════════════════ */
+function renderTabBar() {
+  const tabs=[
+    {id:'domain', label:'业务域'},
+    {id:'process',label:'流程'},
+    {id:'data',   label:'数据'},
+    {id:'preview',label:'预览'},
+  ];
+  document.getElementById('tab-bar').innerHTML=tabs.map(t=>
+    `<button class="tab-btn ${S.ui.tab===t.id?'active':''}"
+      onclick="navigate('${t.id}',{})">${t.label}</button>`
+  ).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CARD MAP — 流程地图拖拽
+═══════════════════════════════════════════════════════════ */
+/* 找第一个空位（不与任何现有流程重叠） */
+function _nextFreePos(procs, excludeId) {
+  const occ = new Set(procs.filter(p=>p.id!==excludeId && p.pos)
+                           .map(p=>`${p.pos.r},${p.pos.c}`));
+  for(let r=1;r<=20;r++)
+    for(let c=1;c<=8;c++)
+      if(!occ.has(`${r},${c}`)) return {r, c};
+  return {r:1, c:procs.length+1};
+}
+
+function ensureProcPos(doc) {
+  (doc.processes||[]).forEach(p => {
+    if(!p.pos) p.pos = _nextFreePos(doc.processes, p.id);
+  });
+}
+
+/* 就地更新卡片坐标（不重绘整个 Tab，保留滚动位置） */
+function _applyCardPositions() {
+  const map = document.getElementById('card-map');
+  if(!map) return;
+  const allProcs = S.doc.processes||[];
+  const maxRow = Math.max(...allProcs.map(p=>p.pos?.r||1));
+  const maxCol = Math.max(...allProcs.map(p=>p.pos?.c||1));
+  map.style.height    = `${maxRow*CARD_H+8}px`;
+  map.style.minWidth  = `${Math.max(maxCol*CARD_W+8,600)}px`;
+  for(const proc of allProcs) {
+    const card = map.querySelector(`.proc-card[data-id="${proc.id}"]`);
+    if(!card) continue;
+    const r=proc.pos?.r||1, c=proc.pos?.c||1;
+    card.style.left      = `${(c-1)*CARD_W+8}px`;
+    card.style.top       = `${(r-1)*CARD_H+8}px`;
+    card.style.transform = '';
+    card.style.zIndex    = '';
+  }
+}
+
+function startCardDrag(procId, e) {
+  e.preventDefault();
+  const proc = S.doc.processes.find(p=>p.id===procId);
+  if(!proc) return;
+  dragState = { procId, startPos:{...proc.pos},
+    startX:e.clientX, startY:e.clientY };
+  document.addEventListener('mousemove', onCardDrag);
+  document.addEventListener('mouseup',   endCardDrag);
+}
+
+function onCardDrag(e) {
+  if(!dragState) return;
+  const dx = e.clientX - dragState.startX;
+  const dy = e.clientY - dragState.startY;
+  const card = document.querySelector(`.proc-card[data-id="${dragState.procId}"]`);
+  if(card) { card.style.transform=`translate(${dx}px,${dy}px)`; card.style.zIndex='100'; }
+}
+
+function endCardDrag(e) {
+  if(!dragState) return;
+  const dx = e.clientX - dragState.startX;
+  const dy = e.clientY - dragState.startY;
+  const proc = S.doc.processes.find(p=>p.id===dragState.procId);
+  if(proc) {
+    const newC = Math.max(1, dragState.startPos.c + Math.round(dx/CARD_W));
+    const newR = Math.max(1, dragState.startPos.r + Math.round(dy/CARD_H));
+    const newPos = {r:newR, c:newC};
+    /* 目标格已有其他流程 → 互换位置 */
+    const occupant = S.doc.processes.find(
+      p => p.id!==proc.id && p.pos?.r===newR && p.pos?.c===newC);
+    if(occupant) occupant.pos = {...dragState.startPos};
+    proc.pos = newPos;
+    markModified();
+    _applyCardPositions(); /* 就地更新，不滚回顶部 */
+  }
+  document.removeEventListener('mousemove', onCardDrag);
+  document.removeEventListener('mouseup',   endCardDrag);
+  dragState = null;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — Domain Tab (原概览)
+═══════════════════════════════════════════════════════════ */
+function renderDomainTab() {
+  ensureProcPos(S.doc);
+  const m=S.doc.meta||{};
+  const roles=S.doc.roles||[];
+  const lang=S.doc.language||[];
+  let h='<div class="domain-scroll">';
+
+  h+=`<div class="ctx-card">
+    <h3>业务域信息</h3>
+    <div class="form-grid">
+      <div class="field-group form-full">
+        <label>业务域名称 <span class="section-hint">（同时作为文档名称）</span></label>
+        <input type="text" value="${esc(m.domain||m.title||'')}"
+          oninput="setDomain(this.value)"
+          placeholder="如：仓储管理、采购、结算">
+      </div>
+      <div class="field-group">
+        <label>作者</label>
+        <input type="text" value="${esc(m.author||'')}"
+          oninput="setMeta('author',this.value)">
+      </div>
+      <div class="field-group">
+        <label>日期</label>
+        <input type="text" value="${esc(m.date||'')}"
+          oninput="setMeta('date',this.value)" placeholder="如：2025-01">
+      </div>
+    </div>
+  </div>`;
+
+  h+=`<div class="ctx-card">
+    <h3>参与角色</h3>
+    <div class="role-tag-list">`;
+  roles.forEach((r,i)=>{
+    h+=`<span class="role-tag">${esc(r)}<button class="role-del" onclick="removeRole(${i})">×</button></span>`;
+  });
+  h+=`</div>
+    <div class="add-role-row">
+      <input type="text" id="role-input" placeholder="输入角色名，回车添加"
+        onkeydown="if(event.key==='Enter')addRole()">
+      <button class="btn btn-outline btn-sm" onclick="addRole()">添加</button>
+    </div>
+  </div>`;
+
+  h+=`<div class="ctx-card">
+    <h3>统一语言
+      <button class="btn btn-outline btn-sm" onclick="addTerm()">＋ 添加术语</button>
+    </h3>`;
+  if(lang.length){
+    h+=`<table class="term-table">
+      <thead><tr><th>术语</th><th>定义</th><th></th></tr></thead><tbody>`;
+    lang.forEach((t,i)=>{
+      h+=`<tr>
+        <td><input type="text" value="${esc(t.term||'')}"
+          oninput="setTerm(${i},'term',this.value)" placeholder="术语"></td>
+        <td><input type="text" value="${esc(t.definition||'')}"
+          oninput="setTerm(${i},'definition',this.value)" placeholder="定义"></td>
+        <td><button class="field-del" onclick="removeTerm(${i})">✕</button></td>
+      </tr>`;
+    });
+    h+=`</tbody></table>`;
+  } else {
+    h+=`<p class="no-refs">暂无术语定义</p>`;
+  }
+  h+=`</div>`; /* end last ctx-card */
+
+  /* 流程地图（Card Map）：卡片绝对定位，可拖拽调整时序 */
+  const allProcs = S.doc.processes||[];
+  if(allProcs.length) {
+    const maxRow = Math.max(...allProcs.map(p=>p.pos?.r||1));
+    const maxCol = Math.max(...allProcs.map(p=>p.pos?.c||1));
+    const mapHeight = maxRow * CARD_H + 8;
+    const mapWidth  = Math.max(maxCol * CARD_W + 8, 600);
+
+    h+=`<div class="ctx-card">
+      <h3>流程地图 <span class="section-hint">拖动卡片调整时序位置·右=晚·上下=并行</span></h3>
+      <div class="card-map-wrap">
+        <div id="card-map" class="card-map" style="height:${mapHeight}px;min-width:${mapWidth}px">`;
+
+    for(const proc of allProcs) {
+      const r = proc.pos?.r||1;
+      const c = proc.pos?.c||1;
+      /* pc-diag 点击跳转；header 拖拽（stopPropagation 防止触发跳转） */
+      h+=`<div class="proc-card" data-id="${esc(proc.id)}"
+        style="left:${(c-1)*CARD_W+8}px;top:${(r-1)*CARD_H+8}px;width:${CARD_W-16}px;height:${CARD_H-16}px">
+        <div class="pc-header" onmousedown="startCardDrag('${esc(proc.id)}',event)"
+          onclick="event.stopPropagation()">
+          <span class="pc-id">${esc(proc.id)}</span>
+          <span class="pc-name">${esc(proc.name||'未命名')}</span>
+          <button class="pc-goto btn-icon"
+            onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})"
+            title="进入编辑">→</button>
+        </div>
+        <div id="pc-diag-${esc(proc.id)}" class="pc-diag pf-clickable"
+          onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})"
+          title="点击进入流程编辑"></div>
+      </div>`;
+    }
+
+    h+=`</div></div></div>`;
+  }
+
+  h+=`</div>`; /* end domain-scroll */
+
+  document.getElementById('tab-content').innerHTML=h;
+
+  /* 渲染每个流程的迷你图 */
+  for(const proc of allProcs) {
+    if((proc.tasks||[]).length) {
+      renderProcFlow(`pc-diag-${proc.id}`, proc, null);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — Process Tab  (上：实时图 | 下：编辑)
+═══════════════════════════════════════════════════════════ */
+function renderProcessTab() {
+  const procs=S.doc.processes||[];
+  const proc=currentProc();
+  const task=currentTask();
+
+  let h='';
+
+  /* 流程切换条（多流程时显示） */
+  if(procs.length>1||!proc) {
+    h+=`<div class="proc-switcher">`;
+    for(const p of procs) {
+      h+=`<button class="proc-switch-btn ${S.ui.procId===p.id?'active':''}"
+        onclick="navigate('process',{procId:'${p.id}',taskId:null})">${esc(p.id)} ${esc(p.name)}</button>`;
+    }
+    h+=`<button class="proc-switch-btn new-proc-btn" onclick="addProcess()">＋ 新流程</button>`;
+    h+=`</div>`;
+  } else if(!procs.length) {
+    h+=`<div style="padding:16px">
+      <button class="btn btn-primary" onclick="addProcess()">＋ 新建第一个流程</button>
+    </div>`;
+    document.getElementById('tab-content').innerHTML=h;
+    return;
+  }
+
+  /* 实时流程图区 */
+  h+=`<div class="live-diagram-wrap">
+    <div class="live-diagram-toolbar">
+      <span class="live-diagram-hint">点击任务节点进入编辑 ↓</span>
+      ${proc?`<button class="btn btn-outline btn-sm" onclick="addTask('${proc.id}')">＋ 添加任务</button>`:''}
+      ${proc?`<button class="btn btn-ghost-sm" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)" title="放大 (Ctrl+滚轮)">＋</button>
+        <button class="zoom-btn" onclick="resetZoom('proc-diagram')" title="重置缩放">⊙</button>
+        <button class="zoom-btn" onclick="zoomBy('proc-diagram',-0.2)" title="缩小">－</button>
+      </div>
+    </div>
+    <div id="proc-diagram" class="live-diagram"></div>
+  </div>`;
+
+  /* 分隔线 + 编辑区 */
+  h+=`<div class="edit-panel">`;
+
+  if(task&&proc) {
+    /* ── 任务编辑 ── */
+    h+=`<div class="edit-panel-title">
+      <span class="detail-id">${esc(task.id)}</span>
+      <span>${esc(task.name||'未命名')}</span>
+      <label class="repeat-toggle" title="可重复任务：同一流程中该任务可被执行多次">
+        <input type="checkbox" ${task.repeatable?'checked':''}
+          onchange="setTask('${proc.id}','${task.id}','repeatable',this.checked);render()">
+        <span>可重复 ↺</span>
+      </label>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto"
+        onclick="removeTask('${proc.id}','${task.id}')">删除任务</button>
+    </div>
+
+    <div class="form-grid" style="margin-bottom:16px">
+      <div class="field-group">
+        <label>任务名称</label>
+        <input type="text" value="${esc(task.name||'')}" placeholder="如：录入采购单"
+          oninput="setTask('${proc.id}','${task.id}','name',this.value);renderSidebar();renderProcDiagramNow()">
+      </div>
+      <div class="field-group">
+        <label>执行角色</label>`;
+
+    const roles=getRoles();
+    if(roles.length) {
+      h+=`<select onchange="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">
+        <option value="">请选择角色...</option>
+        ${roles.map(r=>`<option value="${esc(r)}" ${task.role===r?'selected':''}>${esc(r)}</option>`).join('')}
+        <option value="__custom__" ${!roles.includes(task.role)&&task.role?'selected':''}>自定义...</option>
+      </select>`;
+      if(!roles.includes(task.role)&&task.role) {
+        h+=`<input type="text" value="${esc(task.role)}" placeholder="自定义角色名"
+          style="margin-top:4px"
+          oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`;
+      }
+    } else {
+      h+=`<input type="text" value="${esc(task.role||'')}" placeholder="如：采购员（先在业务域中添加角色）"
+        oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`;
+    }
+
+    h+=`</div></div>`;
+
+    /* 步骤 */
+    h+=`<div class="form-section">
+      <h4>操作步骤 <button class="btn btn-outline btn-sm" onclick="addStep('${proc.id}','${task.id}')">＋</button></h4>`;
+    if(task.steps?.length){
+      h+=`<div class="step-list">`;
+      task.steps.forEach((s,i)=>{
+        h+=`<div class="step-row">
+          <span class="step-num">${i+1}</span>
+          <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述"
+            oninput="setStep('${proc.id}','${task.id}',${i},'name',this.value)">
+          <select class="step-type" onchange="setStep('${proc.id}','${task.id}',${i},'type',this.value)">
+            ${STEP_TYPES.map(t=>`<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+          </select>
+          <input type="text" class="step-note" value="${esc(s.note||'')}" placeholder="条件/备注"
+            oninput="setStep('${proc.id}','${task.id}',${i},'note',this.value)">
+          <button class="step-del" onclick="removeStep('${proc.id}','${task.id}',${i})">✕</button>
+        </div>`;
+      });
+      h+=`</div>`;
+    } else { h+=`<p class="no-refs">暂无步骤</p>`; }
+    h+=`</div>`;
+
+    /* 涉及实体 */
+    const eops=task.entity_ops||[];
+    h+=`<div class="form-section"><h4>涉及实体</h4>`;
+    if(eops.length){
+      h+=`<div class="eop-list">`;
+      for(const eo of eops){
+        const en=getEntityName(eo.entity_id);
+        h+=`<div class="eop-tag">
+          <span class="eop-name" onclick="navigate('data',{entityId:'${eo.entity_id}'})" title="→ 实体详情">${esc(en)}</span>
+          <div class="eop-ops">`;
+        for(const op of ['C','R','U','D']){
+          const chk=eo.ops?.includes(op)?'checked':'';
+          const cls=op==='C'?'op-c':op==='U'?'op-u':op==='D'?'op-d':'';
+          h+=`<label class="op-cb">
+            <input type="checkbox" ${chk}
+              onchange="toggleEntityOp('${proc.id}','${task.id}','${eo.entity_id}','${op}',this.checked)">
+            <span class="${cls}">${op}</span></label>`;
+        }
+        h+=`</div><button class="eop-del" onclick="removeEntityOp('${proc.id}','${task.id}','${eo.entity_id}')">✕</button></div>`;
+      }
+      h+=`</div>`;
+    } else { h+=`<p class="no-refs" style="margin-bottom:8px">尚未关联实体</p>`; }
+    const avail=(S.doc.entities||[]).filter(e=>!eops.some(eo=>eo.entity_id===e.id));
+    if(avail.length){
+      h+=`<div class="add-eop-row">
+        <select id="eop-sel-${task.id}">
+          <option value="">选择实体...</option>
+          ${avail.map(e=>`<option value="${e.id}">${e.id} ${esc(e.name)}</option>`).join('')}
+        </select>
+        <button class="btn btn-outline btn-sm"
+          onclick="addEntityOp('${proc.id}','${task.id}',document.getElementById('eop-sel-${task.id}').value)">关联</button>
+      </div>`;
+    }
+    h+=`</div>`;
+
+    /* 业务规则 */
+    h+=`<div class="form-section">
+      <h4>业务规则 <span class="section-hint">约束、前置条件、决策逻辑</span></h4>
+      <textarea rows="2" placeholder="如：金额>10000需主管审批"
+        oninput="setTask('${proc.id}','${task.id}','rules_note',this.value)"
+        >${esc(task.rules_note||'')}</textarea>
+    </div>`;
+
+  } else if(proc) {
+    /* ── 流程信息 ── */
+    h+=`<div class="edit-panel-title">
+      <span class="detail-id">${esc(proc.id)}</span>
+      <span>${esc(proc.name||'未命名')}</span>
+    </div>
+    <div class="form-grid">
+      <div class="field-group form-full">
+        <label>流程名称</label>
+        <input type="text" id="proc-name-input" value="${esc(proc.name||'')}"
+          placeholder="如：采购入库流程"
+          oninput="setProc('${proc.id}','name',this.value);renderSidebar();renderProcDiagramNow()">
+      </div>
+      <div class="field-group">
+        <label>触发条件</label>
+        <input type="text" value="${esc(proc.trigger||'')}" placeholder="什么事件触发此流程"
+          oninput="setProc('${proc.id}','trigger',this.value)">
+      </div>
+      <div class="field-group">
+        <label>预期结果</label>
+        <input type="text" value="${esc(proc.outcome||'')}" placeholder="流程完成后达成的状态"
+          oninput="setProc('${proc.id}','outcome',this.value)">
+      </div>
+    </div>
+    <p style="margin-top:14px;font-size:12px;color:var(--text-m)">
+      点击上方流程图中的任务节点编辑；或从左侧导航选择任务
+    </p>`;
+    setTimeout(()=>document.getElementById('proc-name-input')?.focus(),40);
+  } else {
+    h+=`<div class="detail-empty"><p>点击左侧"＋"新建流程</p></div>`;
+  }
+
+  h+=`</div>`; /* end edit-panel */
+
+  document.getElementById('tab-content').innerHTML=h;
+
+  /* 渲染流程图（自定义 HTML，任务横线 + 实体正下方） */
+  if(proc) {
+    const clickMap={};
+    for(const t of (proc.tasks||[]))
+      clickMap[t.id]=()=>navigate('process',{procId:proc.id,taskId:t.id});
+    renderProcFlow('proc-diagram', proc, clickMap);
+  }
+}
+
+/* 仅刷新流程图，不重建整个 DOM（输入框连续输入时用） */
+function renderProcDiagramNow() {
+  const proc=currentProc(); if(!proc) return;
+  const clickMap={};
+  for(const t of (proc.tasks||[]))
+    clickMap[t.id]=()=>navigate('process',{procId:proc.id,taskId:t.id});
+  renderProcFlow('proc-diagram', proc, clickMap);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — Data Tab  (上：实体图 | 下：编辑)
+═══════════════════════════════════════════════════════════ */
+function renderDataTab() {
+  const entities=S.doc.entities||[];
+  const entity=entities.find(e=>e.id===S.ui.entityId)||null;
+
+  let h='';
+
+  /* 实体关系图 */
+  h+=`<div class="live-diagram-wrap">
+    <div class="live-diagram-toolbar">
+      <span class="live-diagram-hint">点击实体节点进入编辑 ↓</span>
+      <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大 (Ctrl+滚轮)">＋</button>
+        <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置缩放">⊙</button>
+        <button class="zoom-btn" onclick="zoomBy('entity-diagram',-0.2)" title="缩小">－</button>
+      </div>
+    </div>
+    <div id="entity-diagram" class="live-diagram"></div>
+  </div>`;
+
+  h+=`<div class="edit-panel">`;
+
+  if(entity) {
+    const refs=getTasksReferencingEntity(entity.id);
+
+    h+=`<div class="edit-panel-title">
+      <span class="detail-id">${esc(entity.id)}</span>
+      <span>${esc(entity.name||'未命名')}</span>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto"
+        onclick="removeEntity('${entity.id}')">删除实体</button>
+    </div>
+
+    <div class="form-grid" style="margin-bottom:16px">
+      <div class="field-group">
+        <label>实体名称</label>
+        <input type="text" value="${esc(entity.name||'')}"
+          oninput="setEntity('${entity.id}','name',this.value);renderSidebar();renderEntityDiagramNow()">
+      </div>
+      <div class="field-group">
+        <label>主题域 <span class="section-hint">（侧边栏分组）</span></label>
+        <input type="text" value="${esc(entity.group||'')}"
+          placeholder="如：交易、履约"
+          oninput="setEntity('${entity.id}','group',this.value);renderSidebar()">
+      </div>
+      <div class="field-group">
+        <label>说明</label>
+        <input type="text" value="${esc(entity.note||'')}"
+          placeholder="简要说明"
+          oninput="setEntity('${entity.id}','note',this.value)">
+      </div>
+    </div>`;
+
+    /* 被哪些任务引用 */
+    if(refs.length){
+      h+=`<div class="form-section"><h4>被以下任务引用</h4>
+        <div class="task-ref-list">`;
+      for(const {proc,task} of refs){
+        h+=`<span class="task-ref"
+          onclick="navigate('process',{procId:'${proc.id}',taskId:'${task.id}'})"
+          title="跳转到任务 →">${esc(task.id)} ${esc(task.name)}</span>`;
+      }
+      h+=`</div></div>`;
+    }
+
+    /* 字段 */
+    h+=`<div class="form-section">
+      <h4>字段 <button class="btn btn-outline btn-sm" onclick="addField('${entity.id}')">＋</button></h4>`;
+    if(entity.fields?.length){
+      h+=`<table class="field-table">
+        <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="状态字段">状态</th><th>公式/约束</th><th></th></tr></thead>
+        <tbody>`;
+      entity.fields.forEach((f,i)=>{
+        h+=`<tr>
+          <td><input type="text" value="${esc(f.name||'')}" placeholder="字段名"
+            oninput="setField('${entity.id}',${i},'name',this.value)"></td>
+          <td><select onchange="setField('${entity.id}',${i},'type',this.value)">
+            ${FIELD_TYPES.map(t=>`<option value="${t.value}" ${f.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+          </select></td>
+          <td style="text-align:center"><input type="checkbox" ${f.is_key?'checked':''}
+            onchange="setField('${entity.id}',${i},'is_key',this.checked)"></td>
+          <td style="text-align:center"><input type="checkbox" ${f.is_status?'checked':''}
+            onchange="setField('${entity.id}',${i},'is_status',this.checked)"></td>
+          <td><input type="text" value="${esc(f.note||'')}" placeholder="如：A=B×C"
+            oninput="setField('${entity.id}',${i},'note',this.value)"></td>
+          <td><button class="field-del" onclick="removeField('${entity.id}',${i})">✕</button></td>
+        </tr>`;
+      });
+      h+=`</tbody></table>`;
+    } else { h+=`<p class="no-refs">暂无字段</p>`; }
+    h+=`</div>`;
+
+    /* 关系 */
+    const relations=S.doc.relations||[];
+    h+=`<div class="form-section">
+      <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation()">＋</button></h4>`;
+    if(relations.length){
+      h+=`<div class="rel-list">`;
+      relations.forEach((r,i)=>{
+        h+=`<div class="rel-row">
+          <select onchange="setRelation(${i},'from',this.value)">
+            ${entities.map(e=>`<option value="${e.id}" ${r.from===e.id?'selected':''}>${e.id} ${esc(e.name)}</option>`).join('')}
+          </select>
+          <select style="width:76px" onchange="setRelation(${i},'type',this.value)">
+            ${['1:1','1:N','N:N'].map(t=>`<option ${r.type===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+          <select onchange="setRelation(${i},'to',this.value)">
+            ${entities.map(e=>`<option value="${e.id}" ${r.to===e.id?'selected':''}>${e.id} ${esc(e.name)}</option>`).join('')}
+          </select>
+          <input type="text" value="${esc(r.label||'')}" placeholder="关系说明"
+            oninput="setRelation(${i},'label',this.value)" style="width:110px">
+          <button class="btn-icon" onclick="removeRelation(${i})">✕</button>
+        </div>`;
+      });
+      h+=`</div>`;
+    } else { h+=`<p class="no-refs">暂无关系</p>`; }
+    h+=`</div>`;
+
+    h+=`</div>`; /* end detail-section */
+  } else {
+    h+=`<div class="detail-empty"><p>点击实体图节点，或从左侧选择实体</p></div>`;
+  }
+
+  h+=`</div>`; /* end edit-panel */
+
+  document.getElementById('tab-content').innerHTML=h;
+
+  /* 渲染实体图（HTML swimlane，不依赖 Mermaid） */
+  const clickMap={};
+  for(const e of entities)
+    clickMap[e.id]=()=>navigate('data',{entityId:e.id});
+  renderEntityFlow('entity-diagram', S.doc, clickMap);
+}
+
+function renderEntityDiagramNow() {
+  const clickMap={};
+  for(const e of (S.doc.entities||[]))
+    clickMap[e.id]=()=>navigate('data',{entityId:e.id});
+  renderEntityFlow('entity-diagram', S.doc, clickMap);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   OFFLINE MD RENDERER
+   针对 BML 固定结构，无需任何 CDN 依赖
+   支持：h1-h4 / hr / 表格 / **粗体** / mermaid块 / 段落
+═══════════════════════════════════════════════════════════ */
+function renderBmlMd(md) {
+  /* 先把 mermaid 块抽出来 */
+  const diagrams = [];
+  const src = md.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
+    diagrams.push(code.trim());
+    return `\x00MERMAID:${diagrams.length - 1}\x00`;
+  });
+
+  const lines = src.split('\n');
+  let html = '';
+  let i = 0;
+
+  function inlineEsc(s) {
+    return s
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/`([^`]+)`/g,'<code>$1</code>');
+  }
+
+  while(i < lines.length) {
+    const line = lines[i];
+
+    /* mermaid 占位 */
+    if(line.startsWith('\x00MERMAID:')) {
+      const idx = parseInt(line.slice(9));
+      html += `<div class="md-mermaid" data-idx="${idx}"></div>`;
+      i++; continue;
+    }
+
+    /* 标题 */
+    if(line.startsWith('#### ')) { html += `<h4>${inlineEsc(line.slice(5))}</h4>`; i++; continue; }
+    if(line.startsWith('### '))  { html += `<h3>${inlineEsc(line.slice(4))}</h3>`; i++; continue; }
+    if(line.startsWith('## '))   { html += `<h2>${inlineEsc(line.slice(3))}</h2>`; i++; continue; }
+    if(line.startsWith('# '))    { html += `<h1>${inlineEsc(line.slice(2))}</h1>`; i++; continue; }
+
+    /* 分隔线 */
+    if(line.trim() === '---') { html += '<hr>'; i++; continue; }
+
+    /* 表格：连续的 | 行 */
+    if(line.trim().startsWith('|')) {
+      const rows = [];
+      while(i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(lines[i]); i++;
+      }
+      /* 过滤掉分隔行（|---|---| 类型） */
+      const dataRows = rows.filter(r => !/^\s*\|[\s\-|:]+\|\s*$/.test(r));
+      if(dataRows.length) {
+        html += '<table>';
+        dataRows.forEach((row, ri) => {
+          const cells = row.trim().replace(/^\||\|$/g,'').split('|');
+          const tag   = ri === 0 ? 'th' : 'td';
+          html += '<tr>' + cells.map(c=>`<${tag}>${inlineEsc(c.trim())}</${tag}>`).join('') + '</tr>';
+        });
+        html += '</table>';
+      }
+      continue;
+    }
+
+    /* 空行 */
+    if(line.trim() === '') { i++; continue; }
+
+    /* 普通段落（含 **bold** 内联） */
+    let para = '';
+    while(i < lines.length && lines[i].trim() !== '' &&
+          !lines[i].startsWith('#') && !lines[i].startsWith('|') &&
+          lines[i].trim() !== '---' && !lines[i].startsWith('\x00MERMAID:')) {
+      if(para) para += ' ';
+      para += lines[i]; i++;
+    }
+    if(para) html += `<p>${inlineEsc(para)}</p>`;
+  }
+
+  return { html, diagrams };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER — Preview Tab
+═══════════════════════════════════════════════════════════ */
+function renderPreviewTab() {
+  document.getElementById('tab-content').innerHTML = `
+    <div class="preview-wrap">
+      <div class="preview-topbar">
+        <button class="btn btn-outline btn-sm" onclick="App.cmdExport()">↓ 下载 .md</button>
+        <button class="btn btn-ghost-sm" style="margin-left:auto" onclick="togglePreviewRaw()">显示原文 MD</button>
+      </div>
+      <div id="preview-rendered" class="preview-rendered pv-content"></div>
+      <pre id="preview-raw" class="preview-md hidden"></pre>
+    </div>`;
+
+  if(!S.doc) return;
+  document.getElementById('preview-raw').textContent = buildMdFromDoc(S.doc);
+  buildHtmlPreview();
+}
+
+function buildHtmlPreview() {
+  const container = document.getElementById('preview-rendered');
+  if(!container || !S.doc) return;
+  const doc = S.doc;
+  const m   = doc.meta||{};
+  const STEP_LBL  = {Query:'查询',Check:'校验',Fill:'填写',Select:'选择',Compute:'计算',Mutate:'变更'};
+  const FIELD_LBL = {string:'字符',number:'数值',decimal:'金额',date:'日期',datetime:'日期时间',boolean:'布尔',enum:'枚举',text:'长文本',id:'标识ID'};
+
+  let h = '';
+
+  /* Title */
+  h += `<h1>${esc(m.title||m.domain||'未命名')}</h1>`;
+
+  /* Meta line */
+  const metaParts = [];
+  if(m.domain)  metaParts.push(`<strong>业务域</strong>: ${esc(m.domain)}`);
+  if(m.author)  metaParts.push(`<strong>作者</strong>: ${esc(m.author)}`);
+  if(m.date)    metaParts.push(`<strong>日期</strong>: ${esc(m.date)}`);
+  if(metaParts.length) h += `<p class="pv-meta">${metaParts.join(' | ')}</p>`;
+
+  h += '<hr>';
+
+  /* Roles */
+  const roles = doc.roles||[];
+  if(roles.length) {
+    h += `<h2>角色</h2>`;
+    h += roles.map(r=>`<span class="role-tag">${esc(r)}</span>`).join('');
+  }
+
+  /* Language */
+  const lang = doc.language||[];
+  if(lang.length) {
+    h += `<h2>统一语言</h2>`;
+    h += `<table><thead><tr><th>术语</th><th>定义</th></tr></thead><tbody>`;
+    lang.forEach(t=>{
+      h += `<tr><td>${esc(t.term||'')}</td><td>${esc(t.definition||'')}</td></tr>`;
+    });
+    h += `</tbody></table>`;
+  }
+
+  /* Processes */
+  const procs = doc.processes||[];
+  const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
+  if(procs.length) {
+    h += `<h2>流程建模</h2>`;
+    for(const proc of procs) {
+      h += `<h3>${esc(proc.id)}: ${esc(proc.name||'')}</h3>`;
+      if(proc.trigger||proc.outcome) {
+        h += `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>`;
+      }
+      /* Proc flow diagram placeholder */
+      h += `<div id="pv-proc-${proc.id}" class="pv-diag"></div>`;
+      /* Tasks */
+      const tasks = proc.tasks||[];
+      if(tasks.length) {
+        h += `<div class="pv-tasks">`;
+        for(const t of tasks) {
+          h += `<div class="pv-task-detail">`;
+          h += `<h4>${esc(t.id)}: ${esc(t.name||'')} <span class="pv-role">(${esc(t.role||'')})</span></h4>`;
+          if(t.repeatable) h += `<p class="pv-note">↺ 可重复任务</p>`;
+          if(t.steps?.length) {
+            h += `<table><thead><tr><th>#</th><th>步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>`;
+            t.steps.forEach((s,i)=>{
+              h += `<tr><td>${i+1}</td><td>${esc(s.name||'')}</td><td>${esc(STEP_LBL[s.type]||s.type||'')}</td><td>${esc(s.note||'')}</td></tr>`;
+            });
+            h += `</tbody></table>`;
+          }
+          const eops = t.entity_ops||[];
+          if(eops.length) {
+            const ep = eops.map(eo=>{
+              const en=(emap[eo.entity_id]?.name)||eo.entity_id;
+              return `${esc(en)}（${esc((eo.ops||[]).join(','))}）`;
+            });
+            h += `<p class="pv-note"><strong>涉及实体</strong>: ${ep.join(', ')}</p>`;
+          }
+          if(t.rules_note?.trim()) h += `<p class="pv-note"><strong>业务规则</strong>: ${esc(t.rules_note)}</p>`;
+          h += `</div>`;
+        }
+        h += `</div>`; /* pv-tasks */
+      }
+    }
+  }
+
+  /* Entities */
+  const entities  = doc.entities||[];
+  if(entities.length) {
+    h += `<h2>数据建模</h2>`;
+    h += `<div id="pv-entity-diag" class="pv-diag pv-entity-diag"></div>`;
+    for(const e of entities) {
+      h += `<h3>实体: ${esc(e.name||e.id)}</h3>`;
+      if(e.note) h += `<p class="pv-note">${esc(e.note)}</p>`;
+      if(e.fields?.length) {
+        h += `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>公式/约束</th></tr></thead><tbody>`;
+        const FIELD_LBL2 = FIELD_LBL;
+        e.fields.forEach(f=>{
+          h += `<tr><td>${esc(f.name||'')}</td><td>${esc(FIELD_LBL2[f.type]||f.type||'')}</td>`;
+          h += `<td style="text-align:center">${f.is_key?'✓':''}</td>`;
+          h += `<td style="text-align:center">${f.is_status?'✓':''}</td>`;
+          h += `<td>${esc(f.note||'')}</td></tr>`;
+        });
+        h += `</tbody></table>`;
+      }
+    }
+  }
+
+  container.innerHTML = h;
+
+  /* Render proc flow diagrams */
+  for(const proc of procs) {
+    if((proc.tasks||[]).length) {
+      renderProcFlow(`pv-proc-${proc.id}`, proc, null);
+    }
+  }
+
+  /* Render entity flow diagram */
+  if(entities.length) {
+    renderEntityFlow('pv-entity-diag', doc, null);
+  }
+}
+
+/* 从当前 doc 对象直接生成 MD（等价于服务端 build_md，离线可用） */
+function buildMdFromDoc(doc) {
+  if(!doc) return '';
+  const STEP_LBL  = {Query:'查询',Check:'校验',Fill:'填写',Select:'选择',Compute:'计算',Mutate:'变更'};
+  const FIELD_LBL = {string:'字符',number:'数值',decimal:'金额',date:'日期',datetime:'日期时间',boolean:'布尔',enum:'枚举',text:'长文本',id:'标识ID'};
+  const L = [];
+  const m = doc.meta||{};
+  const add  = s => L.push(s??'');
+  const sep  = () => { add('---'); add(''); };
+  const nums = ['一','二','三','四','五','六','七','八'];
+  let sn = 0;
+
+  add(`# ${m.title||m.domain||'未命名'}`); add('');
+  const parts = [['业务域',m.domain],['作者',m.author],['日期',m.date]].filter(([,v])=>v);
+  if(parts.length){ add(parts.map(([k,v])=>`**${k}**: ${v}`).join(' | ')); add(''); }
+  sep();
+
+  const roles = doc.roles||[];
+  if(roles.length){
+    add(`## ${nums[sn++]}、角色`); add('');
+    add('| 角色 |'); add('|------|');
+    roles.forEach(r=>add(`| ${r} |`));
+    add(''); sep();
+  }
+
+  const lang = doc.language||[];
+  if(lang.length){
+    add(`## ${nums[sn++]}、统一语言`); add('');
+    add('| 术语 | 定义 |'); add('|------|------|');
+    lang.forEach(t=>add(`| ${t.term||''} | ${t.definition||''} |`));
+    add(''); sep();
+  }
+
+  const procs = doc.processes||[];
+  const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
+  add(`## ${nums[sn++]}、流程建模`); add('');
+
+  for(const proc of procs){
+    const tasks = proc.tasks||[];
+    add(`### ${proc.id}: ${proc.name||''}`); add('');
+    if(proc.trigger||proc.outcome){
+      add(`**触发**: ${proc.trigger||'—'}  →  **预期结果**: ${proc.outcome||'—'}`); add('');
+    }
+    if(tasks.length){
+      /* 复用 buildProcMermaid，带颜色 */
+      const procCode = buildProcMermaid(proc);
+      if(procCode){ add('```mermaid'); procCode.split('\n').forEach(l=>add(l)); add('```'); add(''); }
+
+      for(const t of tasks){
+        add(`#### ${t.id}. ${t.name||''}（角色：${t.role||''}）`); add('');
+        if(t.repeatable) { add('> ↺ 可重复任务'); add(''); }
+        if(t.steps?.length){
+          add('| # | 步骤 | 类型 | 条件/备注 |'); add('|---|------|------|----------|');
+          t.steps.forEach((s,i)=>add(`| ${i+1} | ${s.name||''} | ${STEP_LBL[s.type]||s.type||''} | ${s.note||''} |`));
+          add('');
+        }
+        const eops=t.entity_ops||[];
+        if(eops.length){
+          const ep=eops.map(eo=>{
+            const en=(emap[eo.entity_id]?.name)||eo.entity_id;
+            return `${en}（${(eo.ops||[]).join(',')}）`;
+          });
+          add(`**涉及实体**: ${ep.join(', ')}`); add('');
+        }
+        if(t.rules_note?.trim()){ add(`**业务规则**: ${t.rules_note}`); add(''); }
+        add('');
+      }
+    }
+  }
+  sep();
+
+  const entities  = doc.entities||[];
+  const relations = doc.relations||[];
+  if(entities.length){
+    add(`## ${nums[sn++]}、数据建模`); add('');
+    const entityCode = buildEntityMermaid(doc);
+    if(entityCode){ add('```mermaid'); entityCode.split('\n').forEach(l=>add(l)); add('```'); add(''); }
+    for(const e of entities){
+      add(`### 实体：${e.name||''}`); add('');
+      if(e.note) { add(e.note); add(''); }
+      if(e.fields?.length){
+        add('| 字段 | 类型 | 主键 | 状态字段 | 公式/约束 |');
+        add('|------|------|------|---------|---------|');
+        e.fields.forEach(f=>add(`| ${f.name||''} | ${FIELD_LBL[f.type]||f.type||''} | ${f.is_key?'✓':''} | ${f.is_status?'✓':''} | ${f.note||''} |`));
+        add('');
+      }
+    }
+    sep();
+  }
+
+  return L.join('\n');
+}
+
+async function doRenderPreview(md) {
+  const container = document.getElementById('preview-rendered');
+  if(!container) return;
+  const {html, diagrams} = renderBmlMd(md);
+  container.innerHTML = html;
+  setPreviewHint(diagrams.length ? '离线渲染' : '离线渲染');
+
+  /* 渲染 mermaid 图表（联网时自动生效，离线时降级显示代码） */
+  const blocks = container.querySelectorAll('.md-mermaid');
+  for(const block of blocks) {
+    const idx  = parseInt(block.dataset.idx);
+    const code = diagrams[idx];
+    if(!code) continue;
+    if(window.mermaidLib) {
+      try {
+        const {svg} = await window.mermaidLib.render(`bpv-${idx}-${Date.now()}`, code);
+        block.innerHTML = svg;
+      } catch(e) {
+        block.innerHTML = `<pre class="md-code">${esc(code)}</pre>`;
+      }
+    } else {
+      block.innerHTML = `<pre class="md-code">${esc(code)}</pre>`;
+    }
+  }
+}
+
+function setPreviewHint(msg) {
+  const el = document.getElementById('preview-mode-hint'); if(el) el.textContent = msg;
+}
+function togglePreviewRaw() {
+  const rendered = document.getElementById('preview-rendered');
+  const raw      = document.getElementById('preview-raw');
+  if(!rendered || !raw) return;
+  const goRaw = !rendered.classList.contains('hidden');
+  rendered.classList.toggle('hidden', goRaw);
+  raw.classList.toggle('hidden', !goRaw);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COMMANDS
+═══════════════════════════════════════════════════════════ */
+const App = {
+  cmdNew() {
+    document.getElementById('new-doc-name').value='';
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    setTimeout(()=>document.getElementById('new-doc-name')?.focus(),50);
+  },
+  closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); },
+  async confirmNew() {
+    const name=document.getElementById('new-doc-name').value.trim();
+    if(!name) return alert('请输入名称');
+    const res=await api.create(name); if(res.error) return alert(res.error);
+    App.closeModal();
+    const doc=await api.load(name);
+    S.currentFile=name; S.doc=doc; S.modified=false;
+    S.ui={tab:'process', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
+    render();
+  },
+
+  async cmdOpen() {
+    const files=await api.files();
+    const fl=document.getElementById('file-list');
+    fl.innerHTML=files.length
+      ? files.map(f=>`
+          <div class="file-list-item" onclick="App.openFile('${esc(f)}')">
+            <span class="file-list-item-name">${esc(f)}</span>
+            <button class="file-list-item-del"
+              onclick="event.stopPropagation();App.deleteFile('${esc(f)}')" title="删除">✕</button>
+          </div>`).join('')
+      : `<div class="file-empty">暂无文档</div>`;
+    document.getElementById('open-modal-overlay').classList.remove('hidden');
+  },
+  closeOpenModal() { document.getElementById('open-modal-overlay').classList.add('hidden'); },
+  async openFile(name) {
+    App.closeOpenModal();
+    const doc=await api.load(name);
+    S.currentFile=name; S.doc=doc; S.modified=false;
+    S.ui={tab:'process', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
+    render();
+  },
+  async deleteFile(name) {
+    if(!confirm(`确认删除"${name}"？`)) return;
+    await api.del(name);
+    if(S.currentFile===name){S.currentFile=null;S.doc=null;S.modified=false;render();}
+    await App.cmdOpen();
+  },
+
+  async cmdSave() {
+    if(!S.doc||!S.currentFile) return;
+    const newDomain=(S.doc.meta?.domain||'').trim();
+    if(newDomain && newDomain!==S.currentFile) {
+      /* 业务域改名 → 先存新文件再删旧文件 */
+      await api.save(newDomain, S.doc);
+      await api.del(S.currentFile);
+      S.currentFile=newDomain;
+    } else {
+      await api.save(S.currentFile, S.doc);
+    }
+    S.modified=false;
+    document.getElementById('modified-dot')?.classList.add('hidden');
+    renderToolbar();
+  },
+
+  async cmdExport() {
+    if(!S.currentFile) return;
+    await App.cmdSave();
+    const md=await api.exportMd(S.currentFile);
+    const blob=new Blob([md],{type:'text/plain;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`${S.currentFile}.md`;
+    a.click();
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   KEYBOARD
+═══════════════════════════════════════════════════════════ */
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();App.cmdSave();}
+});
+
+document.addEventListener('DOMContentLoaded', ()=>render());

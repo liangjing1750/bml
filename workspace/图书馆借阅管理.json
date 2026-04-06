@@ -1,0 +1,602 @@
+{
+  "meta": {
+    "title": "图书馆借阅管理",
+    "domain": "图书馆借阅管理",
+    "author": "LJ",
+    "date": "2026-04-05"
+  },
+  "roles": [
+    "读者",
+    "图书管理员",
+    "系统"
+  ],
+  "language": [
+    {
+      "term": "馆藏",
+      "definition": "图书馆持有的图书实体，每本书有唯一馆藏编号，区别于书目信息"
+    },
+    {
+      "term": "书目",
+      "definition": "一本书的元信息（ISBN、书名、作者、出版社），一个书目可对应多本馆藏"
+    },
+    {
+      "term": "借阅记录",
+      "definition": "读者借出一本馆藏的完整流水，包含借出时间、应还时间、实还时间"
+    },
+    {
+      "term": "预约",
+      "definition": "读者对当前全部在借状态的馆藏提前登记意向，馆藏归还后系统通知"
+    },
+    {
+      "term": "超期",
+      "definition": "借阅记录的应还日期早于当前日期且尚未归还"
+    }
+  ],
+  "processes": [
+    {
+      "id": "P1",
+      "name": "借阅",
+      "trigger": "读者携带图书到服务台",
+      "outcome": "馆藏状态变为在借，生成借阅记录",
+      "tasks": [
+        {
+          "id": "T1",
+          "name": "办理借阅",
+          "role": "图书管理员",
+          "steps": [
+            {
+              "name": "查询读者账户状态",
+              "type": "Query",
+              "note": "读者账户必须为正常状态"
+            },
+            {
+              "name": "校验是否有超期未还",
+              "type": "Validate",
+              "note": "存在超期记录则不允许借阅"
+            },
+            {
+              "name": "校验在借数量是否达上限",
+              "type": "Validate",
+              "note": "默认上限5本，特殊读者类型另设"
+            },
+            {
+              "name": "扫描馆藏条码",
+              "type": "Query",
+              "note": ""
+            },
+            {
+              "name": "校验馆藏状态为可借",
+              "type": "Validate",
+              "note": "在借、预约锁定、下架状态不可借出"
+            },
+            {
+              "name": "计算应还日期",
+              "type": "Calculate",
+              "note": "借出日期 + 借期天数（默认30天）"
+            },
+            {
+              "name": "生成借阅记录",
+              "type": "Change",
+              "note": "记录读者ID、馆藏ID、借出时间、应还时间"
+            },
+            {
+              "name": "变更馆藏状态为在借",
+              "type": "Change",
+              "note": ""
+            }
+          ],
+          "entity_ops": [
+            {
+              "entity_id": "E1",
+              "ops": [
+                "R"
+              ]
+            },
+            {
+              "entity_id": "E3",
+              "ops": [
+                "R",
+                "C"
+              ]
+            },
+            {
+              "entity_id": "E2",
+              "ops": [
+                "R",
+                "U"
+              ]
+            }
+          ]
+        }
+      ],
+      "pos": {
+        "r": 1,
+        "c": 2
+      }
+    },
+    {
+      "id": "P2",
+      "name": "归还",
+      "trigger": "读者携带图书到服务台",
+      "outcome": "馆藏状态恢复可借或触发预约通知",
+      "tasks": [
+        {
+          "id": "T2",
+          "name": "办理归还",
+          "role": "图书管理员",
+          "steps": [
+            {
+              "name": "扫描馆藏条码",
+              "type": "Query",
+              "note": ""
+            },
+            {
+              "name": "查询对应的借阅记录",
+              "type": "Query",
+              "note": "匹配状态为在借的记录"
+            },
+            {
+              "name": "判断是否超期",
+              "type": "Check",
+              "note": "实还时间 > 应还时间则标记超期"
+            },
+            {
+              "name": "记录实还时间",
+              "type": "Fill",
+              "note": ""
+            },
+            {
+              "name": "更新借阅记录状态为已还",
+              "type": "Mutate",
+              "note": ""
+            },
+            {
+              "name": "变更馆藏状态为可借",
+              "type": "Mutate",
+              "note": ""
+            }
+          ],
+          "entity_ops": [
+            {
+              "entity_id": "E2",
+              "ops": [
+                "R",
+                "U"
+              ]
+            },
+            {
+              "entity_id": "E3",
+              "ops": [
+                "R",
+                "U"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "T3",
+          "name": "触发预约通知",
+          "role": "系统",
+          "steps": [
+            {
+              "name": "查询该书目是否有待通知预约",
+              "type": "Query",
+              "note": "按预约时间升序取第一条"
+            },
+            {
+              "name": "发送通知给预约读者",
+              "type": "Change",
+              "note": "通知方式：站内消息"
+            },
+            {
+              "name": "更新预约状态为已通知",
+              "type": "Change",
+              "note": "馆藏进入预约锁定状态，锁定期3天"
+            }
+          ],
+          "entity_ops": [
+            {
+              "entity_id": "E4",
+              "ops": [
+                "R",
+                "U"
+              ]
+            },
+            {
+              "entity_id": "E2",
+              "ops": [
+                "U"
+              ]
+            }
+          ]
+        }
+      ],
+      "pos": {
+        "r": 1,
+        "c": 3
+      }
+    },
+    {
+      "id": "P3",
+      "name": "预约",
+      "trigger": "读者查询书目后发现全部馆藏在借",
+      "outcome": "生成预约记录，等待馆藏归还后通知",
+      "tasks": [
+        {
+          "id": "T4",
+          "name": "提交预约",
+          "role": "读者",
+          "steps": [
+            {
+              "name": "查询书目及馆藏状态",
+              "type": "Query",
+              "note": "确认无可借馆藏"
+            },
+            {
+              "name": "校验读者是否已预约同一书目",
+              "type": "Validate",
+              "note": "同一书目不允许重复预约"
+            },
+            {
+              "name": "生成预约记录",
+              "type": "Change",
+              "note": "记录读者ID、书目ID、预约时间，状态为待通知"
+            }
+          ],
+          "entity_ops": [
+            {
+              "entity_id": "E2",
+              "ops": [
+                "R"
+              ]
+            },
+            {
+              "entity_id": "E4",
+              "ops": [
+                "R",
+                "C"
+              ]
+            }
+          ]
+        }
+      ],
+      "pos": {
+        "r": 1,
+        "c": 1
+      }
+    },
+    {
+      "id": "P4",
+      "name": "续借",
+      "trigger": "读者在借阅到期前主动申请延长借期",
+      "outcome": "应还日期顺延，借阅记录更新",
+      "tasks": [
+        {
+          "id": "T5",
+          "name": "申请续借",
+          "role": "读者",
+          "steps": [
+            {
+              "name": "查询当前借阅记录",
+              "type": "Query",
+              "note": ""
+            },
+            {
+              "name": "校验是否超期",
+              "type": "Validate",
+              "note": "超期状态不允许续借"
+            },
+            {
+              "name": "校验续借次数",
+              "type": "Validate",
+              "note": "同一借阅记录最多续借1次"
+            },
+            {
+              "name": "校验该馆藏是否有预约",
+              "type": "Validate",
+              "note": "有待通知预约时不允许续借"
+            },
+            {
+              "name": "更新应还日期",
+              "type": "Change",
+              "note": "在原应还日期基础上顺延30天"
+            },
+            {
+              "name": "记录续借次数+1",
+              "type": "Change",
+              "note": ""
+            }
+          ],
+          "entity_ops": [
+            {
+              "entity_id": "E3",
+              "ops": [
+                "R",
+                "U"
+              ]
+            },
+            {
+              "entity_id": "E4",
+              "ops": [
+                "R"
+              ]
+            }
+          ]
+        }
+      ],
+      "pos": {
+        "r": 2,
+        "c": 2
+      }
+    }
+  ],
+  "entities": [
+    {
+      "id": "E1",
+      "name": "读者",
+      "group": "读者主题域",
+      "fields": [
+        {
+          "name": "读者ID",
+          "type": "String",
+          "pk": true,
+          "note": "系统生成"
+        },
+        {
+          "name": "姓名",
+          "type": "String",
+          "pk": false,
+          "note": ""
+        },
+        {
+          "name": "账户状态",
+          "type": "Enum",
+          "pk": false,
+          "note": "正常 / 冻结"
+        },
+        {
+          "name": "读者类型",
+          "type": "Enum",
+          "pk": false,
+          "note": "普通 / 学生 / 教师，决定借期和上限"
+        },
+        {
+          "name": "最大在借数量",
+          "type": "Int",
+          "pk": false,
+          "note": "由读者类型决定，默认5"
+        }
+      ]
+    },
+    {
+      "id": "E2",
+      "name": "馆藏",
+      "group": "图书主题域",
+      "fields": [
+        {
+          "name": "馆藏ID",
+          "type": "String",
+          "pk": true,
+          "note": "条码扫描值"
+        },
+        {
+          "name": "书目ID",
+          "type": "String",
+          "pk": false,
+          "note": "外键，关联书目"
+        },
+        {
+          "name": "馆藏状态",
+          "type": "Enum",
+          "pk": false,
+          "note": "可借 / 在借 / 预约锁定 / 下架"
+        },
+        {
+          "name": "存放位置",
+          "type": "String",
+          "pk": false,
+          "note": "区号-架号-层号"
+        }
+      ]
+    },
+    {
+      "id": "E3",
+      "name": "借阅记录",
+      "group": "借阅主题域",
+      "fields": [
+        {
+          "name": "借阅ID",
+          "type": "String",
+          "pk": true,
+          "note": "系统生成"
+        },
+        {
+          "name": "读者ID",
+          "type": "String",
+          "pk": false,
+          "note": "外键"
+        },
+        {
+          "name": "馆藏ID",
+          "type": "String",
+          "pk": false,
+          "note": "外键"
+        },
+        {
+          "name": "借出时间",
+          "type": "DateTime",
+          "pk": false,
+          "note": ""
+        },
+        {
+          "name": "应还时间",
+          "type": "DateTime",
+          "pk": false,
+          "note": "借出时间 + 借期天数"
+        },
+        {
+          "name": "实还时间",
+          "type": "DateTime",
+          "pk": false,
+          "note": "归还时填写，未还时为空"
+        },
+        {
+          "name": "借阅状态",
+          "type": "Enum",
+          "pk": false,
+          "note": "在借 / 已还 / 超期"
+        },
+        {
+          "name": "续借次数",
+          "type": "Int",
+          "pk": false,
+          "note": "最大值1"
+        }
+      ]
+    },
+    {
+      "id": "E4",
+      "name": "预约记录",
+      "group": "借阅主题域",
+      "fields": [
+        {
+          "name": "预约ID",
+          "type": "String",
+          "pk": true,
+          "note": "系统生成"
+        },
+        {
+          "name": "读者ID",
+          "type": "String",
+          "pk": false,
+          "note": "外键"
+        },
+        {
+          "name": "书目ID",
+          "type": "String",
+          "pk": false,
+          "note": "外键，预约到书目级别"
+        },
+        {
+          "name": "预约时间",
+          "type": "DateTime",
+          "pk": false,
+          "note": "用于排队顺序"
+        },
+        {
+          "name": "预约状态",
+          "type": "Enum",
+          "pk": false,
+          "note": "待通知 / 已通知 / 已取书 / 已取消"
+        },
+        {
+          "name": "通知时间",
+          "type": "DateTime",
+          "pk": false,
+          "note": "发出通知的时间，未通知时为空"
+        },
+        {
+          "name": "锁定截止时间",
+          "type": "DateTime",
+          "pk": false,
+          "note": "已通知后锁定3天，超时自动释放"
+        }
+      ]
+    },
+    {
+      "id": "E5",
+      "name": "书目",
+      "group": "图书主题域",
+      "fields": [
+        {
+          "name": "书目ID",
+          "type": "String",
+          "pk": true,
+          "note": "ISBN"
+        },
+        {
+          "name": "书名",
+          "type": "String",
+          "pk": false,
+          "note": ""
+        },
+        {
+          "name": "作者",
+          "type": "String",
+          "pk": false,
+          "note": ""
+        },
+        {
+          "name": "出版社",
+          "type": "String",
+          "pk": false,
+          "note": ""
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "E1",
+      "to": "E3",
+      "type": "1:N",
+      "label": "发起"
+    },
+    {
+      "from": "E2",
+      "to": "E3",
+      "type": "1:N",
+      "label": "产生"
+    },
+    {
+      "from": "E5",
+      "to": "E2",
+      "type": "1:N",
+      "label": "对应"
+    },
+    {
+      "from": "E1",
+      "to": "E4",
+      "type": "1:N",
+      "label": "发起"
+    },
+    {
+      "from": "E5",
+      "to": "E4",
+      "type": "1:N",
+      "label": "被预约"
+    }
+  ],
+  "rules": [
+    {
+      "id": "R1",
+      "name": "超期读者不可借阅",
+      "description": "读者存在任意一条超期未还的借阅记录时，不允许新的借阅操作"
+    },
+    {
+      "id": "R2",
+      "name": "在借上限约束",
+      "description": "读者当前在借数量达到最大在借数量时，不允许新的借阅操作"
+    },
+    {
+      "id": "R3",
+      "name": "续借次数上限",
+      "description": "同一借阅记录最多续借1次"
+    },
+    {
+      "id": "R4",
+      "name": "有预约不可续借",
+      "description": "馆藏对应书目存在待通知状态的预约时，不允许当前借阅人续借"
+    },
+    {
+      "id": "R5",
+      "name": "预约锁定期",
+      "description": "馆藏归还后通知预约读者，锁定期3天；超过3天未取书，自动释放馆藏并通知下一位预约人"
+    },
+    {
+      "id": "R6",
+      "name": "同书目不可重复预约",
+      "description": "读者对同一书目只能有一条待通知或已通知状态的预约"
+    }
+  ]
+}
