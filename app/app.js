@@ -257,7 +257,7 @@ function _efComputeDefaultPos(entities, relations) {
   let y = EF_PAD;
   for(const {entities: ge} of lanes) {
     let x = EF_PAD;
-    for(const e of ge) { posMap[e.id]={x,y}; x+=EF_NODE_W+EF_GAP_X; }
+    for(const e of ge) { posMap[e.id] = {x, y}; x += EF_NODE_W + EF_GAP_X; }
     y += EF_NODE_H + EF_GAP_Y;
   }
   return posMap;
@@ -269,11 +269,11 @@ let efDragMoved = false;
 function startEfNodeDrag(containerId, entityId, e) {
   e.preventDefault();
   efDragMoved = false;
-  const entity = S.doc?.entities?.find(en=>en.id===entityId);
+  const entity = S.doc?.entities?.find(en => en.id === entityId);
   if(!entity) return;
   efDragState = { containerId, entityId, entity,
-    startX:e.clientX, startY:e.clientY,
-    origX:entity.pos?.x||0, origY:entity.pos?.y||0 };
+    startX: e.clientX, startY: e.clientY,
+    origX: entity.pos?.x||0, origY: entity.pos?.y||0 };
   document.addEventListener('mousemove', onEfNodeDrag);
   document.addEventListener('mouseup',   endEfNodeDrag);
 }
@@ -282,28 +282,22 @@ function onEfNodeDrag(e) {
   if(!efDragState) return;
   const dx = e.clientX - efDragState.startX;
   const dy = e.clientY - efDragState.startY;
-  if(Math.abs(dx)>3||Math.abs(dy)>3) efDragMoved = true;
+  if(Math.abs(dx) > 3 || Math.abs(dy) > 3) efDragMoved = true;
   if(!efDragMoved) return;
   const newX = Math.max(0, efDragState.origX + dx);
   const newY = Math.max(0, efDragState.origY + dy);
-  efDragState.entity.pos = {x:newX, y:newY};
+  efDragState.entity.pos = {x: newX, y: newY};
   const node = document.querySelector(
     `#ef-canvas-${efDragState.containerId} .ef-node[data-id="${efDragState.entityId}"]`);
-  if(node){ node.style.left=newX+'px'; node.style.top=newY+'px'; }
+  if(node) { node.style.left = newX + 'px'; node.style.top = newY + 'px'; }
   /* 动态扩展画板 */
   const board = document.getElementById(`ef-board-${efDragState.containerId}`);
   const svgEl = document.getElementById(`ef-svg-${efDragState.containerId}`);
-  if(board){
+  if(board) {
     const neededW = newX + EF_NODE_W + 80;
     const neededH = newY + EF_NODE_H + 100;
-    if(neededW > parseInt(board.style.width||'0')) {
-      board.style.width = neededW+'px';
-      if(svgEl) svgEl.setAttribute('width', neededW);
-    }
-    if(neededH > parseInt(board.style.height||'0')) {
-      board.style.height = neededH+'px';
-      if(svgEl) svgEl.setAttribute('height', neededH);
-    }
+    if(neededW > parseInt(board.style.width||'0'))  { board.style.width  = neededW+'px'; if(svgEl) svgEl.setAttribute('width',  neededW); }
+    if(neededH > parseInt(board.style.height||'0')) { board.style.height = neededH+'px'; if(svgEl) svgEl.setAttribute('height', neededH); }
   }
   drawEfLines(efDragState.containerId, S.doc?.relations||[]);
 }
@@ -314,7 +308,8 @@ function endEfNodeDrag(e) {
   document.removeEventListener('mouseup',   endEfNodeDrag);
   if(efDragMoved) markModified();
   efDragState = null;
-  setTimeout(()=>{ efDragMoved=false; }, 80);
+  /* 短暂保留 efDragMoved=true 以阻止 click 触发导航 */
+  setTimeout(() => { efDragMoved = false; }, 80);
 }
 
 function resetEfLayout() {
@@ -335,6 +330,12 @@ function renderEntityFlow(containerId, doc, onClickMap) {
     return;
   }
 
+  /* 确保每个实体都有 pos（首次打开时自动计算布局） */
+  const defaultPosMap = _efComputeDefaultPos(entities, relations);
+  for(const e of entities) {
+    if(!e.pos) e.pos = defaultPosMap[e.id] || {x: EF_PAD, y: EF_PAD};
+  }
+
   /* 颜色索引（原始 group 顺序保持颜色不变） */
   const grpMap = {};
   let ci = 0;
@@ -343,39 +344,44 @@ function renderEntityFlow(containerId, doc, onClickMap) {
     if(!(g in grpMap)) { grpMap[g] = ci % ROLE_COLORS.length; ci++; }
   }
 
-  /* 按连通度排序的组和实体 */
-  const lanes = _efSortLayout(entities, relations);
-
-  let h = `<div class="ef-canvas" id="ef-canvas-${containerId}">`;
-  h += `<svg class="ef-svg" id="ef-svg-${containerId}" width="0" height="0"></svg>`;
-  h += `<div class="ef-lanes" id="ef-lanes-${containerId}">`;
-
-  for(const {grp, entities: grpEntities} of lanes) {
-    const idx = grpMap[grp];
-    const c   = ROLE_COLORS[idx];
-    h += `<div class="ef-lane">`;
-    if(grp) h += `<div class="ef-lane-label">${esc(grp)}</div>`;
-    h += `<div class="ef-lane-entities">`;
-    for(const e of grpEntities) {
-      const clickable = onClickMap?.[e.id] ? ' ef-clickable' : '';
-      h += `<div class="ef-node${clickable}" data-id="${e.id}"
-        style="background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
-      h += `<span class="ef-nid">${esc(e.id)}</span>`;
-      h += `<span class="ef-nname">${esc(e.name||e.id)}</span>`;
-      h += `</div>`;
-    }
-    h += `</div></div>`; /* ef-lane-entities, ef-lane */
+  /* 计算画板尺寸（容纳所有节点 + 留出 U 形弯道空间） */
+  let boardW = 400, boardH = 200;
+  for(const e of entities) {
+    boardW = Math.max(boardW, (e.pos.x||0) + EF_NODE_W + 80);
+    boardH = Math.max(boardH, (e.pos.y||0) + EF_NODE_H + 100);
   }
 
-  h += `</div></div>`; /* ef-lanes, ef-canvas */
+  const isDraggable = (containerId === 'entity-diagram');
+
+  let h = `<div class="ef-canvas" id="ef-canvas-${containerId}">`;
+  h += `<svg class="ef-svg" id="ef-svg-${containerId}" width="${boardW}" height="${boardH}"></svg>`;
+  h += `<div class="ef-board" id="ef-board-${containerId}" style="width:${boardW}px;height:${boardH}px">`;
+
+  for(const e of entities) {
+    const idx = grpMap[e.group||''];
+    const c   = ROLE_COLORS[idx];
+    const clickable = onClickMap?.[e.id] ? ' ef-clickable' : '';
+    const draggable = isDraggable ? ' ef-draggable' : '';
+    h += `<div class="ef-node${clickable}${draggable}" data-id="${e.id}"
+      style="left:${e.pos.x}px;top:${e.pos.y}px;background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
+    h += `<span class="ef-nid">${esc(e.id)}</span>`;
+    h += `<span class="ef-nname">${esc(e.name||e.id)}</span>`;
+    h += `</div>`;
+  }
+
+  h += `</div></div>`; /* ef-board, ef-canvas */
 
   el.innerHTML = h;
 
-  /* 绑定点击 */
-  if(onClickMap) {
-    for(const [entityId, handler] of Object.entries(onClickMap)) {
-      const node = el.querySelector(`.ef-node[data-id="${entityId}"]`);
-      if(node) node.addEventListener('click', handler);
+  /* 绑定交互（click + drag） */
+  for(const e of entities) {
+    const node = el.querySelector(`.ef-node[data-id="${e.id}"]`);
+    if(!node) continue;
+    if(onClickMap?.[e.id]) {
+      node.addEventListener('click', () => { if(!efDragMoved) onClickMap[e.id](); });
+    }
+    if(isDraggable) {
+      node.addEventListener('mousedown', ev => startEfNodeDrag(containerId, e.id, ev));
     }
   }
 
@@ -387,110 +393,92 @@ function renderEntityFlow(containerId, doc, onClickMap) {
 }
 
 function drawEfLines(containerId, relations) {
-  const canvas = document.getElementById(`ef-canvas-${containerId}`);
-  const svg    = document.getElementById(`ef-svg-${containerId}`);
-  if(!canvas || !svg) return;
+  const board = document.getElementById(`ef-board-${containerId}`);
+  const svg   = document.getElementById(`ef-svg-${containerId}`);
+  if(!board || !svg) return;
 
-  const canvasRect = canvas.getBoundingClientRect();
-  const z = ZOOM[containerId] || 1;
-  const W = canvas.scrollWidth, H = canvas.scrollHeight;
-  svg.setAttribute('width', W); svg.setAttribute('height', H);
-
-  /* 节点矩形（canvas 坐标系，已消除 zoom 影响） */
+  /* 节点矩形（board 坐标系，offsetLeft/offsetTop 直接可用） */
   function nr(id) {
-    const el = canvas.querySelector(`.ef-node[data-id="${id}"]`);
+    const el = board.querySelector(`.ef-node[data-id="${id}"]`);
     if(!el) return null;
-    const r = el.getBoundingClientRect();
-    const l=(r.left-canvasRect.left)/z, t=(r.top-canvasRect.top)/z;
-    const w=r.width/z, h=r.height/z;
+    const l = el.offsetLeft, t = el.offsetTop;
+    const w = el.offsetWidth, h = el.offsetHeight;
     return {l, t, r:l+w, b:t+h, cx:l+w/2, cy:t+h/2, w, h};
   }
 
   const rl = {'1:1':'1:1','1:N':'1:N','N:N':'N:N'};
   const markerId = `arr-${containerId.replace(/\W/g,'_')}`;
 
-  /*
-   * 分层弯道路由策略：
-   * ① 同行（|Δcy| < 35px）：从底边出发，走"U形"弯道绕过下方
-   *    多条同行线按各自"深度通道"错开，间距 14px
-   * ② 跨行：走行间"水平高速公路"
-   *    在两组之间取中线，多条线按 ±offset 错开，间距 12px
-   */
-
-  // 预先收集各行底部坐标和行间通道位置
-  const laneEls = canvas.querySelectorAll('.ef-lane-entities');
-  const laneBounds = [...laneEls].map(el => {
-    const r = el.getBoundingClientRect();
-    return { top:(r.top-canvasRect.top)/z, bot:(r.bottom-canvasRect.top)/z };
-  });
-
-  // 通道计数器 key→使用次数
+  /* 通道计数器，防止多条线重叠 */
   const chanCount = {};
-  function chanIdx(key) {
-    const i = chanCount[key]||0; chanCount[key]=i+1; return i;
-  }
+  function chanIdx(key) { const i = chanCount[key]||0; chanCount[key]=i+1; return i; }
 
-  // 颜色组
   const STROKE_COLORS = ['#3b82f6','#22c55e','#eab308','#ec4899','#8b5cf6','#f97316'];
   let pathsHtml = '';
 
   relations.forEach((rel, ri) => {
-    const S = nr(rel.from), T = nr(rel.to);
-    if(!S||!T) return;
+    const A = nr(rel.from), B = nr(rel.to);
+    if(!A||!B) return;
 
     const color = STROKE_COLORS[ri % STROKE_COLORS.length];
     const lbl   = (rl[rel.type]||rel.type||'') + (rel.label ? ` ${rel.label}` : '');
     const dash  = rel.type==='N:N' ? 'stroke-dasharray="5,3"' : '';
 
+    const dx    = B.cx - A.cx;
+    const dy    = B.cy - A.cy;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
     let pathD, lx, ly;
 
-    if(Math.abs(S.cy - T.cy) < 35) {
-      /* ── 同行 U形弯道 ── */
-      const laneBot = Math.max(S.b, T.b);
-      // 按两实体中点距离哈希出一个稳定 key
-      const key = `row-${Math.round((S.cx+T.cx)/2)}-${Math.round(laneBot)}`;
+    /* ── 场景1：同行（垂直差 < 节点高）→ 水平直线侧边连接 ── */
+    if(absDy < EF_NODE_H + 4) {
+      const key   = `h-${Math.round((A.cy + B.cy) / 2 / 8) * 8}`;
       const depth = chanIdx(key);
-      const yBot = laneBot + 12 + depth * 14;  // 每条线分一层
+      /* 多条平行线上下错开 8px */
+      const yOff  = (depth % 2 === 0 ? 1 : -1) * Math.ceil(depth / 2) * 8;
+      const yCen  = (A.cy + B.cy) / 2 + yOff;
 
-      if(S.cx < T.cx) {
-        // S 在左：S右边 → 向下 → 过 → T左边（U形朝下）
-        pathD = `M ${S.r} ${S.cy} L ${S.r+6} ${S.cy} L ${S.r+6} ${yBot} L ${T.l-6} ${yBot} L ${T.l-6} ${T.cy} L ${T.l} ${T.cy}`;
+      if(dx >= 0) {
+        /* A 在左，B 在右 */
+        pathD = `M ${A.r} ${A.cy} L ${A.r+4} ${A.cy} L ${A.r+4} ${yCen} L ${B.l-4} ${yCen} L ${B.l-4} ${B.cy} L ${B.l} ${B.cy}`;
       } else {
-        pathD = `M ${S.l} ${S.cy} L ${S.l-6} ${S.cy} L ${S.l-6} ${yBot} L ${T.r+6} ${yBot} L ${T.r+6} ${T.cy} L ${T.r} ${T.cy}`;
+        /* A 在右，B 在左 */
+        pathD = `M ${A.l} ${A.cy} L ${A.l-4} ${A.cy} L ${A.l-4} ${yCen} L ${B.r+4} ${yCen} L ${B.r+4} ${B.cy} L ${B.r} ${B.cy}`;
       }
-      lx = (S.cx + T.cx) / 2; ly = yBot + 10;
+      lx = (A.cx + B.cx) / 2; ly = yCen - 8;
 
-    } else {
-      /* ── 跨行 水平通道 ── */
-      const topNode = S.cy < T.cy ? S : T;
-      const botNode = S.cy < T.cy ? T : S;
-      const goDown  = S.cy < T.cy;
-
-      // 找两行之间的通道区间
-      let chanTop = topNode.b, chanBot = botNode.t;
-      // 若在 laneBounds 中找到更精确的间隙
-      for(let i=0;i<laneBounds.length-1;i++) {
-        if(laneBounds[i].bot <= topNode.b+4 && laneBounds[i+1].top >= botNode.t-4) {
-          chanTop = laneBounds[i].bot; chanBot = laneBounds[i+1].top; break;
-        }
-      }
-      const chanMid = (chanTop + chanBot) / 2;
-      const key = `col-${Math.round(chanTop)}-${Math.round(chanBot)}`;
+    /* ── 场景2：主方向垂直（|dy|>|dx|）→ 上下出边 L 形 ── */
+    } else if(absDy >= absDx) {
+      const goDown = dy > 0;
+      const sy = goDown ? A.b : A.t;
+      const ey = goDown ? B.t : B.b;
+      const chanMid = (sy + ey) / 2;
+      const key  = `v-${Math.round(Math.min(sy,ey))}-${Math.round(Math.max(sy,ey))}`;
       const idx  = chanIdx(key);
       const sign = idx % 2 === 0 ? 1 : -1;
-      const yMid = chanMid + sign * Math.ceil(idx/2) * 10;
+      const yM   = chanMid + sign * Math.ceil(idx / 2) * 10;
+      pathD = `M ${A.cx} ${sy} L ${A.cx} ${yM} L ${B.cx} ${yM} L ${B.cx} ${ey}`;
+      lx = (A.cx + B.cx) / 2; ly = yM - 6;
 
-      const sx = S.cx, sy = goDown ? S.b : S.t;
-      const ex = T.cx, ey = goDown ? T.t : T.b;
-      pathD = `M ${sx} ${sy} L ${sx} ${yMid} L ${ex} ${yMid} L ${ex} ${ey}`;
-      lx = (sx + ex) / 2; ly = yMid - 5;
+    /* ── 场景3：主方向水平（|dx|>|dy|）→ 左右出边 L 形 ── */
+    } else {
+      const goRight = dx > 0;
+      const sx = goRight ? A.r : A.l;
+      const ex = goRight ? B.l : B.r;
+      const chanMid = (sx + ex) / 2;
+      const key  = `r-${Math.round(Math.min(sx,ex))}-${Math.round(Math.max(sx,ex))}`;
+      const idx  = chanIdx(key);
+      const sign = idx % 2 === 0 ? 1 : -1;
+      const xM   = chanMid + sign * Math.ceil(idx / 2) * 10;
+      pathD = `M ${sx} ${A.cy} L ${xM} ${A.cy} L ${xM} ${B.cy} L ${ex} ${B.cy}`;
+      lx = xM + 8; ly = (A.cy + B.cy) / 2 - 4;
     }
 
     pathsHtml += `<path d="${pathD}" stroke="${color}" stroke-width="1.5" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
     if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="10" fill="${color}">${esc(lbl)}</text>`;
   });
 
-  // 每条线独立箭头颜色
   const markerDefs = relations.map((rel,ri)=>{
     const color = STROKE_COLORS[ri%STROKE_COLORS.length];
     return `<marker id="${markerId}-${ri}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
@@ -565,11 +553,15 @@ function applyZoom(id) {
   const el = document.getElementById(id);
   if(!el) return;
   const s = ZOOM[id]||1;
-  /* Entity Flow HTML diagram (.ef-canvas) */
-  const efLanes = el.querySelector('.ef-lanes');
-  if(efLanes) {
-    efLanes.style.zoom = String(s);
-    /* Redraw lines after zoom change */
+  /* Entity Flow HTML diagram（绝对定位画板 + SVG overlay） */
+  const efBoard = el.querySelector('.ef-board');
+  if(efBoard) {
+    /* 用 transform:scale 同时缩放 board 和 SVG，保持节点与线对齐 */
+    const tfm = s === 1 ? '' : `scale(${s})`;
+    efBoard.style.transformOrigin = '0 0';
+    efBoard.style.transform = tfm;
+    const efSvg = el.querySelector('.ef-svg');
+    if(efSvg) { efSvg.style.transformOrigin = '0 0'; efSvg.style.transform = tfm; }
     const relations = S.doc?.relations||[];
     requestAnimationFrame(() => drawEfLines(id, relations));
     return;
@@ -1398,8 +1390,9 @@ function renderDataTab() {
   /* 实体关系图 */
   h+=`<div class="live-diagram-wrap">
     <div class="live-diagram-toolbar">
-      <span class="live-diagram-hint">点击实体节点进入编辑 ↓</span>
+      <span class="live-diagram-hint">拖拽节点调整布局 · 点击节点进入编辑 ↓</span>
       <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
+      <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复自动排列">重置布局</button>
       <div class="zoom-controls">
         <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大 (Ctrl+滚轮)">＋</button>
         <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置缩放">⊙</button>
