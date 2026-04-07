@@ -74,6 +74,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .sb-item.active { background: var(--active-bg); border-left-color: var(--active-bd);
                   color: var(--accent); font-weight: 500; }
 .sb-id   { font-size: 11px; color: var(--text-m); min-width: 22px; }
+/* 可编辑 ID 标签 */
+.editable-id {
+  cursor: text; border-radius: 3px; padding: 0 3px;
+  transition: background .15s;
+}
+.editable-id:hover { background: rgba(59,130,246,.12); color: var(--accent); }
+/* 内联 ID 编辑框 */
+.id-edit-input {
+  width: 52px; font-size: 11px; font-weight: 600;
+  padding: 1px 4px; border: 1.5px solid var(--accent);
+  border-radius: 3px; outline: none; color: var(--accent);
+  background: #eff6ff;
+}
 .sb-name { overflow: hidden; text-overflow: ellipsis; }
 .sb-empty { padding: 5px 12px 5px 26px; font-size: 12px; color: var(--text-m); font-style: italic; }
 
@@ -151,6 +164,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .pf-wrap {
   display: flex;
   align-items: flex-start;
+  width: max-content;   /* 防止横向被压缩，确保水平滚动条出现 */
+  flex-shrink: 0;
   padding: 14px 16px 10px;
   min-width: max-content;
   gap: 0;
@@ -351,15 +366,24 @@ select { appearance: auto; }
 /* ─── 步骤列表 ───────────────────────────────────────────── */
 .step-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .step-row {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; gap: 4px;
   background: var(--bg); border-radius: var(--radius); padding: 6px 8px;
 }
-.step-num  { font-size: 11px; color: var(--text-m); min-width: 18px; font-weight: 600; }
-.step-name { flex: 1; }
-.step-type { width: 110px; }
+.step-row-top { display: flex; align-items: center; gap: 8px; }
+.step-num  { font-size: 11px; color: var(--text-m); min-width: 18px; font-weight: 600; flex-shrink: 0; }
+.step-name { width: 180px; flex-shrink: 0; }
+.step-type { width: 100px; flex-shrink: 0; }
 .step-del  { background: none; border: none; cursor: pointer; color: var(--text-m);
-             padding: 2px 5px; border-radius: 4px; }
+             padding: 2px 5px; border-radius: 4px; margin-left: auto; flex-shrink: 0; }
 .step-del:hover { background: #fee2e2; color: var(--danger); }
+/* 条件/备注 textarea — 全宽，自动撑高 */
+.step-note {
+  width: 100%; box-sizing: border-box;
+  min-height: 30px; resize: none; overflow: hidden;
+  font-size: 12px; color: var(--text-m);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 4px 8px; background: #fafbfc; line-height: 1.5;
+}
 
 /* 步骤类型徽标 */
 .badge { display: inline-block; padding: 1px 7px; border-radius: 10px;
@@ -593,7 +617,7 @@ select { appearance: auto; }
 .sb-task-item.active { background: var(--active-bg); border-left-color: var(--active-bd); color: var(--accent); font-weight: 500; }
 .sb-repeat { font-size: 10px; color: var(--accent); }
 
-/* 主题域分组头 */
+/* 主题域 / 业务子域 分组头 */
 .sb-grp-head {
   display: flex; align-items: center; gap: 4px;
   padding: 5px 10px; cursor: pointer;
@@ -602,6 +626,12 @@ select { appearance: auto; }
   background: #f8fafc; border-top: 1px solid var(--border);
 }
 .sb-grp-head:hover { color: var(--text); }
+
+/* 流程区内的业务子域分组头（稍偏暖色调与实体主题域区分） */
+.sb-section:first-child .sb-grp-head {
+  background: #faf8f5; color: #7a6a55;
+}
+.sb-section:first-child .sb-grp-head:hover { color: #4a3a25; }
 
 /* 实体条目（主题域下缩进） */
 .sb-entity-item {
@@ -692,8 +722,16 @@ select { appearance: auto; }
 .role-del:hover { color: var(--danger); }
 .add-role-row { display: flex; gap: 8px; align-items: center; }
 
-/* ─── 步骤：条件备注列 ───────────────────────────────────── */
-.step-note { width: 150px !important; font-size: 12px; color: var(--text-m); }
+/* ─── 字段表格：列宽控制 ─────────────────────────────────── */
+.field-td-name { width: 120px; }
+.field-td-type { width: 80px; }
+.field-td-note { min-width: 160px; }
+.field-td-note textarea {
+  width: 100%; box-sizing: border-box;
+  min-height: 30px; resize: none; overflow: hidden;
+  font-size: 12px; padding: 4px 8px; line-height: 1.5;
+  border: 1px solid var(--border); border-radius: var(--radius); background: #fafbfc;
+}
 
 /* ─── 上下文 Tab 卡片（已有，补充 h3 按钮对齐） ─────────── */
 .ctx-card h3 { display: flex; justify-content: space-between; align-items: center; }
@@ -705,7 +743,8 @@ select { appearance: auto; }
 }
 
 /* ── Entity Flow Diagram ── */
-.ef-canvas { position: relative; overflow: auto; min-height: 80px; }
+.ef-canvas { position: relative; overflow: auto; min-height: 80px; cursor: grab; }
+.ef-canvas:active { cursor: grabbing; }
 .ef-board  { position: relative; }
 .ef-node {
   position: absolute;
@@ -720,6 +759,18 @@ select { appearance: auto; }
 .ef-node.ef-draggable { cursor: grab; }
 .ef-node.ef-draggable:active { cursor: grabbing; }
 .ef-node.ef-draggable.ef-clickable:hover { filter: brightness(0.96); }
+/* 选中状态 */
+.ef-node.ef-selected {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59,130,246,.2);
+}
+/* 框选矩形 */
+.ef-rubber {
+  position: absolute; pointer-events: none; z-index: 100;
+  border: 1.5px dashed #3b82f6;
+  background: rgba(59,130,246,.08);
+}
 .ef-nid { font-size: 10px; opacity: .6; }
 .ef-nname { font-size: 13px; font-weight: 500; }
 .ef-svg {

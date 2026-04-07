@@ -9,7 +9,7 @@ const S = {
   doc: null,
   modified: false,
   ui: {
-    tab: 'process',
+    tab: 'domain',
     procId: null, taskId: null,
     entityId: null,
     sbCollapse: {}   // { 'proc-P1': true, 'grp-销售': false }
@@ -67,6 +67,15 @@ function nextId(prefix, items) {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+/* textarea 自动撑高：绑定在 oninput 或渲染后调用 */
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight) + 'px';
+}
+/* 渲染完后批量撑高页面内所有 auto-resize textarea */
+function initAutoResize() {
+  document.querySelectorAll('textarea.auto-resize').forEach(autoResize);
 }
 function markModified() {
   if (!S.modified) {
@@ -209,6 +218,13 @@ function renderProcFlow(containerId, proc, onClickMap) {
     }
   }
 
+  /* 流程图背景拖动平移（mousedown 在 .pf-wrap 空白处） */
+  el.addEventListener('mousedown', ev => {
+    if(ev.target.closest('.pf-task,.pf-tag,.pf-se')) return;
+    ev.preventDefault();
+    startEfPan(el, ev);
+  });
+
   initZoom(containerId);
   if(ZOOM[containerId] && ZOOM[containerId]!==1) applyZoom(containerId);
 }
@@ -263,17 +279,46 @@ function _efComputeDefaultPos(entities, relations) {
   return posMap;
 }
 
-let efDragState = null;
-let efDragMoved = false;
+/* ── 实体图交互状态 ──────────────────────────────────────── */
+const efSelectedIds = new Set();   // 当前选中的实体 ID
+let efDragState   = null;          // 节点拖拽状态
+let efDragMoved   = false;
+let efPanState    = null;          // 背景平移状态
+let efRubberState = null;          // 框选状态
+let efRubberEl    = null;          // 框选 DOM 元素
 
+/* 刷新选中节点的视觉样式 */
+function updateEfSelection(containerId) {
+  const canvas = document.getElementById(`ef-canvas-${containerId}`);
+  if(!canvas) return;
+  canvas.querySelectorAll('.ef-node').forEach(node => {
+    node.classList.toggle('ef-selected', efSelectedIds.has(node.dataset.id));
+  });
+}
+
+/* ── 节点拖拽（支持多选同步移动） ── */
 function startEfNodeDrag(containerId, entityId, e) {
   e.preventDefault();
   efDragMoved = false;
   const entity = S.doc?.entities?.find(en => en.id === entityId);
   if(!entity) return;
-  efDragState = { containerId, entityId, entity,
-    startX: e.clientX, startY: e.clientY,
-    origX: entity.pos?.x||0, origY: entity.pos?.y||0 };
+
+  /* 拖动未选中节点时：清除旧选区，仅选中当前节点 */
+  if(!efSelectedIds.has(entityId)) {
+    efSelectedIds.clear();
+    efSelectedIds.add(entityId);
+    updateEfSelection(containerId);
+  }
+
+  /* 构建多节点拖拽映射 */
+  const multiDrag = new Map();
+  for(const eid of efSelectedIds) {
+    const ent = S.doc?.entities?.find(en => en.id === eid);
+    if(ent) multiDrag.set(eid, { entity: ent, origX: ent.pos?.x||0, origY: ent.pos?.y||0 });
+  }
+
+  efDragState = { containerId, multiDrag,
+    startX: e.clientX, startY: e.clientY };
   document.addEventListener('mousemove', onEfNodeDrag);
   document.addEventListener('mouseup',   endEfNodeDrag);
 }
@@ -284,19 +329,21 @@ function onEfNodeDrag(e) {
   const dy = e.clientY - efDragState.startY;
   if(Math.abs(dx) > 3 || Math.abs(dy) > 3) efDragMoved = true;
   if(!efDragMoved) return;
-  const newX = Math.max(0, efDragState.origX + dx);
-  const newY = Math.max(0, efDragState.origY + dy);
-  efDragState.entity.pos = {x: newX, y: newY};
-  const node = document.querySelector(
-    `#ef-canvas-${efDragState.containerId} .ef-node[data-id="${efDragState.entityId}"]`);
-  if(node) { node.style.left = newX + 'px'; node.style.top = newY + 'px'; }
-  /* 动态扩展画板 */
+  let neededW = 0, neededH = 0;
+  for(const [eid, info] of efDragState.multiDrag) {
+    const newX = Math.max(0, info.origX + dx);
+    const newY = Math.max(0, info.origY + dy);
+    info.entity.pos = {x: newX, y: newY};
+    const node = document.querySelector(
+      `#ef-canvas-${efDragState.containerId} .ef-node[data-id="${eid}"]`);
+    if(node) { node.style.left = newX+'px'; node.style.top = newY+'px'; }
+    neededW = Math.max(neededW, newX + EF_NODE_W + 80);
+    neededH = Math.max(neededH, newY + EF_NODE_H + 100);
+  }
   const board = document.getElementById(`ef-board-${efDragState.containerId}`);
   const svgEl = document.getElementById(`ef-svg-${efDragState.containerId}`);
   if(board) {
-    const neededW = newX + EF_NODE_W + 80;
-    const neededH = newY + EF_NODE_H + 100;
-    if(neededW > parseInt(board.style.width||'0'))  { board.style.width  = neededW+'px'; if(svgEl) svgEl.setAttribute('width',  neededW); }
+    if(neededW > parseInt(board.style.width ||'0')) { board.style.width  = neededW+'px'; if(svgEl) svgEl.setAttribute('width',  neededW); }
     if(neededH > parseInt(board.style.height||'0')) { board.style.height = neededH+'px'; if(svgEl) svgEl.setAttribute('height', neededH); }
   }
   drawEfLines(efDragState.containerId, S.doc?.relations||[]);
@@ -308,8 +355,86 @@ function endEfNodeDrag(e) {
   document.removeEventListener('mouseup',   endEfNodeDrag);
   if(efDragMoved) markModified();
   efDragState = null;
-  /* 短暂保留 efDragMoved=true 以阻止 click 触发导航 */
   setTimeout(() => { efDragMoved = false; }, 80);
+}
+
+/* ── 背景平移（Pan）── */
+function startEfPan(canvas, e) {
+  /* 垂直溢出可能在父容器上（如 .live-diagram），水平溢出在 canvas 自身；
+     同时记录两者的初始滚动位置，onEfPan 里一起更新。 */
+  const parent = canvas.parentElement;
+  efPanState = { canvas, parent,
+    startX: e.clientX, startY: e.clientY,
+    startSL: canvas.scrollLeft,  startST: canvas.scrollTop,
+    startPSL: parent?.scrollLeft ?? 0, startPST: parent?.scrollTop ?? 0 };
+  canvas.style.cursor = 'grabbing';
+  document.addEventListener('mousemove', onEfPan);
+  document.addEventListener('mouseup',   endEfPan);
+}
+function onEfPan(e) {
+  if(!efPanState) return;
+  const dx = e.clientX - efPanState.startX;
+  const dy = e.clientY - efPanState.startY;
+  /* 水平：滚动 canvas 自身 */
+  efPanState.canvas.scrollLeft = efPanState.startSL  - dx;
+  /* 垂直：先尝试 canvas 自身，若不能滚（无溢出）则滚父容器 */
+  efPanState.canvas.scrollTop  = efPanState.startST  - dy;
+  if(efPanState.parent) {
+    efPanState.parent.scrollTop = efPanState.startPST - dy;
+  }
+}
+function endEfPan() {
+  if(!efPanState) return;
+  efPanState.canvas.style.cursor = '';
+  efPanState = null;
+  document.removeEventListener('mousemove', onEfPan);
+  document.removeEventListener('mouseup',   endEfPan);
+}
+
+/* ── 框选（Shift + 拖动背景）── */
+function startEfRubber(containerId, canvas, e) {
+  const board = document.getElementById(`ef-board-${containerId}`);
+  if(!board) return;
+  const cr = canvas.getBoundingClientRect();
+  const bx = e.clientX - cr.left + canvas.scrollLeft;
+  const by = e.clientY - cr.top  + canvas.scrollTop;
+  efRubberEl = document.createElement('div');
+  efRubberEl.className = 'ef-rubber';
+  Object.assign(efRubberEl.style, { left: bx+'px', top: by+'px', width:'0', height:'0' });
+  board.appendChild(efRubberEl);
+  efRubberState = { containerId, canvas, board, bx0: bx, by0: by };
+  document.addEventListener('mousemove', onEfRubber);
+  document.addEventListener('mouseup',   endEfRubber);
+}
+function onEfRubber(e) {
+  if(!efRubberState || !efRubberEl) return;
+  const { canvas, bx0, by0 } = efRubberState;
+  const cr = canvas.getBoundingClientRect();
+  const bx1 = e.clientX - cr.left + canvas.scrollLeft;
+  const by1 = e.clientY - cr.top  + canvas.scrollTop;
+  efRubberState.bx1 = bx1; efRubberState.by1 = by1;
+  const l = Math.min(bx0,bx1), t = Math.min(by0,by1);
+  Object.assign(efRubberEl.style, { left:l+'px', top:t+'px',
+    width: Math.abs(bx1-bx0)+'px', height: Math.abs(by1-by0)+'px' });
+}
+function endEfRubber() {
+  if(!efRubberState) return;
+  const { containerId, board, bx0, by0, bx1=bx0, by1=by0 } = efRubberState;
+  const l=Math.min(bx0,bx1), t=Math.min(by0,by1),
+        r=Math.max(bx0,bx1), b=Math.max(by0,by1);
+  if(r-l > 4 || b-t > 4) {
+    efSelectedIds.clear();
+    board.querySelectorAll('.ef-node').forEach(node => {
+      const nx=node.offsetLeft, ny=node.offsetTop,
+            nw=node.offsetWidth, nh=node.offsetHeight;
+      if(nx+nw > l && nx < r && ny+nh > t && ny < b) efSelectedIds.add(node.dataset.id);
+    });
+    updateEfSelection(containerId);
+  }
+  efRubberEl?.remove(); efRubberEl = null;
+  efRubberState = null;
+  document.removeEventListener('mousemove', onEfRubber);
+  document.removeEventListener('mouseup',   endEfRubber);
 }
 
 function resetEfLayout() {
@@ -373,17 +498,53 @@ function renderEntityFlow(containerId, doc, onClickMap) {
 
   el.innerHTML = h;
 
-  /* 绑定交互（click + drag） */
+  const canvas = document.getElementById(`ef-canvas-${containerId}`);
+
+  /* ── 节点交互 ── */
   for(const e of entities) {
     const node = el.querySelector(`.ef-node[data-id="${e.id}"]`);
     if(!node) continue;
     if(onClickMap?.[e.id]) {
-      node.addEventListener('click', () => { if(!efDragMoved) onClickMap[e.id](); });
+      node.addEventListener('click', ev => {
+        if(efDragMoved) return;
+        if(ev.ctrlKey || ev.metaKey) {
+          /* Ctrl+点击：切换选中 */
+          if(efSelectedIds.has(e.id)) efSelectedIds.delete(e.id);
+          else efSelectedIds.add(e.id);
+          updateEfSelection(containerId);
+        } else {
+          onClickMap[e.id]();
+        }
+      });
     }
     if(isDraggable) {
-      node.addEventListener('mousedown', ev => startEfNodeDrag(containerId, e.id, ev));
+      node.addEventListener('mousedown', ev => {
+        if(ev.ctrlKey || ev.metaKey) return; /* Ctrl+drag 不移动 */
+        ev.stopPropagation();                /* 阻止冒泡到背景 */
+        startEfNodeDrag(containerId, e.id, ev);
+      });
     }
   }
+
+  /* ── 背景交互：平移 or 框选 ── */
+  if(canvas) {
+    canvas.addEventListener('mousedown', ev => {
+      if(ev.target !== canvas && !ev.target.classList.contains('ef-board')) return;
+      ev.preventDefault();
+      if(ev.shiftKey) {
+        /* Shift+拖：框选 */
+        startEfRubber(containerId, canvas, ev);
+      } else {
+        /* 普通拖：平移视口 */
+        efSelectedIds.clear();
+        updateEfSelection(containerId);
+        startEfPan(canvas, ev);
+      }
+    });
+  }
+
+  /* 恢复选中状态的视觉显示（切换 tab 后重建 DOM 时保留） */
+  updateEfSelection(containerId);
 
   initZoom(containerId);
   if(ZOOM[containerId] && ZOOM[containerId] !== 1) applyZoom(containerId);
@@ -424,12 +585,27 @@ function drawEfLines(containerId, relations) {
     const lbl   = (rl[rel.type]||rel.type||'') + (rel.label ? ` ${rel.label}` : '');
     const dash  = rel.type==='N:N' ? 'stroke-dasharray="5,3"' : '';
 
+    let pathD, lx, ly;
+
+    /* ── 自关联：从右侧出发画矩形小环，绕开节点本体 ── */
+    if(rel.from === rel.to) {
+      const idx     = chanIdx(`self-${rel.from}`);
+      const loopW   = 28 + idx * 22;          /* 多条自关联向右依次展开 */
+      const loopH   = Math.max(12, A.h / 3);  /* 环的半高，至少 12px */
+      const exitY   = A.cy - loopH;           /* 从右侧偏上出发 */
+      const enterY  = A.cy + loopH;           /* 从右侧偏下回入 */
+      pathD = `M ${A.r} ${exitY} L ${A.r+loopW} ${exitY} L ${A.r+loopW} ${enterY} L ${A.r} ${enterY}`;
+      lx = A.r + loopW + 4;
+      ly = A.cy + 4;
+      pathsHtml += `<path d="${pathD}" stroke="${color}" stroke-width="1.5" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
+      if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="start" font-size="10" fill="${color}">${esc(lbl)}</text>`;
+      return;   /* 跳过后续通用路由 */
+    }
+
     const dx    = B.cx - A.cx;
     const dy    = B.cy - A.cy;
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
-
-    let pathD, lx, ly;
 
     /* ── 场景1：同行（垂直差 < 节点高）→ 水平直线侧边连接 ── */
     if(absDy < EF_NODE_H + 4) {
@@ -688,10 +864,10 @@ function setTerm(idx,k,val)   { S.doc.language[idx][k]=val; markModified(); }
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Processes
 ═══════════════════════════════════════════════════════════ */
-function addProcess() {
+function addProcess(subDomain) {
   const id  = nextId('P', S.doc.processes);
   const pos = _nextFreePos(S.doc.processes, null); /* 自动填补空缺格子 */
-  S.doc.processes.push({id, name:'新流程', trigger:'', outcome:'', tasks:[], pos});
+  S.doc.processes.push({id, name:'新流程', subDomain:subDomain||'', trigger:'', outcome:'', tasks:[], pos});
   markModified();
   navigate('process',{procId:id, taskId:null});
 }
@@ -802,6 +978,66 @@ function setEntity(id,key,val) {
   if(e){e[key]=val; markModified();}
 }
 
+/* ── ID 重命名 ──────────────────────────────────────────── */
+function renameProcessId(oldId, newId) {
+  newId = newId.trim();
+  if(!newId || newId === oldId) { render(); return; }
+  if(S.doc.processes.some(p=>p.id===newId)) { alert(`流程ID "${newId}" 已存在`); render(); return; }
+  const proc = S.doc.processes.find(p=>p.id===oldId); if(!proc) return;
+  proc.id = newId;
+  if(S.ui.procId === oldId) S.ui.procId = newId;
+  markModified(); render();
+}
+function renameTaskId(procId, oldId, newId) {
+  newId = newId.trim();
+  if(!newId || newId === oldId) { render(); return; }
+  const allTasks = S.doc.processes.flatMap(p=>p.tasks||[]);
+  if(allTasks.some(t=>t.id===newId)) { alert(`任务ID "${newId}" 已存在`); render(); return; }
+  const task = S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===oldId); if(!task) return;
+  task.id = newId;
+  if(S.ui.taskId === oldId) S.ui.taskId = newId;
+  markModified(); render();
+}
+function renameEntityId(oldId, newId) {
+  newId = newId.trim();
+  if(!newId || newId === oldId) { render(); return; }
+  if(S.doc.entities.some(e=>e.id===newId)) { alert(`实体ID "${newId}" 已存在`); render(); return; }
+  const entity = S.doc.entities.find(e=>e.id===oldId); if(!entity) return;
+  entity.id = newId;
+  for(const r of (S.doc.relations||[])) {
+    if(r.from===oldId) r.from=newId;
+    if(r.to  ===oldId) r.to  =newId;
+  }
+  for(const proc of S.doc.processes)
+    for(const task of (proc.tasks||[]))
+      for(const eo of (task.entity_ops||[]))
+        if(eo.entity_id===oldId) eo.entity_id=newId;
+  if(S.ui.entityId === oldId) S.ui.entityId = newId;
+  markModified(); render();
+}
+/* 点击 ID 标签进入内联编辑 */
+function startEditId(spanEl, type, ...args) {
+  const curId = args[args.length-1];
+  const input = document.createElement('input');
+  input.type='text'; input.value=curId; input.className='id-edit-input';
+  spanEl.replaceWith(input);
+  input.focus(); input.select();
+  let committed = false;
+  function commit() {
+    if(committed) return; committed=true;
+    const v = input.value.trim();
+    if(type==='proc')   renameProcessId(curId, v);
+    else if(type==='task')   renameTaskId(args[0], curId, v);
+    else if(type==='entity') renameEntityId(curId, v);
+    else render();
+  }
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e=>{
+    if(e.key==='Enter')  { input.blur(); }
+    if(e.key==='Escape') { committed=true; render(); }
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Fields
 ═══════════════════════════════════════════════════════════ */
@@ -845,6 +1081,8 @@ function render() {
   else if(t==='process') renderProcessTab();
   else if(t==='data')   renderDataTab();
   else if(t==='preview') renderPreviewTab();
+  /* 渲染完成后初始化所有 auto-resize textarea 高度 */
+  setTimeout(initAutoResize, 0);
 }
 
 function renderToolbar() {
@@ -868,6 +1106,31 @@ function renderNoDoc() {
     </div>`;
 }
 
+/* ─── 辅助：渲染单个流程条目及其任务 ─── */
+function _renderSbProc(p) {
+  const procKey=`proc-${p.id}`;
+  const collapsed=S.ui.sbCollapse[procKey];
+  const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
+  let h=`<div class="sb-proc-head ${procActive?'active':''}"
+    onclick="navigate('process',{procId:'${p.id}',taskId:null})">
+    <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
+    <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'proc','${p.id}')" title="点击编辑ID">${esc(p.id)}</span>
+    <span class="sb-name">${esc(p.name||'未命名')}</span>
+  </div>`;
+  if(!collapsed) {
+    for(const t of (p.tasks||[])) {
+      const tActive=S.ui.tab==='process'&&S.ui.taskId===t.id;
+      h+=`<div class="sb-task-item ${tActive?'active':''}"
+        onclick="navigate('process',{procId:'${p.id}',taskId:'${t.id}'})">
+        <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'task','${p.id}','${t.id}')" title="点击编辑ID">${esc(t.id)}</span>
+        <span class="sb-name">${esc(t.name||'未命名')}</span>
+        ${t.repeatable?'<span class="sb-repeat" title="可重复">↺</span>':''}
+      </div>`;
+    }
+  }
+  return h;
+}
+
 /* ═══════════════════════════════════════════════════════════
    RENDER — Sidebar (collapsible tree)
 ═══════════════════════════════════════════════════════════ */
@@ -876,7 +1139,7 @@ function renderSidebar() {
   const entities = S.doc.entities||[];
   let h='';
 
-  /* ── 流程区 ── */
+  /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
     <div class="sb-header">
       <span>流程</span>
@@ -886,25 +1149,27 @@ function renderSidebar() {
   if(!procs.length){
     h+=`<div class="sb-empty">暂无流程</div>`;
   } else {
-    for(const p of procs) {
-      const procKey=`proc-${p.id}`;
-      const collapsed=S.ui.sbCollapse[procKey];
-      const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
-      h+=`<div class="sb-proc-head ${procActive?'active':''}"
-        onclick="navigate('process',{procId:'${p.id}',taskId:null})">
-        <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
-        <span class="sb-id">${esc(p.id)}</span>
-        <span class="sb-name">${esc(p.name||'未命名')}</span>
-      </div>`;
-      if(!collapsed) {
-        for(const t of (p.tasks||[])) {
-          const tActive=S.ui.tab==='process'&&S.ui.taskId===t.id;
-          h+=`<div class="sb-task-item ${tActive?'active':''}"
-            onclick="navigate('process',{procId:'${p.id}',taskId:'${t.id}'})">
-            <span class="sb-id">${esc(t.id)}</span>
-            <span class="sb-name">${esc(t.name||'未命名')}</span>
-            ${t.repeatable?'<span class="sb-repeat" title="可重复">↺</span>':''}
-          </div>`;
+    /* 收集业务子域 */
+    const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
+    for(const sd of subDomains) {
+      const sdProcs=procs.filter(p=>(p.subDomain||'')===sd);
+      if(sd) {
+        const sdKey=`sd-${sd}`;
+        const collapsed=S.ui.sbCollapse[sdKey];
+        h+=`<div class="sb-grp-head" onclick="toggleCollapse('${sdKey}')">
+          <button class="sb-caret">${collapsed?'▶':'▾'}</button>
+          <span class="sb-name">${esc(sd)}</span>
+          <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
+        </div>`;
+        if(!collapsed) {
+          for(const p of sdProcs) {
+            h+=_renderSbProc(p);
+          }
+        }
+      } else {
+        /* 无业务子域的流程直接列出 */
+        for(const p of sdProcs) {
+          h+=_renderSbProc(p);
         }
       }
     }
@@ -938,7 +1203,7 @@ function renderSidebar() {
             const active=S.ui.tab==='data'&&S.ui.entityId===e.id;
             h+=`<div class="sb-entity-item ${active?'active':''}"
               onclick="navigate('data',{entityId:'${e.id}'})">
-              <span class="sb-id">${esc(e.id)}</span>
+              <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'entity','${e.id}')" title="点击编辑ID">${esc(e.id)}</span>
               <span class="sb-name">${esc(e.name||'未命名')}</span>
             </div>`;
           }
@@ -1220,7 +1485,7 @@ function renderProcessTab() {
   if(task&&proc) {
     /* ── 任务编辑 ── */
     h+=`<div class="edit-panel-title">
-      <span class="detail-id">${esc(task.id)}</span>
+      <span class="detail-id editable-id" onclick="startEditId(this,'task','${proc.id}','${task.id}')" title="点击编辑ID">${esc(task.id)}</span>
       <span>${esc(task.name||'未命名')}</span>
       <label class="repeat-toggle" title="可重复任务：同一流程中该任务可被执行多次">
         <input type="checkbox" ${task.repeatable?'checked':''}
@@ -1266,15 +1531,18 @@ function renderProcessTab() {
       h+=`<div class="step-list">`;
       task.steps.forEach((s,i)=>{
         h+=`<div class="step-row">
-          <span class="step-num">${i+1}</span>
-          <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述"
-            oninput="setStep('${proc.id}','${task.id}',${i},'name',this.value)">
-          <select class="step-type" onchange="setStep('${proc.id}','${task.id}',${i},'type',this.value)">
-            ${STEP_TYPES.map(t=>`<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
-          </select>
-          <input type="text" class="step-note" value="${esc(s.note||'')}" placeholder="条件/备注"
-            oninput="setStep('${proc.id}','${task.id}',${i},'note',this.value)">
-          <button class="step-del" onclick="removeStep('${proc.id}','${task.id}',${i})">✕</button>
+          <div class="step-row-top">
+            <span class="step-num">${i+1}</span>
+            <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述（简短）"
+              oninput="setStep('${proc.id}','${task.id}',${i},'name',this.value)">
+            <select class="step-type" onchange="setStep('${proc.id}','${task.id}',${i},'type',this.value)">
+              ${STEP_TYPES.map(t=>`<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+            </select>
+            <button class="step-del" onclick="removeStep('${proc.id}','${task.id}',${i})">✕</button>
+          </div>
+          <textarea class="step-note auto-resize" rows="1" placeholder="条件 / 备注 / 规则（可多行）"
+            oninput="setStep('${proc.id}','${task.id}',${i},'note',this.value);autoResize(this)"
+            >${esc(s.note||'')}</textarea>
         </div>`;
       });
       h+=`</div>`;
@@ -1327,15 +1595,20 @@ function renderProcessTab() {
   } else if(proc) {
     /* ── 流程信息 ── */
     h+=`<div class="edit-panel-title">
-      <span class="detail-id">${esc(proc.id)}</span>
+      <span class="detail-id editable-id" onclick="startEditId(this,'proc','${proc.id}')" title="点击编辑ID">${esc(proc.id)}</span>
       <span>${esc(proc.name||'未命名')}</span>
     </div>
     <div class="form-grid">
-      <div class="field-group form-full">
+      <div class="field-group">
         <label>流程名称</label>
         <input type="text" id="proc-name-input" value="${esc(proc.name||'')}"
           placeholder="如：采购入库流程"
           oninput="setProc('${proc.id}','name',this.value);renderSidebar();renderProcDiagramNow()">
+      </div>
+      <div class="field-group">
+        <label>业务子域</label>
+        <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：订单子域"
+          oninput="setProc('${proc.id}','subDomain',this.value);renderSidebar()">
       </div>
       <div class="field-group">
         <label>触发条件</label>
@@ -1408,7 +1681,7 @@ function renderDataTab() {
     const refs=getTasksReferencingEntity(entity.id);
 
     h+=`<div class="edit-panel-title">
-      <span class="detail-id">${esc(entity.id)}</span>
+      <span class="detail-id editable-id" onclick="startEditId(this,'entity','${entity.id}')" title="点击编辑ID">${esc(entity.id)}</span>
       <span>${esc(entity.name||'未命名')}</span>
       <button class="btn btn-danger btn-sm" style="margin-left:auto"
         onclick="removeEntity('${entity.id}')">删除实体</button>
@@ -1455,17 +1728,18 @@ function renderDataTab() {
         <tbody>`;
       entity.fields.forEach((f,i)=>{
         h+=`<tr>
-          <td><input type="text" value="${esc(f.name||'')}" placeholder="字段名"
+          <td class="field-td-name"><input type="text" value="${esc(f.name||'')}" placeholder="字段名"
             oninput="setField('${entity.id}',${i},'name',this.value)"></td>
-          <td><select onchange="setField('${entity.id}',${i},'type',this.value)">
+          <td class="field-td-type"><select onchange="setField('${entity.id}',${i},'type',this.value)">
             ${FIELD_TYPES.map(t=>`<option value="${t.value}" ${f.type===t.value?'selected':''}>${t.label}</option>`).join('')}
           </select></td>
           <td style="text-align:center"><input type="checkbox" ${f.is_key?'checked':''}
             onchange="setField('${entity.id}',${i},'is_key',this.checked)"></td>
           <td style="text-align:center"><input type="checkbox" ${f.is_status?'checked':''}
             onchange="setField('${entity.id}',${i},'is_status',this.checked)"></td>
-          <td><input type="text" value="${esc(f.note||'')}" placeholder="如：A=B×C"
-            oninput="setField('${entity.id}',${i},'note',this.value)"></td>
+          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束（可多行）"
+            oninput="setField('${entity.id}',${i},'note',this.value);autoResize(this)"
+            >${esc(f.note||'')}</textarea></td>
           <td><button class="field-del" onclick="removeField('${entity.id}',${i})">✕</button></td>
         </tr>`;
       });
@@ -1889,7 +2163,7 @@ const App = {
     App.closeModal();
     const doc=await api.load(name);
     S.currentFile=name; S.doc=doc; S.modified=false;
-    S.ui={tab:'process', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
+    S.ui={tab:'domain', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
     render();
   },
 
@@ -1911,7 +2185,7 @@ const App = {
     App.closeOpenModal();
     const doc=await api.load(name);
     S.currentFile=name; S.doc=doc; S.modified=false;
-    S.ui={tab:'process', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
+    S.ui={tab:'domain', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
     render();
   },
   async deleteFile(name) {
