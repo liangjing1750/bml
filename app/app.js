@@ -270,14 +270,53 @@ const EF_GAP_X  = 40;    // 同行间距
 const EF_GAP_Y  = 70;    // 行间距
 const EF_PAD    = 20;    // 边距
 
+/* 辐射布局：连接数最多的实体居中，其余按连通度排序向外散布 */
 function _efComputeDefaultPos(entities, relations) {
-  const lanes = _efSortLayout(entities, relations);
+  if(!entities.length) return {};
+
+  const deg = {};
+  for(const e of entities) deg[e.id] = 0;
+  for(const r of relations) {
+    if(deg[r.from]!==undefined) deg[r.from]++;
+    if(deg[r.to]  !==undefined) deg[r.to]++;
+  }
+
+  /* 按连接数降序排列 */
+  const sorted = [...entities].sort((a,b)=>(deg[b.id]||0)-(deg[a.id]||0));
+  const n = sorted.length;
   const posMap = {};
-  let y = EF_PAD;
-  for(const {entities: ge} of lanes) {
-    let x = EF_PAD;
-    for(const e of ge) { posMap[e.id] = {x, y}; x += EF_NODE_W + EF_GAP_X; }
-    y += EF_NODE_H + EF_GAP_Y;
+
+  /* 计算每圈容量（保证节点间距 ≥ 140px）*/
+  const rings = [];
+  let radius = 0, placed = 0;
+  while(placed < n) {
+    const cap = radius === 0 ? 1 : Math.max(1, Math.floor(2 * Math.PI * radius / 145));
+    const take = Math.min(cap, n - placed);
+    rings.push({radius, take});
+    placed += take;
+    radius += 160;
+    if(radius > 1200) break; // safety
+  }
+
+  /* 圆心坐标 */
+  const maxR = rings[rings.length-1]?.radius || 0;
+  const cx   = maxR + EF_NODE_W  + EF_PAD * 3;
+  const cy   = maxR + EF_NODE_H  + EF_PAD * 3;
+
+  let idx = 0;
+  for(const {radius: r, take} of rings) {
+    for(let i = 0; i < take; i++, idx++) {
+      const e = sorted[idx];
+      if(r === 0) {
+        posMap[e.id] = {x: cx - EF_NODE_W/2, y: cy - EF_NODE_H/2};
+      } else {
+        const angle = (i / take) * 2 * Math.PI - Math.PI / 2;
+        posMap[e.id] = {
+          x: Math.round(cx + r * Math.cos(angle) - EF_NODE_W/2),
+          y: Math.round(cy + r * Math.sin(angle) - EF_NODE_H/2)
+        };
+      }
+    }
   }
   return posMap;
 }
@@ -1634,7 +1673,9 @@ function renderProcessTab() {
   h+=`</div></div>`;
 
   /* ── 右侧抽屉（点击流程卡片后滑入） ── */
-  h+=`<div class="proc-drawer${proc?' open':''}">`;
+  const drawerW = S.ui.drawerW || 480;
+  h+=`<div class="proc-drawer${proc?' open':''}" style="width:${drawerW}px">
+    <div class="drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
 
   if(proc) {
     /* 抽屉头部 */
@@ -1836,80 +1877,86 @@ function renderProcDiagramNow() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   RENDER — Data Tab  (上：实体图 | 下：编辑)
+   RENDER — Data Tab  (实体图全高 + 右侧抽屉编辑)
 ═══════════════════════════════════════════════════════════ */
 function renderDataTab() {
   const entities=S.doc.entities||[];
   const entity=entities.find(e=>e.id===S.ui.entityId)||null;
+  const drawerW = S.ui.drawerW || 480;
 
   let h='';
 
-  /* 实体关系图 */
-  const diagH = S.ui.diagramH || 260;
-  const diagExpanded = !!S.ui.diagramExpanded;
-  h+=`<div class="live-diagram-wrap" id="diagram-wrap" style="height:${diagH}px">
+  /* 实体关系图（全高） */
+  h+=`<div class="live-diagram-wrap entity-diag-full" id="diagram-wrap">
     <div class="live-diagram-toolbar">
-      <span class="live-diagram-hint">拖拽节点调整布局 · 点击节点进入编辑 ↓</span>
+      <span class="live-diagram-hint">拖拽节点 · Ctrl+滚轮缩放 · 点击节点进入编辑</span>
       <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
-      <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复自动排列">重置布局</button>
-      <button class="btn btn-ghost-sm" id="expand-diagram-btn" onclick="toggleDiagramExpand()" title="展开/收起实体关系图">${diagExpanded?'收起 ↑':'展开 ↓'}</button>
+      <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复辐射排列">重置布局</button>
       <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大 (Ctrl+滚轮)">＋</button>
-        <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置缩放">⊙</button>
+        <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大">＋</button>
+        <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置">⊙</button>
         <button class="zoom-btn" onclick="zoomBy('entity-diagram',-0.2)" title="缩小">－</button>
       </div>
     </div>
-    <div id="entity-diagram" class="live-diagram"></div>
-    <div class="diagram-resize-handle" id="diagram-resize-handle" onmousedown="startDiagramResize(event)" title="拖动调整高度"></div>
+    <div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>
   </div>`;
 
-  h+=`<div class="edit-panel">`;
+  /* 右侧抽屉 */
+  const relations=S.doc.relations||[];
+  h+=`<div class="entity-drawer${entity?' open':''}" style="width:${drawerW}px">
+    <div class="drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
 
   if(entity) {
     const refs=getTasksReferencingEntity(entity.id);
 
-    h+=`<div class="edit-panel-title">
-      <span class="detail-id editable-id" onclick="startEditId(this,'entity','${entity.id}')" title="点击编辑ID">${esc(entity.id)}</span>
-      <span>${esc(entity.name||'未命名')}</span>
-      <button class="btn btn-danger btn-sm" style="margin-left:auto"
-        onclick="removeEntity('${entity.id}')">删除实体</button>
+    h+=`<div class="drawer-head">
+      <div class="drawer-crumb">
+        <span class="detail-id editable-id" onclick="startEditId(this,'entity','${esc(entity.id)}')" title="点击编辑ID">${esc(entity.id)}</span>
+        <span style="font-weight:600">${esc(entity.name||'未命名')}</span>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn btn-danger btn-sm" onclick="removeEntity('${esc(entity.id)}')">删除</button>
+        <button class="drawer-close" onclick="navigate('data',{entityId:null})" title="关闭">✕</button>
+      </div>
     </div>
+    <div class="drawer-body">`;
 
-    <div class="form-grid" style="margin-bottom:16px">
+    /* 基本信息 */
+    h+=`<div class="form-grid" style="margin-bottom:16px">
       <div class="field-group">
         <label>实体名称</label>
         <input type="text" value="${esc(entity.name||'')}"
-          oninput="setEntity('${entity.id}','name',this.value);renderSidebar();renderEntityDiagramNow()">
+          oninput="setEntity('${esc(entity.id)}','name',this.value);renderSidebar();renderEntityDiagramNow()">
       </div>
       <div class="field-group">
         <label>主题域 <span class="section-hint">（侧边栏分组）</span></label>
         <input type="text" value="${esc(entity.group||'')}"
           placeholder="如：交易、履约"
-          oninput="setEntity('${entity.id}','group',this.value);renderSidebar()">
+          oninput="setEntity('${esc(entity.id)}','group',this.value);renderSidebar()">
       </div>
-      <div class="field-group">
+      <div class="field-group" style="grid-column:1/-1">
         <label>说明</label>
         <input type="text" value="${esc(entity.note||'')}"
           placeholder="简要说明"
-          oninput="setEntity('${entity.id}','note',this.value)">
+          oninput="setEntity('${esc(entity.id)}','note',this.value)">
       </div>
     </div>`;
 
-    /* 被哪些任务引用 */
+    /* 被引用 */
     if(refs.length){
       h+=`<div class="form-section"><h4>被以下任务引用</h4>
         <div class="task-ref-list">`;
       for(const {proc,task} of refs){
         h+=`<span class="task-ref"
           onclick="navigate('process',{procId:'${proc.id}',taskId:'${task.id}'})"
-          title="跳转到任务 →">${esc(task.id)} ${esc(task.name)}</span>`;
+          title="跳转到任务">${esc(task.id)} ${esc(task.name)}</span>`;
       }
       h+=`</div></div>`;
     }
 
     /* 字段 */
     h+=`<div class="form-section">
-      <h4>字段 <button class="btn btn-outline btn-sm" onclick="addField('${entity.id}')">＋</button></h4>`;
+      <h4>字段 <button class="btn btn-outline btn-sm" onclick="addField('${esc(entity.id)}')">＋</button></h4>`;
     if(entity.fields?.length){
       h+=`<table class="field-table">
         <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="状态字段">状态</th><th>公式/约束</th><th></th></tr></thead>
@@ -1917,26 +1964,25 @@ function renderDataTab() {
       entity.fields.forEach((f,i)=>{
         h+=`<tr>
           <td class="field-td-name"><input type="text" value="${esc(f.name||'')}" placeholder="字段名"
-            oninput="setField('${entity.id}',${i},'name',this.value)"></td>
-          <td class="field-td-type"><select onchange="setField('${entity.id}',${i},'type',this.value)">
+            oninput="setField('${esc(entity.id)}',${i},'name',this.value)"></td>
+          <td class="field-td-type"><select onchange="setField('${esc(entity.id)}',${i},'type',this.value)">
             ${FIELD_TYPES.map(t=>`<option value="${t.value}" ${f.type===t.value?'selected':''}>${t.label}</option>`).join('')}
           </select></td>
           <td style="text-align:center"><input type="checkbox" ${f.is_key?'checked':''}
-            onchange="setField('${entity.id}',${i},'is_key',this.checked)"></td>
+            onchange="setField('${esc(entity.id)}',${i},'is_key',this.checked)"></td>
           <td style="text-align:center"><input type="checkbox" ${f.is_status?'checked':''}
-            onchange="setField('${entity.id}',${i},'is_status',this.checked)"></td>
-          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束（可多行）"
-            oninput="setField('${entity.id}',${i},'note',this.value);autoResize(this)"
+            onchange="setField('${esc(entity.id)}',${i},'is_status',this.checked)"></td>
+          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束"
+            oninput="setField('${esc(entity.id)}',${i},'note',this.value);autoResize(this)"
             >${esc(f.note||'')}</textarea></td>
-          <td><button class="field-del" onclick="removeField('${entity.id}',${i})">✕</button></td>
+          <td><button class="field-del" onclick="removeField('${esc(entity.id)}',${i})">✕</button></td>
         </tr>`;
       });
       h+=`</tbody></table>`;
     } else { h+=`<p class="no-refs">暂无字段</p>`; }
     h+=`</div>`;
 
-    /* 关系 */
-    const relations=S.doc.relations||[];
+    /* 实体关系 */
     h+=`<div class="form-section">
       <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation()">＋</button></h4>`;
     if(relations.length){
@@ -1953,7 +1999,7 @@ function renderDataTab() {
             ${entities.map(e=>`<option value="${e.id}" ${r.to===e.id?'selected':''}>${e.id} ${esc(e.name)}</option>`).join('')}
           </select>
           <input type="text" value="${esc(r.label||'')}" placeholder="关系说明"
-            oninput="setRelation(${i},'label',this.value)" style="width:110px">
+            oninput="setRelation(${i},'label',this.value)" style="width:90px">
           <button class="btn-icon" onclick="removeRelation(${i})">✕</button>
         </div>`;
       });
@@ -1961,16 +2007,16 @@ function renderDataTab() {
     } else { h+=`<p class="no-refs">暂无关系</p>`; }
     h+=`</div>`;
 
-    h+=`</div>`; /* end detail-section */
+    h+=`</div>`; /* drawer-body */
   } else {
-    h+=`<div class="detail-empty"><p>点击实体图节点，或从左侧选择实体</p></div>`;
+    h+=`<div class="drawer-empty"><p>点击实体节点打开编辑</p></div>`;
   }
 
-  h+=`</div>`; /* end edit-panel */
+  h+=`</div>`; /* entity-drawer */
 
   document.getElementById('tab-content').innerHTML=h;
 
-  /* 渲染实体图（HTML swimlane，不依赖 Mermaid） */
+  /* 渲染实体图 */
   const clickMap={};
   for(const e of entities)
     clickMap[e.id]=()=>navigate('data',{entityId:e.id});
@@ -2019,6 +2065,30 @@ function onStepTypeChange(sel, procId, taskId, idx) {
     setStep(procId, taskId, idx, 'type', val);
     render();
   }
+}
+
+/* ── 抽屉宽度拖拽 ── */
+function startDrawerResize(e) {
+  e.preventDefault(); e.stopPropagation();
+  const drawer = e.currentTarget.closest('.proc-drawer, .entity-drawer');
+  if(!drawer) return;
+  const startX = e.clientX;
+  const startW = drawer.offsetWidth;
+  document.body.style.cursor = 'ew-resize';
+  document.body.style.userSelect = 'none';
+  function onMove(ev) {
+    const newW = Math.max(300, Math.min(window.innerWidth * 0.75, startW + startX - ev.clientX));
+    drawer.style.width = newW + 'px';
+    S.ui.drawerW = newW;
+  }
+  function onUp() {
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }
 
 /* ── 实体关系图区域高度控制 ── */

@@ -400,13 +400,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 /* 概要视图全高（配合抽屉） */
 .ov-full { max-height: none !important; flex: 1; }
 
-/* ── 右侧编辑抽屉 ── */
+/* ── 右侧编辑抽屉（流程 & 实体共用） ── */
 #tab-content { position: relative; } /* 抽屉定位锚点 */
 
-.proc-drawer {
+.proc-drawer, .entity-drawer {
   position: absolute;
   top: 0; right: 0; bottom: 0;
-  width: 480px; min-width: 320px;
+  width: 480px; min-width: 300px;
   background: #fff;
   border-left: 1px solid var(--border);
   box-shadow: -6px 0 24px rgba(0,0,0,.1);
@@ -414,7 +414,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   z-index: 20;
   overflow: hidden;
 }
-.proc-drawer.open { display: flex; }
+.proc-drawer.open, .entity-drawer.open { display: flex; }
+
+/* 抽屉左侧拖宽 handle */
+.drawer-resize-handle {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  cursor: ew-resize; z-index: 5; background: transparent;
+  transition: background .15s;
+}
+.drawer-resize-handle:hover { background: var(--accent); opacity: .5; }
+
+/* 实体关系图全高模式 */
+.entity-diag-full {
+  flex: 1; min-height: 0;
+  height: auto !important;
+  display: flex; flex-direction: column;
+}
 
 .drawer-head {
   display: flex; align-items: center; justify-content: space-between;
