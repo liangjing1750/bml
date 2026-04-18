@@ -712,6 +712,10 @@ const ZOOM = {};
 /* ── Card Map 常量 ── */
 const CARD_W = 300;
 const CARD_H = 200;
+const OV_CARD_W = 180;
+const OV_CARD_H = 72;
+function _cardGridW() { return S.ui.procView === 'list' ? OV_CARD_W : CARD_W; }
+function _cardGridH() { return S.ui.procView === 'list' ? OV_CARD_H : CARD_H; }
 let dragState = null;
 
 function _captureSvgSize(svg) {
@@ -875,6 +879,66 @@ function procListDrop(e, targetId) {
   markModified();
   renderSidebar();
   renderProcessTab();
+}
+
+/* ── 侧边栏移动：流程（同业务子域内上下移） ── */
+function moveProcInSd(procId, dir, e) {
+  if(e) e.stopPropagation();
+  const procs = S.doc.processes;
+  const proc = procs.find(p=>p.id===procId); if(!proc) return;
+  const sd = proc.subDomain||'';
+  const sdList = procs.filter(p=>(p.subDomain||'')===sd);
+  const idx = sdList.findIndex(p=>p.id===procId);
+  const nidx = idx + dir;
+  if(nidx < 0 || nidx >= sdList.length) return;
+  const fi = procs.indexOf(sdList[idx]);
+  const ti = procs.indexOf(sdList[nidx]);
+  [procs[fi], procs[ti]] = [procs[ti], procs[fi]];
+  markModified(); renderSidebar(); renderProcessTab();
+}
+
+/* ── 侧边栏移动：业务子域（整组移） ── */
+function moveSdGroup(sd, dir, e) {
+  if(e) e.stopPropagation();
+  const procs = S.doc.processes;
+  const sds = [...new Set(procs.map(p=>p.subDomain||''))];
+  const idx = sds.indexOf(sd);
+  const nidx = idx + dir;
+  if(nidx < 0 || nidx >= sds.length) return;
+  const blocks = sds.map(s => procs.filter(p=>(p.subDomain||'')===s));
+  [blocks[idx], blocks[nidx]] = [blocks[nidx], blocks[idx]];
+  S.doc.processes = blocks.flat();
+  markModified(); renderSidebar(); renderProcessTab();
+}
+
+/* ── 侧边栏移动：实体（同主题域内上下移） ── */
+function moveEntityInGrp(entityId, dir, e) {
+  if(e) e.stopPropagation();
+  const ents = S.doc.entities;
+  const ent = ents.find(en=>en.id===entityId); if(!ent) return;
+  const grp = ent.group||'';
+  const grpList = ents.filter(en=>(en.group||'')===grp);
+  const idx = grpList.findIndex(en=>en.id===entityId);
+  const nidx = idx + dir;
+  if(nidx < 0 || nidx >= grpList.length) return;
+  const fi = ents.indexOf(grpList[idx]);
+  const ti = ents.indexOf(grpList[nidx]);
+  [ents[fi], ents[ti]] = [ents[ti], ents[fi]];
+  markModified(); renderSidebar();
+}
+
+/* ── 侧边栏移动：主题域（整组移） ── */
+function moveGrpGroup(grp, dir, e) {
+  if(e) e.stopPropagation();
+  const ents = S.doc.entities;
+  const grps = [...new Set(ents.map(en=>en.group||''))];
+  const idx = grps.indexOf(grp);
+  const nidx = idx + dir;
+  if(nidx < 0 || nidx >= grps.length) return;
+  const blocks = grps.map(g => ents.filter(en=>(en.group||'')===g));
+  [blocks[idx], blocks[nidx]] = [blocks[nidx], blocks[idx]];
+  S.doc.entities = blocks.flat();
+  markModified(); renderSidebar();
 }
 
 function _defaultSbCollapse(doc) {
@@ -1171,6 +1235,10 @@ function _renderSbProc(p) {
     <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
     <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'proc','${p.id}')" title="点击编辑ID">${esc(p.id)}</span>
     <span class="sb-name">${esc(p.name||'未命名')}</span>
+    <span class="sb-move-btns">
+      <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',-1,event)" title="上移">↑</button>
+      <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',1,event)" title="下移">↓</button>
+    </span>
   </div>`;
   if(!collapsed) {
     for(const t of (p.tasks||[])) {
@@ -1228,6 +1296,10 @@ function renderSidebar() {
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
           <span class="sb-name">${esc(sd)}</span>
           <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
+          <span class="sb-move-btns">
+            <button class="sb-move-btn" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="上移">↑</button>
+            <button class="sb-move-btn" onclick="moveSdGroup('${esc(sd)}',1,event)" title="下移">↓</button>
+          </span>
         </div>`;
         if(!collapsed) {
           for(const p of sdProcs) {
@@ -1265,6 +1337,10 @@ function renderSidebar() {
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
           <span class="sb-name">${esc(grp)}</span>
           <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>
+          <span class="sb-move-btns">
+            <button class="sb-move-btn" onclick="moveGrpGroup('${esc(grp)}',-1,event)" title="上移">↑</button>
+            <button class="sb-move-btn" onclick="moveGrpGroup('${esc(grp)}',1,event)" title="下移">↓</button>
+          </span>
         </div>`;
         if(!collapsed) {
           for(const e of grpEntities) {
@@ -1273,6 +1349,10 @@ function renderSidebar() {
               onclick="navigate('data',{entityId:'${e.id}'})">
               <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'entity','${e.id}')" title="点击编辑ID">${esc(e.id)}</span>
               <span class="sb-name">${esc(e.name||'未命名')}</span>
+              <span class="sb-move-btns">
+                <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="上移">↑</button>
+                <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="下移">↓</button>
+              </span>
             </div>`;
           }
         }
@@ -1284,6 +1364,10 @@ function renderSidebar() {
             onclick="navigate('data',{entityId:'${e.id}'})">
             <span class="sb-id">${esc(e.id)}</span>
             <span class="sb-name">${esc(e.name||'未命名')}</span>
+            <span class="sb-move-btns">
+              <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="上移">↑</button>
+              <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="下移">↓</button>
+            </span>
           </div>`;
         }
       }
@@ -1334,16 +1418,17 @@ function _applyCardPositions() {
   const map = document.getElementById('card-map');
   if(!map) return;
   const allProcs = S.doc.processes||[];
+  const gW = _cardGridW(), gH = _cardGridH();
   const maxRow = Math.max(...allProcs.map(p=>p.pos?.r||1));
   const maxCol = Math.max(...allProcs.map(p=>p.pos?.c||1));
-  map.style.height    = `${maxRow*CARD_H+8}px`;
-  map.style.minWidth  = `${Math.max(maxCol*CARD_W+8,600)}px`;
+  map.style.height    = `${maxRow*gH+8}px`;
+  map.style.minWidth  = `${Math.max(maxCol*gW+8,600)}px`;
   for(const proc of allProcs) {
     const card = map.querySelector(`.proc-card[data-id="${proc.id}"]`);
     if(!card) continue;
     const r=proc.pos?.r||1, c=proc.pos?.c||1;
-    card.style.left      = `${(c-1)*CARD_W+8}px`;
-    card.style.top       = `${(r-1)*CARD_H+8}px`;
+    card.style.left      = `${(c-1)*gW+8}px`;
+    card.style.top       = `${(r-1)*gH+8}px`;
     card.style.transform = '';
     card.style.zIndex    = '';
   }
@@ -1373,8 +1458,17 @@ function endCardDrag(e) {
   const dy = e.clientY - dragState.startY;
   const proc = S.doc.processes.find(p=>p.id===dragState.procId);
   if(proc) {
-    const newC = Math.max(1, dragState.startPos.c + Math.round(dx/CARD_W));
-    const newR = Math.max(1, dragState.startPos.r + Math.round(dy/CARD_H));
+    /* tiny movement = click → navigate */
+    if(Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+      document.removeEventListener('mousemove', onCardDrag);
+      document.removeEventListener('mouseup',   endCardDrag);
+      dragState = null;
+      navigate('process', {procId: proc.id, taskId: null});
+      return;
+    }
+    const gW = _cardGridW(), gH = _cardGridH();
+    const newC = Math.max(1, dragState.startPos.c + Math.round(dx/gW));
+    const newR = Math.max(1, dragState.startPos.r + Math.round(dy/gH));
     const newPos = {r:newR, c:newC};
     /* 目标格已有其他流程 → 互换位置 */
     const occupant = S.doc.processes.find(
@@ -1514,26 +1608,30 @@ function renderProcessTab() {
     return;
   }
 
-  /* ══ 概要视图：紧凑列表 ══ */
-  h+=`<div class="proc-list-wrap">`;
+  /* ══ 概要视图：映射网格（与卡片视图同一 r/c 坐标，缩小版） ══ */
+  const ovMaxRow=Math.max(...procs.map(p=>p.pos?.r||1));
+  const ovMaxCol=Math.max(...procs.map(p=>p.pos?.c||1));
+  h+=`<div class="ov-map-wrap">
+    <div id="card-map" class="ov-map"
+      style="height:${ovMaxRow*OV_CARD_H+8}px;min-width:${Math.max(ovMaxCol*OV_CARD_W+8,400)}px">`;
   for(const p of procs) {
-    const isActive=S.ui.procId===p.id;
+    const r=p.pos?.r||1, c=p.pos?.c||1;
     const taskCnt=(p.tasks||[]).length;
-    h+=`<div class="proc-list-item${isActive?' active':''}"
-      draggable="true"
-      ondragstart="procListDragStart(event,'${esc(p.id)}')"
-      ondragover="procListDragOver(event,'${esc(p.id)}')"
-      ondragleave="procListDragLeave(event)"
-      ondrop="procListDrop(event,'${esc(p.id)}')"
-      onclick="navigate('process',{procId:'${esc(p.id)}',taskId:null})">
-      <span class="pl-handle" title="拖动排序">⠿</span>
-      <span class="pl-id">${esc(p.id)}</span>
-      <span class="pl-name">${esc(p.name||'未命名')}</span>
-      ${p.subDomain?`<span class="pl-tag">${esc(p.subDomain)}</span>`:''}
-      <span class="pl-count">${taskCnt ? taskCnt+'个任务' : '无任务'}</span>
+    const stepCnt=(p.tasks||[]).reduce((n,t)=>n+(t.steps?.length||0),0);
+    const isActive=S.ui.procId===p.id;
+    h+=`<div class="proc-card ov-card${isActive?' ov-active':''}" data-id="${esc(p.id)}"
+      style="left:${(c-1)*OV_CARD_W+8}px;top:${(r-1)*OV_CARD_H+8}px;width:${OV_CARD_W-12}px;height:${OV_CARD_H-10}px">
+      <div class="ovc-header" onmousedown="startCardDrag('${esc(p.id)}',event)" onclick="event.stopPropagation()">
+        <span class="ovc-id">${esc(p.id)}</span>
+        <span class="ovc-name">${esc(p.name||'未命名')}</span>
+      </div>
+      <div class="ovc-body" onclick="navigate('process',{procId:'${esc(p.id)}',taskId:null})">
+        ${p.subDomain?`<span class="ovc-sd">${esc(p.subDomain)}</span>`:''}
+        <span class="ovc-cnt">${taskCnt}T · ${stepCnt}S</span>
+      </div>
     </div>`;
   }
-  h+=`</div>`;
+  h+=`</div></div>`;
 
   /* 实时流程图区（概要视图下，仅在选中流程时显示） */
   if(proc) {
