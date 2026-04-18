@@ -842,7 +842,7 @@ function toggleSidebar() {
 }
 
 function _defaultSbCollapse(doc) {
-  const c = {};
+  const c = { lang: true }; /* 统一语言默认折叠 */
   (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
   return c;
 }
@@ -1363,46 +1363,40 @@ function renderDomainTab() {
   const lang=S.doc.language||[];
   let h='<div class="domain-scroll">';
 
-  h+=`<div class="ctx-card">
-    <h3>业务域信息</h3>
-    <div class="domain-meta-row">
-      <div class="field-group" style="flex:1">
-        <label>业务域名称 <span class="section-hint">（同时作为文档名称）</span></label>
-        <input type="text" value="${esc(m.domain||m.title||'')}"
-          oninput="setDomain(this.value)"
-          placeholder="如：仓储管理、采购、结算">
-      </div>
-      <div class="field-group" style="width:130px;flex-shrink:0">
-        <label>日期</label>
-        <input type="text" value="${esc(m.date||'')}"
-          oninput="setMeta('date',this.value)" placeholder="如：2025-01">
-      </div>
+  /* ── 紧凑信息栏：业务域 / 角色 / 统一语言 三行合一卡片 ── */
+  const langCollapsed = S.ui.sbCollapse['lang'] !== false; /* 默认折叠 */
+  h+=`<div class="ctx-card domain-info-bar">
+    <div class="info-bar-row">
+      <span class="info-bar-label">业务域名称</span>
+      <input type="text" style="flex:1" value="${esc(m.domain||m.title||'')}"
+        oninput="setDomain(this.value)" placeholder="如：仓储管理 v2、采购">
+      <span class="info-bar-label" style="margin-left:12px">日期</span>
+      <input type="text" style="width:100px" value="${esc(m.date||'')}"
+        oninput="setMeta('date',this.value)" placeholder="2025-01">
     </div>
-  </div>`;
-
-  h+=`<div class="ctx-card">
-    <h3>参与角色</h3>
-    <div class="role-tag-list">`;
+    <div class="info-bar-row">
+      <span class="info-bar-label">参与角色</span>
+      <div class="role-tag-list" style="flex:1;flex-wrap:wrap;margin:0">`;
   roles.forEach((r,i)=>{
     h+=`<span class="role-tag">${esc(r)}<button class="role-del" onclick="removeRole(${i})">×</button></span>`;
   });
   h+=`</div>
-    <div class="add-role-row">
-      <input type="text" id="role-input" placeholder="输入角色名，回车添加"
+      <input type="text" id="role-input" style="width:110px" placeholder="输入角色名"
         onkeydown="if(event.key==='Enter')addRole()">
       <button class="btn btn-outline btn-sm" onclick="addRole()">添加</button>
     </div>
+    <div class="info-bar-row info-bar-lang" onclick="toggleDomainSection('lang')" style="cursor:pointer">
+      <span class="info-bar-label">统一语言</span>
+      <span class="lang-collapse-btn">${langCollapsed?'▶':'▾'}</span>
+      ${langCollapsed&&lang.length?`<span class="lang-summary">共 ${lang.length} 条术语，点击展开</span>`:''}
+      ${langCollapsed&&!lang.length?`<span class="lang-summary">暂无术语，点击展开添加</span>`:''}
+      <span style="flex:1"></span>
+      ${!langCollapsed?`<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();addTerm()">＋ 添加术语</button>`:''}
+    </div>
   </div>`;
 
-  const langCollapsed = !!S.ui.sbCollapse['lang'];
-  h+=`<div class="ctx-card">
-    <h3>统一语言
-      <span style="display:flex;align-items:center;gap:6px">
-        ${!langCollapsed?`<button class="btn btn-outline btn-sm" onclick="addTerm()">＋ 添加术语</button>`:''}
-        <button class="sb-caret" style="font-size:12px;padding:2px 4px" onclick="toggleDomainSection('lang')">${langCollapsed?'▶':'▾'}</button>
-      </span>
-    </h3>`;
   if(!langCollapsed) {
+    h+=`<div class="ctx-card" style="margin-top:-12px;border-top-left-radius:0;border-top-right-radius:0">`;
     if(lang.length){
       h+=`<table class="term-table">
         <thead><tr><th>术语</th><th>定义</th><th></th></tr></thead><tbody>`;
@@ -1419,24 +1413,7 @@ function renderDomainTab() {
     } else {
       h+=`<p class="no-refs">暂无术语定义</p>`;
     }
-  }
-  h+=`</div>`; /* end 统一语言 ctx-card */
-
-  /* 版本历史 */
-  const versions = S.doc.versions||[];
-  if(versions.length) {
-    h+=`<div class="ctx-card">
-      <h3>版本历史</h3>
-      <div class="version-list">`;
-    [...versions].reverse().forEach(v=>{
-      const d=new Date(v.time);
-      const ts=d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-      h+=`<div class="version-item">
-        <span class="version-num">v${v.version}</span>
-        <span class="version-time">${ts}</span>
-      </div>`;
-    });
-    h+=`</div></div>`;
+    h+=`</div>`;
   }
 
   /* 流程地图（Card Map）：卡片绝对定位，可拖拽调整时序 */
@@ -2342,11 +2319,6 @@ const App = {
 
   async cmdSave() {
     if(!S.doc||!S.currentFile) return;
-    /* 追加版本记录 */
-    if(!S.doc.versions) S.doc.versions=[];
-    const nextVer=(S.doc.versions.length>0?S.doc.versions[S.doc.versions.length-1].version:0)+1;
-    S.doc.versions.push({version:nextVer, time:new Date().toISOString()});
-
     const newDomain=(S.doc.meta?.domain||'').trim();
     if(newDomain && newDomain!==S.currentFile) {
       /* 业务域改名 → 先存新文件，确认后再删旧文件 */

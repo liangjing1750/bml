@@ -506,22 +506,32 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .rule-type-ComputeRule { background: #dcfce7; color: #166534; }
 
 /* ─── 业务域 Tab ─────────────────────────────────────────── */
-/* 给 domain/overview tab 一个内部 scroll 容器 */
 .domain-scroll { flex: 1; overflow-y: auto; padding: 20px; }
 .ctx-card { background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
 .ctx-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px;
                color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 8px;
                display: flex; justify-content: space-between; align-items: center; }
 
-/* 业务域名称 + 日期 同行布局 */
-.domain-meta-row { display: flex; gap: 12px; align-items: flex-end; }
-
-/* 版本历史 */
-.version-list { display: flex; flex-direction: column; gap: 4px; }
-.version-item { display: flex; align-items: center; gap: 12px; padding: 5px 8px;
-                border-radius: 4px; background: #fff; border: 1px solid var(--border); }
-.version-num { font-size: 12px; font-weight: 600; color: var(--accent); min-width: 32px; }
-.version-time { font-size: 12px; color: var(--text-m); }
+/* 紧凑信息栏（业务域 / 角色 / 统一语言）*/
+.domain-info-bar { padding: 0; overflow: hidden; }
+.info-bar-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-bottom: 1px solid var(--border);
+}
+.info-bar-row:last-child { border-bottom: none; }
+.info-bar-label {
+  font-size: 12px; font-weight: 600; color: var(--text-m);
+  white-space: nowrap; min-width: 56px; flex-shrink: 0;
+}
+/* 统一语言行 hover 提示可交互 */
+.info-bar-lang:hover { background: var(--hover); }
+.lang-collapse-btn {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  padding: 1px 5px; border-radius: 3px;
+  background: #eff6ff; border: 1px solid #bfdbfe;
+  flex-shrink: 0; cursor: pointer;
+}
+.lang-summary { font-size: 12px; color: var(--text-m); }
 
 /* 术语表 */
 .term-table { width: 100%; border-collapse: collapse; }
