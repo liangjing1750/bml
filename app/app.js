@@ -13,7 +13,8 @@ const S = {
     procId: null, taskId: null,
     entityId: null,
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
-    sidebarCollapsed: false
+    sidebarCollapsed: false,
+    procView: 'list'  // 'list' | 'card'
   }
 };
 
@@ -841,6 +842,41 @@ function toggleSidebar() {
   renderSidebar();
 }
 
+function setProcView(v) {
+  S.ui.procView = v;
+  renderProcessTab();
+}
+
+/* ── 概要视图：拖拽排序 ── */
+let _plDragId = null;
+function procListDragStart(e, id) {
+  _plDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('pl-dragging');
+}
+function procListDragOver(e, id) {
+  e.preventDefault();
+  if(_plDragId === id) return;
+  document.querySelectorAll('.proc-list-item').forEach(el => el.classList.remove('pl-over'));
+  e.currentTarget.classList.add('pl-over');
+}
+function procListDragLeave(e) { e.currentTarget.classList.remove('pl-over'); }
+function procListDrop(e, targetId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('pl-over');
+  if(!_plDragId || _plDragId === targetId) { _plDragId = null; return; }
+  const procs = S.doc.processes;
+  const fi = procs.findIndex(p => p.id === _plDragId);
+  const ti = procs.findIndex(p => p.id === targetId);
+  if(fi < 0 || ti < 0) { _plDragId = null; return; }
+  const [moved] = procs.splice(fi, 1);
+  procs.splice(ti, 0, moved);
+  _plDragId = null;
+  markModified();
+  renderSidebar();
+  renderProcessTab();
+}
+
 function _defaultSbCollapse(doc) {
   const c = { lang: true }; /* 统一语言默认折叠 */
   (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
@@ -1416,95 +1452,104 @@ function renderDomainTab() {
     h+=`</div>`;
   }
 
-  /* 流程地图（Card Map）：卡片绝对定位，可拖拽调整时序 */
-  const allProcs = S.doc.processes||[];
-  if(allProcs.length) {
-    const maxRow = Math.max(...allProcs.map(p=>p.pos?.r||1));
-    const maxCol = Math.max(...allProcs.map(p=>p.pos?.c||1));
-    const mapHeight = maxRow * CARD_H + 8;
-    const mapWidth  = Math.max(maxCol * CARD_W + 8, 600);
-
-    h+=`<div class="ctx-card">
-      <h3>流程地图 <span class="section-hint">拖动卡片调整时序位置·右=晚·上下=并行</span></h3>
-      <div class="card-map-wrap">
-        <div id="card-map" class="card-map" style="height:${mapHeight}px;min-width:${mapWidth}px">`;
-
-    for(const proc of allProcs) {
-      const r = proc.pos?.r||1;
-      const c = proc.pos?.c||1;
-      /* pc-diag 点击跳转；header 拖拽（stopPropagation 防止触发跳转） */
-      h+=`<div class="proc-card" data-id="${esc(proc.id)}"
-        style="left:${(c-1)*CARD_W+8}px;top:${(r-1)*CARD_H+8}px;width:${CARD_W-16}px;height:${CARD_H-16}px">
-        <div class="pc-header" onmousedown="startCardDrag('${esc(proc.id)}',event)"
-          onclick="event.stopPropagation()">
-          <span class="pc-id">${esc(proc.id)}</span>
-          <span class="pc-name">${esc(proc.name||'未命名')}</span>
-          <button class="pc-goto btn-icon"
-            onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})"
-            title="进入编辑">→</button>
-        </div>
-        <div id="pc-diag-${esc(proc.id)}" class="pc-diag pf-clickable"
-          onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})"
-          title="点击进入流程编辑"></div>
-      </div>`;
-    }
-
-    h+=`</div></div></div>`;
-  }
-
   h+=`</div>`; /* end domain-scroll */
 
   document.getElementById('tab-content').innerHTML=h;
-
-  /* 渲染每个流程的迷你图 */
-  for(const proc of allProcs) {
-    if((proc.tasks||[]).length) {
-      renderProcFlow(`pc-diag-${proc.id}`, proc, null);
-    }
-  }
 }
 
 /* ═══════════════════════════════════════════════════════════
    RENDER — Process Tab  (上：实时图 | 下：编辑)
 ═══════════════════════════════════════════════════════════ */
 function renderProcessTab() {
+  ensureProcPos(S.doc);
   const procs=S.doc.processes||[];
   const proc=currentProc();
   const task=currentTask();
+  const view=S.ui.procView||'list';
 
-  let h='';
+  /* ── 视图切换工具栏 ── */
+  let h=`<div class="proc-view-toolbar">
+    <div class="view-toggle-group">
+      <button class="vtb ${view==='list'?'active':''}" onclick="setProcView('list')">概要视图</button>
+      <button class="vtb ${view==='card'?'active':''}" onclick="setProcView('card')">卡片视图</button>
+    </div>
+    ${proc&&view==='list'?`<button class="btn btn-ghost-sm" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
+    <button class="btn btn-outline btn-sm" onclick="addProcess()">＋ 新流程</button>
+  </div>`;
 
-  /* 流程切换条（多流程时显示） */
-  if(procs.length>1||!proc) {
-    h+=`<div class="proc-switcher">`;
-    for(const p of procs) {
-      h+=`<button class="proc-switch-btn ${S.ui.procId===p.id?'active':''}"
-        onclick="navigate('process',{procId:'${p.id}',taskId:null})">${esc(p.id)} ${esc(p.name)}</button>`;
-    }
-    h+=`<button class="proc-switch-btn new-proc-btn" onclick="addProcess()">＋ 新流程</button>`;
-    h+=`</div>`;
-  } else if(!procs.length) {
-    h+=`<div style="padding:16px">
-      <button class="btn btn-primary" onclick="addProcess()">＋ 新建第一个流程</button>
-    </div>`;
+  if(!procs.length) {
+    h+=`<div style="padding:24px;color:var(--text-m)">暂无流程，点击右上角新建</div>`;
     document.getElementById('tab-content').innerHTML=h;
     return;
   }
 
-  /* 实时流程图区 */
-  h+=`<div class="live-diagram-wrap">
-    <div class="live-diagram-toolbar">
-      <span class="live-diagram-hint">点击任务节点进入编辑 ↓</span>
-      ${proc?`<button class="btn btn-outline btn-sm" onclick="addTask('${proc.id}')">＋ 添加任务</button>`:''}
-      ${proc?`<button class="btn btn-ghost-sm" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
-      <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)" title="放大 (Ctrl+滚轮)">＋</button>
-        <button class="zoom-btn" onclick="resetZoom('proc-diagram')" title="重置缩放">⊙</button>
-        <button class="zoom-btn" onclick="zoomBy('proc-diagram',-0.2)" title="缩小">－</button>
+  /* ══ 卡片视图 ══ */
+  if(view==='card') {
+    const maxRow=Math.max(...procs.map(p=>p.pos?.r||1));
+    const maxCol=Math.max(...procs.map(p=>p.pos?.c||1));
+    h+=`<div class="card-view-area">
+      <div id="card-map" class="card-map"
+        style="height:${maxRow*CARD_H+8}px;min-width:${Math.max(maxCol*CARD_W+8,600)}px">`;
+    for(const p of procs) {
+      const r=p.pos?.r||1, c=p.pos?.c||1;
+      h+=`<div class="proc-card" data-id="${esc(p.id)}"
+        style="left:${(c-1)*CARD_W+8}px;top:${(r-1)*CARD_H+8}px;width:${CARD_W-16}px;height:${CARD_H-16}px">
+        <div class="pc-header" onmousedown="startCardDrag('${esc(p.id)}',event)" onclick="event.stopPropagation()">
+          <span class="pc-id">${esc(p.id)}</span>
+          <span class="pc-name">${esc(p.name||'未命名')}</span>
+          <button class="pc-goto btn-icon"
+            onclick="setProcView('list');navigate('process',{procId:'${esc(p.id)}',taskId:null})"
+            title="进入编辑">→</button>
+        </div>
+        <div id="pc-diag-${esc(p.id)}" class="pc-diag pf-clickable"
+          onclick="setProcView('list');navigate('process',{procId:'${esc(p.id)}',taskId:null})"
+          title="点击进入编辑"></div>
+      </div>`;
+    }
+    h+=`</div></div>`;
+    document.getElementById('tab-content').innerHTML=h;
+    for(const p of procs) {
+      if((p.tasks||[]).length) renderProcFlow(`pc-diag-${p.id}`, p, null);
+    }
+    return;
+  }
+
+  /* ══ 概要视图：紧凑列表 ══ */
+  h+=`<div class="proc-list-wrap">`;
+  for(const p of procs) {
+    const isActive=S.ui.procId===p.id;
+    const taskCnt=(p.tasks||[]).length;
+    h+=`<div class="proc-list-item${isActive?' active':''}"
+      draggable="true"
+      ondragstart="procListDragStart(event,'${esc(p.id)}')"
+      ondragover="procListDragOver(event,'${esc(p.id)}')"
+      ondragleave="procListDragLeave(event)"
+      ondrop="procListDrop(event,'${esc(p.id)}')"
+      onclick="navigate('process',{procId:'${esc(p.id)}',taskId:null})">
+      <span class="pl-handle" title="拖动排序">⠿</span>
+      <span class="pl-id">${esc(p.id)}</span>
+      <span class="pl-name">${esc(p.name||'未命名')}</span>
+      ${p.subDomain?`<span class="pl-tag">${esc(p.subDomain)}</span>`:''}
+      <span class="pl-count">${taskCnt ? taskCnt+'个任务' : '无任务'}</span>
+    </div>`;
+  }
+  h+=`</div>`;
+
+  /* 实时流程图区（概要视图下，仅在选中流程时显示） */
+  if(proc) {
+    h+=`<div class="live-diagram-wrap">
+      <div class="live-diagram-toolbar">
+        <span class="live-diagram-hint">点击任务节点进入编辑 ↓</span>
+        <button class="btn btn-outline btn-sm" onclick="addTask('${proc.id}')">＋ 添加任务</button>
+        <div class="zoom-controls">
+          <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)" title="放大">＋</button>
+          <button class="zoom-btn" onclick="resetZoom('proc-diagram')" title="重置">⊙</button>
+          <button class="zoom-btn" onclick="zoomBy('proc-diagram',-0.2)" title="缩小">－</button>
+        </div>
       </div>
-    </div>
-    <div id="proc-diagram" class="live-diagram"></div>
-  </div>`;
+      <div id="proc-diagram" class="live-diagram"></div>
+    </div>`;
+  }
 
   /* 分隔线 + 编辑区 */
   h+=`<div class="edit-panel">`;
