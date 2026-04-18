@@ -12,7 +12,8 @@ const S = {
     tab: 'domain',
     procId: null, taskId: null,
     entityId: null,
-    sbCollapse: {}   // { 'proc-P1': true, 'grp-销售': false }
+    sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
+    sidebarCollapsed: false
   }
 };
 
@@ -828,6 +829,17 @@ function toggleCollapse(key) {
   renderSidebar();
 }
 
+function toggleSidebar() {
+  S.ui.sidebarCollapsed = !S.ui.sidebarCollapsed;
+  renderSidebar();
+}
+
+function _defaultSbCollapse(doc) {
+  const c = {};
+  (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
+  return c;
+}
+
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Meta / Domain (domain IS the filename)
 ═══════════════════════════════════════════════════════════ */
@@ -1137,7 +1149,21 @@ function _renderSbProc(p) {
 function renderSidebar() {
   const procs    = S.doc.processes||[];
   const entities = S.doc.entities||[];
-  let h='';
+  const collapsed = S.ui.sidebarCollapsed;
+
+  /* 控制侧边栏宽度 */
+  const sb = document.getElementById('sidebar');
+  if(sb) sb.classList.toggle('sb-collapsed', collapsed);
+
+  /* 折叠/展开切换按钮（始终显示） */
+  let h=`<div class="sb-panel-toggle-row">
+    <button class="sb-panel-toggle" onclick="toggleSidebar()" title="${collapsed?'展开侧边栏':'折叠侧边栏'}">${collapsed?'›':'‹'}</button>
+  </div>`;
+
+  if(collapsed) {
+    document.getElementById('sidebar-content').innerHTML=h;
+    return;
+  }
 
   /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
@@ -1333,19 +1359,14 @@ function renderDomainTab() {
 
   h+=`<div class="ctx-card">
     <h3>业务域信息</h3>
-    <div class="form-grid">
-      <div class="field-group form-full">
+    <div class="domain-meta-row">
+      <div class="field-group" style="flex:1">
         <label>业务域名称 <span class="section-hint">（同时作为文档名称）</span></label>
         <input type="text" value="${esc(m.domain||m.title||'')}"
           oninput="setDomain(this.value)"
           placeholder="如：仓储管理、采购、结算">
       </div>
-      <div class="field-group">
-        <label>作者</label>
-        <input type="text" value="${esc(m.author||'')}"
-          oninput="setMeta('author',this.value)">
-      </div>
-      <div class="field-group">
+      <div class="field-group" style="width:130px;flex-shrink:0">
         <label>日期</label>
         <input type="text" value="${esc(m.date||'')}"
           oninput="setMeta('date',this.value)" placeholder="如：2025-01">
@@ -1367,27 +1388,50 @@ function renderDomainTab() {
     </div>
   </div>`;
 
+  const langCollapsed = !!S.ui.sbCollapse['lang'];
   h+=`<div class="ctx-card">
     <h3>统一语言
-      <button class="btn btn-outline btn-sm" onclick="addTerm()">＋ 添加术语</button>
+      <span style="display:flex;align-items:center;gap:6px">
+        ${!langCollapsed?`<button class="btn btn-outline btn-sm" onclick="addTerm()">＋ 添加术语</button>`:''}
+        <button class="sb-caret" style="font-size:12px;padding:2px 4px" onclick="toggleCollapse('lang')">${langCollapsed?'▶':'▾'}</button>
+      </span>
     </h3>`;
-  if(lang.length){
-    h+=`<table class="term-table">
-      <thead><tr><th>术语</th><th>定义</th><th></th></tr></thead><tbody>`;
-    lang.forEach((t,i)=>{
-      h+=`<tr>
-        <td><input type="text" value="${esc(t.term||'')}"
-          oninput="setTerm(${i},'term',this.value)" placeholder="术语"></td>
-        <td><input type="text" value="${esc(t.definition||'')}"
-          oninput="setTerm(${i},'definition',this.value)" placeholder="定义"></td>
-        <td><button class="field-del" onclick="removeTerm(${i})">✕</button></td>
-      </tr>`;
-    });
-    h+=`</tbody></table>`;
-  } else {
-    h+=`<p class="no-refs">暂无术语定义</p>`;
+  if(!langCollapsed) {
+    if(lang.length){
+      h+=`<table class="term-table">
+        <thead><tr><th>术语</th><th>定义</th><th></th></tr></thead><tbody>`;
+      lang.forEach((t,i)=>{
+        h+=`<tr>
+          <td><input type="text" value="${esc(t.term||'')}"
+            oninput="setTerm(${i},'term',this.value)" placeholder="术语"></td>
+          <td><input type="text" value="${esc(t.definition||'')}"
+            oninput="setTerm(${i},'definition',this.value)" placeholder="定义"></td>
+          <td><button class="field-del" onclick="removeTerm(${i})">✕</button></td>
+        </tr>`;
+      });
+      h+=`</tbody></table>`;
+    } else {
+      h+=`<p class="no-refs">暂无术语定义</p>`;
+    }
   }
-  h+=`</div>`; /* end last ctx-card */
+  h+=`</div>`; /* end 统一语言 ctx-card */
+
+  /* 版本历史 */
+  const versions = S.doc.versions||[];
+  if(versions.length) {
+    h+=`<div class="ctx-card">
+      <h3>版本历史</h3>
+      <div class="version-list">`;
+    [...versions].reverse().forEach(v=>{
+      const d=new Date(v.time);
+      const ts=d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+      h+=`<div class="version-item">
+        <span class="version-num">v${v.version}</span>
+        <span class="version-time">${ts}</span>
+      </div>`;
+    });
+    h+=`</div></div>`;
+  }
 
   /* 流程地图（Card Map）：卡片绝对定位，可拖拽调整时序 */
   const allProcs = S.doc.processes||[];
@@ -2163,7 +2207,7 @@ const App = {
     App.closeModal();
     const doc=await api.load(name);
     S.currentFile=name; S.doc=doc; S.modified=false;
-    S.ui={tab:'domain', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
+    S.ui={tab:'domain', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:_defaultSbCollapse(doc), sidebarCollapsed:false};
     render();
   },
 
@@ -2197,6 +2241,11 @@ const App = {
 
   async cmdSave() {
     if(!S.doc||!S.currentFile) return;
+    /* 追加版本记录 */
+    if(!S.doc.versions) S.doc.versions=[];
+    const nextVer=(S.doc.versions.length>0?S.doc.versions[S.doc.versions.length-1].version:0)+1;
+    S.doc.versions.push({version:nextVer, time:new Date().toISOString()});
+
     const newDomain=(S.doc.meta?.domain||'').trim();
     if(newDomain && newDomain!==S.currentFile) {
       /* 业务域改名 → 先存新文件再删旧文件 */
@@ -2209,6 +2258,7 @@ const App = {
     S.modified=false;
     document.getElementById('modified-dot')?.classList.add('hidden');
     renderToolbar();
+    if(S.ui.tab==='domain') renderDomainTab();
   },
 
   async cmdExport() {
