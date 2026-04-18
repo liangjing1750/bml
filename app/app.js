@@ -830,6 +830,12 @@ function toggleCollapse(key) {
   renderSidebar();
 }
 
+/* 业务域 Tab 内的卡片折叠（不影响侧边栏） */
+function toggleDomainSection(key) {
+  S.ui.sbCollapse[key] = !S.ui.sbCollapse[key];
+  renderDomainTab();
+}
+
 function toggleSidebar() {
   S.ui.sidebarCollapsed = !S.ui.sidebarCollapsed;
   renderSidebar();
@@ -1152,19 +1158,18 @@ function renderSidebar() {
   const entities = S.doc.entities||[];
   const collapsed = S.ui.sidebarCollapsed;
 
-  /* 控制侧边栏宽度 */
+  /* 控制侧边栏宽度 & 外部按钮文字 */
   const sb = document.getElementById('sidebar');
   if(sb) sb.classList.toggle('sb-collapsed', collapsed);
-
-  /* 折叠/展开切换按钮（始终显示） */
-  let h=`<div class="sb-panel-toggle-row">
-    <button class="sb-panel-toggle" onclick="toggleSidebar()" title="${collapsed?'展开侧边栏':'折叠侧边栏'}">${collapsed?'›':'‹'}</button>
-  </div>`;
+  const toggleBtn = document.getElementById('sb-toggle-btn');
+  if(toggleBtn) toggleBtn.textContent = collapsed ? '展开' : '折叠';
 
   if(collapsed) {
-    document.getElementById('sidebar-content').innerHTML=h;
+    document.getElementById('sidebar-content').innerHTML='';
     return;
   }
+
+  let h='';
 
   /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
@@ -1394,7 +1399,7 @@ function renderDomainTab() {
     <h3>统一语言
       <span style="display:flex;align-items:center;gap:6px">
         ${!langCollapsed?`<button class="btn btn-outline btn-sm" onclick="addTerm()">＋ 添加术语</button>`:''}
-        <button class="sb-caret" style="font-size:12px;padding:2px 4px" onclick="toggleCollapse('lang')">${langCollapsed?'▶':'▾'}</button>
+        <button class="sb-caret" style="font-size:12px;padding:2px 4px" onclick="toggleDomainSection('lang')">${langCollapsed?'▶':'▾'}</button>
       </span>
     </h3>`;
   if(!langCollapsed) {
@@ -2322,8 +2327,10 @@ const App = {
   async openFile(name) {
     App.closeOpenModal();
     const doc=await api.load(name);
+    /* 若 domain 为空，同步为文件名，避免保存时误触发重命名 */
+    if(doc.meta && !doc.meta.domain) doc.meta.domain = name;
     S.currentFile=name; S.doc=doc; S.modified=false;
-    S.ui={tab:'domain', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:{}};
+    S.ui={tab:'domain', procId:doc.processes?.[0]?.id||null, taskId:null, entityId:null, sbCollapse:_defaultSbCollapse(doc), sidebarCollapsed:false};
     render();
   },
   async deleteFile(name) {
@@ -2342,9 +2349,11 @@ const App = {
 
     const newDomain=(S.doc.meta?.domain||'').trim();
     if(newDomain && newDomain!==S.currentFile) {
-      /* 业务域改名 → 先存新文件再删旧文件 */
+      /* 业务域改名 → 先存新文件，确认后再删旧文件 */
       await api.save(newDomain, S.doc);
-      await api.del(S.currentFile);
+      if(confirm(`文档将另存为"${newDomain}"，是否同时删除旧文件"${S.currentFile}"？`)) {
+        await api.del(S.currentFile);
+      }
       S.currentFile=newDomain;
     } else {
       await api.save(S.currentFile, S.doc);
