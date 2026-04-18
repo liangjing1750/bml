@@ -10,7 +10,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
-PORT = 8765
+PORT = 8888
 ROOT = Path(__file__).parent
 APP  = ROOT / "app"
 WS   = ROOT / "workspace"
@@ -227,23 +227,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if fp.exists():
                 return self._text(build_md(json.loads(fp.read_text("utf-8"))))
             return self._json({"error": "not found"}, 404)
-        # 静态资源禁用浏览器缓存，避免修改后需要手动强刷
-        if p.endswith(('.js', '.css', '.html', '')):
-            self.send_response(200)
-            path = APP / (p.lstrip('/') or 'index.html')
-            if not path.exists():
-                self.send_response(404); self.end_headers(); return
-            ext = path.suffix
-            ctype = {'js': 'application/javascript', 'css': 'text/css',
-                     'html': 'text/html'}.get(ext.lstrip('.'), 'text/plain')
-            data = path.read_bytes()
-            self.send_header('Content-Type', f'{ctype}; charset=utf-8')
-            self.send_header('Content-Length', len(data))
-            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-            self.send_header('Pragma', 'no-cache')
-            self.end_headers()
-            self.wfile.write(data)
-            return
         super().do_GET()
 
     def do_POST(self):

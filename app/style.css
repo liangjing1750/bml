@@ -137,21 +137,42 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
 .live-diagram-wrap {
   flex-shrink: 0;
-  border-bottom: 2px solid var(--border);
   background: #fafbfc;
+  display: flex; flex-direction: column;
+  position: relative;
 }
 .live-diagram-toolbar {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 16px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .live-diagram-hint { font-size: 11px; color: var(--text-m); flex: 1; }
 .live-diagram {
-  min-height: 120px; max-height: 260px;
   overflow: auto;
   padding: 8px 16px;
   display: flex; align-items: flex-start;
+  flex: 1;
 }
 .live-diagram svg { min-width: max-content; height: auto; }
+
+/* 可拖拽分隔条 */
+.diagram-resize-handle {
+  height: 8px; flex-shrink: 0;
+  cursor: ns-resize;
+  background: var(--border);
+  border-top: 1px solid #dde1e7;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+  user-select: none;
+}
+.diagram-resize-handle:hover,
+.diagram-resize-handle.dragging { background: #c7d2fe; }
+.diagram-resize-handle::after {
+  content: '';
+  width: 36px; height: 2px;
+  background: #94a3b8; border-radius: 2px;
+}
+.diagram-resize-handle.dragging::after { background: var(--accent); }
 
 /* 流程概览列表（domain tab） */
 .procs-ov-list { display: flex; flex-direction: column; gap: 12px; }
@@ -386,8 +407,9 @@ select { appearance: auto; }
 }
 .step-row-top { display: flex; align-items: center; gap: 8px; }
 .step-num  { font-size: 11px; color: var(--text-m); min-width: 18px; font-weight: 600; flex-shrink: 0; }
-.step-name { width: 180px; flex-shrink: 0; }
-.step-type { width: 100px; flex-shrink: 0; }
+input.step-name { flex: 1; min-width: 80px; }
+.step-type { width: 72px; flex-shrink: 0; }
+input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .step-del  { background: none; border: none; cursor: pointer; color: var(--text-m);
              padding: 2px 5px; border-radius: 4px; margin-left: auto; flex-shrink: 0; }
 .step-del:hover { background: #fee2e2; color: var(--danger); }

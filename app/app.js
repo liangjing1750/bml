@@ -48,6 +48,7 @@ const STEP_TYPES = [
   {value:'Query',  label:'查询'}, {value:'Check',  label:'校验'},
   {value:'Fill',   label:'填写'}, {value:'Select', label:'选择'},
   {value:'Compute',label:'计算'}, {value:'Mutate', label:'变更'},
+  {value:'__other__', label:'其它…'},
 ];
 const FIELD_TYPES = [
   {value:'string',  label:'字符'},  {value:'number',  label:'数值'},
@@ -1550,17 +1551,17 @@ function renderProcessTab() {
         <label>执行角色</label>`;
 
     const roles=getRoles();
+    const isCustomRole = roles.length && task.role && !roles.includes(task.role);
     if(roles.length) {
-      h+=`<select onchange="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">
-        <option value="">请选择角色...</option>
-        ${roles.map(r=>`<option value="${esc(r)}" ${task.role===r?'selected':''}>${esc(r)}</option>`).join('')}
-        <option value="__custom__" ${!roles.includes(task.role)&&task.role?'selected':''}>自定义...</option>
-      </select>`;
-      if(!roles.includes(task.role)&&task.role) {
-        h+=`<input type="text" value="${esc(task.role)}" placeholder="自定义角色名"
-          style="margin-top:4px"
-          oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`;
-      }
+      h+=`<div style="display:flex;gap:6px;align-items:center">
+        <select style="flex-shrink:0;width:auto" onchange="onRoleChange(this,'${proc.id}','${task.id}')">
+          <option value="">请选择...</option>
+          ${roles.map(r=>`<option value="${esc(r)}" ${task.role===r?'selected':''}>${esc(r)}</option>`).join('')}
+          <option value="__custom__" ${isCustomRole?'selected':''}>自定义...</option>
+        </select>
+        ${isCustomRole?`<input type="text" value="${esc(task.role)}" placeholder="自定义角色名"
+          style="flex:1"
+          oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`:''}</div>`;
     } else {
       h+=`<input type="text" value="${esc(task.role||'')}" placeholder="如：采购员（先在业务域中添加角色）"
         oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`;
@@ -1579,9 +1580,10 @@ function renderProcessTab() {
             <span class="step-num">${i+1}</span>
             <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述（简短）"
               oninput="setStep('${proc.id}','${task.id}',${i},'name',this.value)">
-            <select class="step-type" onchange="setStep('${proc.id}','${task.id}',${i},'type',this.value)">
-              ${STEP_TYPES.map(t=>`<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
-            </select>
+            <select class="step-type" onchange="onStepTypeChange(this,'${proc.id}','${task.id}',${i})">
+              ${STEP_TYPES.map(t=>`<option value="${t.value}" ${(t.value==='__other__'?isCustomStepType(s.type):s.type===t.value)?'selected':''}>${t.label}</option>`).join('')}
+            </select>${isCustomStepType(s.type)?`<input class="step-type-custom" type="text" value="${esc(s.type)}" placeholder="自定义类型"
+              oninput="setStep('${proc.id}','${task.id}',${i},'type',this.value)">`:''}
             <button class="step-del" onclick="removeStep('${proc.id}','${task.id}',${i})">✕</button>
           </div>
           <textarea class="step-note auto-resize" rows="1" placeholder="条件 / 备注 / 规则（可多行）"
@@ -1705,11 +1707,14 @@ function renderDataTab() {
   let h='';
 
   /* 实体关系图 */
-  h+=`<div class="live-diagram-wrap">
+  const diagH = S.ui.diagramH || 260;
+  const diagExpanded = !!S.ui.diagramExpanded;
+  h+=`<div class="live-diagram-wrap" id="diagram-wrap" style="height:${diagH}px">
     <div class="live-diagram-toolbar">
       <span class="live-diagram-hint">拖拽节点调整布局 · 点击节点进入编辑 ↓</span>
       <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
       <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复自动排列">重置布局</button>
+      <button class="btn btn-ghost-sm" id="expand-diagram-btn" onclick="toggleDiagramExpand()" title="展开/收起实体关系图">${diagExpanded?'收起 ↑':'展开 ↓'}</button>
       <div class="zoom-controls">
         <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大 (Ctrl+滚轮)">＋</button>
         <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置缩放">⊙</button>
@@ -1717,6 +1722,7 @@ function renderDataTab() {
       </div>
     </div>
     <div id="entity-diagram" class="live-diagram"></div>
+    <div class="diagram-resize-handle" id="diagram-resize-handle" onmousedown="startDiagramResize(event)" title="拖动调整高度"></div>
   </div>`;
 
   h+=`<div class="edit-panel">`;
@@ -1838,6 +1844,94 @@ function renderEntityDiagramNow() {
   for(const e of (S.doc.entities||[]))
     clickMap[e.id]=()=>navigate('data',{entityId:e.id});
   renderEntityFlow('entity-diagram', S.doc, clickMap);
+}
+
+/* ── 步骤类型：自定义支持 ── */
+function onRoleChange(sel, procId, taskId) {
+  if (sel.value === '__custom__') {
+    /* 不 re-render，直接 DOM 插入输入框 */
+    const wrap = sel.parentElement;
+    let inp = wrap.querySelector('input[placeholder="自定义角色名"]');
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.type = 'text'; inp.placeholder = '自定义角色名'; inp.style.flex = '1';
+      inp.oninput = () => { setTask(procId, taskId, 'role', inp.value); renderProcDiagramNow(); };
+      wrap.appendChild(inp);
+    }
+    inp.focus();
+  } else {
+    setTask(procId, taskId, 'role', sel.value);
+    renderProcDiagramNow();
+  }
+}
+
+function isCustomStepType(type) {
+  if (type === null || type === undefined) return false;
+  return !STEP_TYPES.some(t => t.value !== '__other__' && t.value === type);
+}
+function onStepTypeChange(sel, procId, taskId, idx) {
+  const val = sel.value;
+  if (val === '__other__') {
+    setStep(procId, taskId, idx, 'type', '');
+    render();
+    const rows = document.querySelectorAll('.step-row');
+    const input = rows[idx]?.querySelector('.step-type-custom');
+    if (input) { input.focus(); }
+  } else {
+    setStep(procId, taskId, idx, 'type', val);
+    render();
+  }
+}
+
+/* ── 实体关系图区域高度控制 ── */
+function startDiagramResize(e) {
+  e.preventDefault();
+  const wrap   = document.getElementById('diagram-wrap');
+  const handle = document.getElementById('diagram-resize-handle');
+  if (!wrap) return;
+  const startY = e.clientY;
+  const startH = wrap.offsetHeight;
+  handle.classList.add('dragging');
+  document.body.style.cursor = 'ns-resize';
+  document.body.style.userSelect = 'none';
+
+  function onMove(ev) {
+    const newH = Math.max(80, Math.min(window.innerHeight * 0.85, startH + ev.clientY - startY));
+    wrap.style.height = newH + 'px';
+    S.ui.diagramH = newH;
+    S.ui.diagramExpanded = false;
+    const btn = document.getElementById('expand-diagram-btn');
+    if (btn) btn.textContent = '展开 ↓';
+  }
+  function onUp() {
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function toggleDiagramExpand() {
+  const wrap = document.getElementById('diagram-wrap');
+  const btn  = document.getElementById('expand-diagram-btn');
+  if (!wrap) return;
+  if (!S.ui.diagramExpanded) {
+    S.ui._prevDiagramH = S.ui.diagramH || 260;
+    const expandH = Math.floor(window.innerHeight * 0.72);
+    wrap.style.height = expandH + 'px';
+    S.ui.diagramH = expandH;
+    S.ui.diagramExpanded = true;
+    if (btn) btn.textContent = '收起 ↑';
+  } else {
+    const h = S.ui._prevDiagramH || 260;
+    wrap.style.height = h + 'px';
+    S.ui.diagramH = h;
+    S.ui.diagramExpanded = false;
+    if (btn) btn.textContent = '展开 ↓';
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
