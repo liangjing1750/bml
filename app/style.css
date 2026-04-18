@@ -139,8 +139,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .empty-state h2 { font-size: 18px; color: var(--text); }
 .empty-state p  { font-size: 14px; }
 
-/* ─── 主内容区：上下分区（实时图 + 编辑） ───────────────── */
-#tab-content { flex: 1; overflow-y: auto; padding: 0; display: flex; flex-direction: column; }
+/* ─── 主内容区：overflow hidden，子组件自管滚动 ─────────── */
 
 .live-diagram-wrap {
   flex-shrink: 0;
@@ -360,7 +359,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 /* 概要视图：映射网格 */
 .ov-map-wrap {
   flex-shrink: 0; overflow: auto;
-  max-height: 42vh;
+  max-height: 42vh; /* list 模式下被 .ov-full 覆盖为全高 */
   border-bottom: 1px solid var(--border);
   background: #f8fafc;
 }
@@ -397,6 +396,73 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .ovc-sd  { font-size: 10px; padding: 1px 5px; border-radius: 8px;
            background: #fef3c7; color: #92400e; flex-shrink: 0; }
 .ovc-cnt { font-size: 10px; color: var(--text-m); margin-left: auto; white-space: nowrap; }
+
+/* 概要视图全高（配合抽屉） */
+.ov-full { max-height: none !important; flex: 1; }
+
+/* ── 右侧编辑抽屉 ── */
+#tab-content { position: relative; } /* 抽屉定位锚点 */
+
+.proc-drawer {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 480px; min-width: 320px;
+  background: #fff;
+  border-left: 1px solid var(--border);
+  box-shadow: -6px 0 24px rgba(0,0,0,.1);
+  display: none; flex-direction: column;
+  z-index: 20;
+  overflow: hidden;
+}
+.proc-drawer.open { display: flex; }
+
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: #fff; gap: 8px;
+}
+.drawer-crumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--text);
+  overflow: hidden; flex: 1;
+}
+.drawer-crumb-proc {
+  color: var(--accent); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.drawer-crumb-proc:hover { text-decoration: underline; }
+.dc-sep { color: var(--text-m); flex-shrink: 0; }
+.drawer-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.drawer-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 16px; color: var(--text-m);
+  padding: 2px 7px; border-radius: 4px; line-height: 1;
+}
+.drawer-close:hover { background: var(--hover); color: var(--text); }
+
+.drawer-diag {
+  flex-shrink: 0;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  max-height: 180px; overflow: hidden;
+}
+.drawer-diag-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 12px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.drawer-diag .live-diagram { max-height: 140px; overflow: auto; flex: 1; }
+
+.drawer-body {
+  flex: 1; overflow-y: auto;
+  padding: 16px 18px;
+}
+.drawer-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text-m); font-size: 13px;
+}
 
 /* 可重复任务勾选 */
 .repeat-toggle {

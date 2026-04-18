@@ -1608,10 +1608,10 @@ function renderProcessTab() {
     return;
   }
 
-  /* ══ 概要视图：映射网格（与卡片视图同一 r/c 坐标，缩小版） ══ */
+  /* ══ 概要视图：映射网格（全高）+ 右侧抽屉编辑 ══ */
   const ovMaxRow=Math.max(...procs.map(p=>p.pos?.r||1));
   const ovMaxCol=Math.max(...procs.map(p=>p.pos?.c||1));
-  h+=`<div class="ov-map-wrap">
+  h+=`<div class="ov-map-wrap ov-full">
     <div id="card-map" class="ov-map"
       style="height:${ovMaxRow*OV_CARD_H+8}px;min-width:${Math.max(ovMaxCol*OV_CARD_W+8,400)}px">`;
   for(const p of procs) {
@@ -1633,178 +1633,191 @@ function renderProcessTab() {
   }
   h+=`</div></div>`;
 
-  /* 实时流程图区（概要视图下，仅在选中流程时显示） */
+  /* ── 右侧抽屉（点击流程卡片后滑入） ── */
+  h+=`<div class="proc-drawer${proc?' open':''}">`;
+
   if(proc) {
-    h+=`<div class="live-diagram-wrap">
-      <div class="live-diagram-toolbar">
-        <span class="live-diagram-hint">点击任务节点进入编辑 ↓</span>
-        <button class="btn btn-outline btn-sm" onclick="addTask('${proc.id}')">＋ 添加任务</button>
+    /* 抽屉头部 */
+    h+=`<div class="drawer-head">
+      <div class="drawer-crumb">
+        <span class="drawer-crumb-proc" onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})"
+          title="回到流程">${esc(proc.id)} ${esc(proc.name||'')}</span>
+        ${task?`<span class="dc-sep">›</span>
+          <span>${esc(task.id)} ${esc(task.name||'')}</span>`:''}
+      </div>
+      <div class="drawer-actions">
+        ${!task?`<button class="btn btn-outline btn-sm" onclick="addTask('${esc(proc.id)}')">＋ 任务</button>`:''}
+        ${!task?`<button class="btn btn-ghost-sm" onclick="removeProcess('${esc(proc.id)}')">删除流程</button>`:''}
+        ${task?`<button class="btn btn-danger btn-sm" onclick="removeTask('${esc(proc.id)}','${esc(task.id)}')">删除任务</button>`:''}
+        <button class="drawer-close" onclick="navigate('process',{procId:null,taskId:null})" title="关闭抽屉">✕</button>
+      </div>
+    </div>`;
+
+    /* 流程图（小图） */
+    h+=`<div class="drawer-diag">
+      <div class="drawer-diag-bar">
+        <span class="live-diagram-hint">点击任务节点进入编辑</span>
         <div class="zoom-controls">
-          <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)" title="放大">＋</button>
-          <button class="zoom-btn" onclick="resetZoom('proc-diagram')" title="重置">⊙</button>
-          <button class="zoom-btn" onclick="zoomBy('proc-diagram',-0.2)" title="缩小">－</button>
+          <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)">＋</button>
+          <button class="zoom-btn" onclick="resetZoom('proc-diagram')">⊙</button>
+          <button class="zoom-btn" onclick="zoomBy('proc-diagram',-0.2)">－</button>
         </div>
       </div>
-      <div id="proc-diagram" class="live-diagram"></div>
+      <div id="proc-diagram" class="live-diagram" style="padding:6px 12px"></div>
     </div>`;
-  }
 
-  /* 分隔线 + 编辑区 */
-  h+=`<div class="edit-panel">`;
+    /* 编辑表单 */
+    h+=`<div class="drawer-body">`;
 
-  if(task&&proc) {
-    /* ── 任务编辑 ── */
-    h+=`<div class="edit-panel-title">
-      <span class="detail-id editable-id" onclick="startEditId(this,'task','${proc.id}','${task.id}')" title="点击编辑ID">${esc(task.id)}</span>
-      <span>${esc(task.name||'未命名')}</span>
-      <label class="repeat-toggle" title="可重复任务：同一流程中该任务可被执行多次">
-        <input type="checkbox" ${task.repeatable?'checked':''}
-          onchange="setTask('${proc.id}','${task.id}','repeatable',this.checked);render()">
-        <span>可重复 ↺</span>
-      </label>
-      <button class="btn btn-danger btn-sm" style="margin-left:auto"
-        onclick="removeTask('${proc.id}','${task.id}')">删除任务</button>
-    </div>
+    if(task) {
+      /* ── 任务编辑 ── */
+      h+=`<div class="form-grid" style="margin-bottom:16px">
+        <div class="field-group">
+          <label>任务名称</label>
+          <input type="text" value="${esc(task.name||'')}" placeholder="如：录入采购单"
+            oninput="setTask('${esc(proc.id)}','${esc(task.id)}','name',this.value);renderSidebar();renderProcDiagramNow()">
+        </div>
+        <div class="field-group">
+          <label>执行角色</label>`;
 
-    <div class="form-grid" style="margin-bottom:16px">
-      <div class="field-group">
-        <label>任务名称</label>
-        <input type="text" value="${esc(task.name||'')}" placeholder="如：录入采购单"
-          oninput="setTask('${proc.id}','${task.id}','name',this.value);renderSidebar();renderProcDiagramNow()">
-      </div>
-      <div class="field-group">
-        <label>执行角色</label>`;
+      const roles=getRoles();
+      const isCustomRole = roles.length && task.role && !roles.includes(task.role);
+      if(roles.length) {
+        h+=`<div style="display:flex;gap:6px;align-items:center">
+          <select style="flex-shrink:0;width:auto" onchange="onRoleChange(this,'${esc(proc.id)}','${esc(task.id)}')">
+            <option value="">请选择...</option>
+            ${roles.map(r=>`<option value="${esc(r)}" ${task.role===r?'selected':''}>${esc(r)}</option>`).join('')}
+            <option value="__custom__" ${isCustomRole?'selected':''}>自定义...</option>
+          </select>
+          ${isCustomRole?`<input type="text" value="${esc(task.role)}" placeholder="自定义角色名"
+            style="flex:1"
+            oninput="setTask('${esc(proc.id)}','${esc(task.id)}','role',this.value);renderProcDiagramNow()">`:''}</div>`;
+      } else {
+        h+=`<input type="text" value="${esc(task.role||'')}" placeholder="如：采购员"
+          oninput="setTask('${esc(proc.id)}','${esc(task.id)}','role',this.value);renderProcDiagramNow()">`;
+      }
+      h+=`</div>
+        <div class="field-group" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:8px">
+            可重复
+            <input type="checkbox" ${task.repeatable?'checked':''}
+              onchange="setTask('${esc(proc.id)}','${esc(task.id)}','repeatable',this.checked);render()">
+            <span style="font-size:11px;color:var(--text-m);font-weight:400">同一流程中可被执行多次 ↺</span>
+          </label>
+        </div>
+      </div>`;
 
-    const roles=getRoles();
-    const isCustomRole = roles.length && task.role && !roles.includes(task.role);
-    if(roles.length) {
-      h+=`<div style="display:flex;gap:6px;align-items:center">
-        <select style="flex-shrink:0;width:auto" onchange="onRoleChange(this,'${proc.id}','${task.id}')">
-          <option value="">请选择...</option>
-          ${roles.map(r=>`<option value="${esc(r)}" ${task.role===r?'selected':''}>${esc(r)}</option>`).join('')}
-          <option value="__custom__" ${isCustomRole?'selected':''}>自定义...</option>
-        </select>
-        ${isCustomRole?`<input type="text" value="${esc(task.role)}" placeholder="自定义角色名"
-          style="flex:1"
-          oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`:''}</div>`;
-    } else {
-      h+=`<input type="text" value="${esc(task.role||'')}" placeholder="如：采购员（先在业务域中添加角色）"
-        oninput="setTask('${proc.id}','${task.id}','role',this.value);renderProcDiagramNow()">`;
-    }
-
-    h+=`</div></div>`;
-
-    /* 步骤 */
-    h+=`<div class="form-section">
-      <h4>操作步骤 <button class="btn btn-outline btn-sm" onclick="addStep('${proc.id}','${task.id}')">＋</button></h4>`;
-    if(task.steps?.length){
-      h+=`<div class="step-list">`;
-      task.steps.forEach((s,i)=>{
-        h+=`<div class="step-row">
-          <div class="step-row-top">
-            <span class="step-num">${i+1}</span>
-            <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述（简短）"
-              oninput="setStep('${proc.id}','${task.id}',${i},'name',this.value)">
-            <select class="step-type" onchange="onStepTypeChange(this,'${proc.id}','${task.id}',${i})">
-              ${STEP_TYPES.map(t=>`<option value="${t.value}" ${(t.value==='__other__'?isCustomStepType(s.type):s.type===t.value)?'selected':''}>${t.label}</option>`).join('')}
-            </select>${isCustomStepType(s.type)?`<input class="step-type-custom" type="text" value="${esc(s.type)}" placeholder="自定义类型"
-              oninput="setStep('${proc.id}','${task.id}',${i},'type',this.value)">`:''}
-            <button class="step-del" onclick="removeStep('${proc.id}','${task.id}',${i})">✕</button>
-          </div>
-          <textarea class="step-note auto-resize" rows="1" placeholder="条件 / 备注 / 规则（可多行）"
-            oninput="setStep('${proc.id}','${task.id}',${i},'note',this.value);autoResize(this)"
-            >${esc(s.note||'')}</textarea>
-        </div>`;
-      });
+      /* 步骤 */
+      h+=`<div class="form-section">
+        <h4>操作步骤 <button class="btn btn-outline btn-sm" onclick="addStep('${esc(proc.id)}','${esc(task.id)}')">＋</button></h4>`;
+      if(task.steps?.length){
+        h+=`<div class="step-list">`;
+        task.steps.forEach((s,i)=>{
+          h+=`<div class="step-row">
+            <div class="step-row-top">
+              <span class="step-num">${i+1}</span>
+              <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述"
+                oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'name',this.value)">
+              <select class="step-type" onchange="onStepTypeChange(this,'${esc(proc.id)}','${esc(task.id)}',${i})">
+                ${STEP_TYPES.map(t=>`<option value="${t.value}" ${(t.value==='__other__'?isCustomStepType(s.type):s.type===t.value)?'selected':''}>${t.label}</option>`).join('')}
+              </select>${isCustomStepType(s.type)?`<input class="step-type-custom" type="text" value="${esc(s.type)}" placeholder="自定义类型"
+                oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'type',this.value)">`:''}
+              <button class="step-del" onclick="removeStep('${esc(proc.id)}','${esc(task.id)}',${i})">✕</button>
+            </div>
+            <textarea class="step-note auto-resize" rows="1" placeholder="条件 / 备注 / 规则"
+              oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'note',this.value);autoResize(this)"
+              >${esc(s.note||'')}</textarea>
+          </div>`;
+        });
+        h+=`</div>`;
+      } else { h+=`<p class="no-refs">暂无步骤</p>`; }
       h+=`</div>`;
-    } else { h+=`<p class="no-refs">暂无步骤</p>`; }
-    h+=`</div>`;
 
-    /* 涉及实体 */
-    const eops=task.entity_ops||[];
-    h+=`<div class="form-section"><h4>涉及实体</h4>`;
-    if(eops.length){
-      h+=`<div class="eop-list">`;
-      for(const eo of eops){
-        const en=getEntityName(eo.entity_id);
-        h+=`<div class="eop-tag">
-          <span class="eop-name" onclick="navigate('data',{entityId:'${eo.entity_id}'})" title="→ 实体详情">${esc(en)}</span>
-          <div class="eop-ops">`;
-        for(const op of ['C','R','U','D']){
-          const chk=eo.ops?.includes(op)?'checked':'';
-          const cls=op==='C'?'op-c':op==='U'?'op-u':op==='D'?'op-d':'';
-          h+=`<label class="op-cb">
-            <input type="checkbox" ${chk}
-              onchange="toggleEntityOp('${proc.id}','${task.id}','${eo.entity_id}','${op}',this.checked)">
-            <span class="${cls}">${op}</span></label>`;
+      /* 涉及实体 */
+      const eops=task.entity_ops||[];
+      h+=`<div class="form-section"><h4>涉及实体</h4>`;
+      if(eops.length){
+        h+=`<div class="eop-list">`;
+        for(const eo of eops){
+          const en=getEntityName(eo.entity_id);
+          h+=`<div class="eop-tag">
+            <span class="eop-name" onclick="navigate('data',{entityId:'${eo.entity_id}'})" title="→ 实体详情">${esc(en)}</span>
+            <div class="eop-ops">`;
+          for(const op of ['C','R','U','D']){
+            const chk=eo.ops?.includes(op)?'checked':'';
+            const cls=op==='C'?'op-c':op==='U'?'op-u':op==='D'?'op-d':'';
+            h+=`<label class="op-cb">
+              <input type="checkbox" ${chk}
+                onchange="toggleEntityOp('${esc(proc.id)}','${esc(task.id)}','${eo.entity_id}','${op}',this.checked)">
+              <span class="${cls}">${op}</span></label>`;
+          }
+          h+=`</div><button class="eop-del" onclick="removeEntityOp('${esc(proc.id)}','${esc(task.id)}','${eo.entity_id}')">✕</button></div>`;
         }
-        h+=`</div><button class="eop-del" onclick="removeEntityOp('${proc.id}','${task.id}','${eo.entity_id}')">✕</button></div>`;
+        h+=`</div>`;
+      } else { h+=`<p class="no-refs" style="margin-bottom:8px">尚未关联实体</p>`; }
+      const avail=(S.doc.entities||[]).filter(e=>!eops.some(eo=>eo.entity_id===e.id));
+      if(avail.length){
+        h+=`<div class="add-eop-row">
+          <select id="eop-sel-${task.id}">
+            <option value="">选择实体...</option>
+            ${avail.map(e=>`<option value="${e.id}">${e.id} ${esc(e.name)}</option>`).join('')}
+          </select>
+          <button class="btn btn-outline btn-sm"
+            onclick="addEntityOp('${esc(proc.id)}','${esc(task.id)}',document.getElementById('eop-sel-${task.id}').value)">关联</button>
+        </div>`;
       }
       h+=`</div>`;
-    } else { h+=`<p class="no-refs" style="margin-bottom:8px">尚未关联实体</p>`; }
-    const avail=(S.doc.entities||[]).filter(e=>!eops.some(eo=>eo.entity_id===e.id));
-    if(avail.length){
-      h+=`<div class="add-eop-row">
-        <select id="eop-sel-${task.id}">
-          <option value="">选择实体...</option>
-          ${avail.map(e=>`<option value="${e.id}">${e.id} ${esc(e.name)}</option>`).join('')}
-        </select>
-        <button class="btn btn-outline btn-sm"
-          onclick="addEntityOp('${proc.id}','${task.id}',document.getElementById('eop-sel-${task.id}').value)">关联</button>
+
+      /* 业务规则 */
+      h+=`<div class="form-section">
+        <h4>业务规则 <span class="section-hint">约束、前置条件、决策逻辑</span></h4>
+        <textarea rows="3" placeholder="如：金额>10000需主管审批"
+          oninput="setTask('${esc(proc.id)}','${esc(task.id)}','rules_note',this.value)"
+          >${esc(task.rules_note||'')}</textarea>
       </div>`;
+
+    } else {
+      /* ── 流程信息 ── */
+      h+=`<div class="form-grid">
+        <div class="field-group">
+          <label>流程名称</label>
+          <input type="text" id="proc-name-input" value="${esc(proc.name||'')}"
+            placeholder="如：采购入库流程"
+            oninput="setProc('${esc(proc.id)}','name',this.value);renderSidebar();renderProcDiagramNow()">
+        </div>
+        <div class="field-group">
+          <label>业务子域</label>
+          <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：订单子域"
+            oninput="setProc('${esc(proc.id)}','subDomain',this.value);renderSidebar()">
+        </div>
+        <div class="field-group">
+          <label>触发条件</label>
+          <input type="text" value="${esc(proc.trigger||'')}" placeholder="什么事件触发此流程"
+            oninput="setProc('${esc(proc.id)}','trigger',this.value)">
+        </div>
+        <div class="field-group">
+          <label>预期结果</label>
+          <input type="text" value="${esc(proc.outcome||'')}" placeholder="流程完成后达成的状态"
+            oninput="setProc('${esc(proc.id)}','outcome',this.value)">
+        </div>
+      </div>
+      <p style="margin-top:14px;font-size:12px;color:var(--text-m)">
+        点击上方流程图中的任务节点可直接进入任务编辑
+      </p>`;
+      setTimeout(()=>document.getElementById('proc-name-input')?.focus(),40);
     }
-    h+=`</div>`;
 
-    /* 业务规则 */
-    h+=`<div class="form-section">
-      <h4>业务规则 <span class="section-hint">约束、前置条件、决策逻辑</span></h4>
-      <textarea rows="2" placeholder="如：金额>10000需主管审批"
-        oninput="setTask('${proc.id}','${task.id}','rules_note',this.value)"
-        >${esc(task.rules_note||'')}</textarea>
-    </div>`;
-
-  } else if(proc) {
-    /* ── 流程信息 ── */
-    h+=`<div class="edit-panel-title">
-      <span class="detail-id editable-id" onclick="startEditId(this,'proc','${proc.id}')" title="点击编辑ID">${esc(proc.id)}</span>
-      <span>${esc(proc.name||'未命名')}</span>
-    </div>
-    <div class="form-grid">
-      <div class="field-group">
-        <label>流程名称</label>
-        <input type="text" id="proc-name-input" value="${esc(proc.name||'')}"
-          placeholder="如：采购入库流程"
-          oninput="setProc('${proc.id}','name',this.value);renderSidebar();renderProcDiagramNow()">
-      </div>
-      <div class="field-group">
-        <label>业务子域</label>
-        <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：订单子域"
-          oninput="setProc('${proc.id}','subDomain',this.value);renderSidebar()">
-      </div>
-      <div class="field-group">
-        <label>触发条件</label>
-        <input type="text" value="${esc(proc.trigger||'')}" placeholder="什么事件触发此流程"
-          oninput="setProc('${proc.id}','trigger',this.value)">
-      </div>
-      <div class="field-group">
-        <label>预期结果</label>
-        <input type="text" value="${esc(proc.outcome||'')}" placeholder="流程完成后达成的状态"
-          oninput="setProc('${proc.id}','outcome',this.value)">
-      </div>
-    </div>
-    <p style="margin-top:14px;font-size:12px;color:var(--text-m)">
-      点击上方流程图中的任务节点编辑；或从左侧导航选择任务
-    </p>`;
-    setTimeout(()=>document.getElementById('proc-name-input')?.focus(),40);
+    h+=`</div>`; /* end drawer-body */
   } else {
-    h+=`<div class="detail-empty"><p>点击左侧"＋"新建流程</p></div>`;
+    /* 无选中：提示语 */
+    h+=`<div class="drawer-empty"><p>点击流程卡片打开编辑</p></div>`;
   }
 
-  h+=`</div>`; /* end edit-panel */
+  h+=`</div>`; /* end proc-drawer */
 
   document.getElementById('tab-content').innerHTML=h;
 
-  /* 渲染流程图（自定义 HTML，任务横线 + 实体正下方） */
+  /* 渲染流程图 */
   if(proc) {
     const clickMap={};
     for(const t of (proc.tasks||[]))
