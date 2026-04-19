@@ -70,7 +70,16 @@ def get_entity_status_field(entity: dict) -> dict | None:
 
 def get_entity_state_values(entity: dict) -> str:
     field = get_entity_status_field(entity)
-    return str(field.get("state_values", "")).strip() if field else ""
+    if not field:
+        return ""
+    explicit = str(field.get("state_values", "")).strip()
+    if explicit:
+        return explicit
+    note = str(field.get("note", "")).strip()
+    parts = [item.strip() for item in note.split("/") if item.strip()]
+    if parts and all(len(item) <= 16 for item in parts):
+        return "/".join(parts)
+    return ""
 
 
 class MarkdownExporter:
@@ -173,12 +182,11 @@ class MarkdownExporter:
                             f"**主状态字段**: {status_field.get('name', '')}（状态值：{get_entity_state_values(entity) or '—'}）"
                         )
                         line()
-                    line("| 来源状态 | 目标状态 | 触发动作 | 责任角色 | 说明 |")
-                    line("|----------|----------|----------|----------|------|")
+                    line("| 来源状态 | 目标状态 | 触发动作 | 说明 |")
+                    line("|----------|----------|----------|------|")
                     for transition in state_transitions:
-                        transition_role = roles_by_id.get(transition.get("role_id", ""), transition.get("role_id", ""))
                         line(
-                            f"| {transition.get('from', '')} | {transition.get('to', '')} | {transition.get('action', '')} | {get_role_name(transition_role)} | {transition.get('note', '')} |"
+                            f"| {transition.get('from', '')} | {transition.get('to', '')} | {transition.get('action', '')} | {transition.get('note', '')} |"
                         )
                     line()
             separator()

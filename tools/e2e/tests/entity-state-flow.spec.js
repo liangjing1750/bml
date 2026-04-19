@@ -25,6 +25,7 @@ test('数据页支持编辑实体主状态字段并生成状态图', async ({ pa
   await expect(page.getByTestId('entity-state-diagram')).toBeVisible();
   await expect(page.getByTestId('entity-state-diagram')).toContainText('草稿');
   await expect(page.getByTestId('entity-state-diagram')).toContainText('待审核');
+  await expect(page.locator('.entity-transition-row select')).toHaveCount(2);
   await expect(page.getByTestId('entity-state-empty')).toHaveCount(0);
 
   await page.getByTestId('tab-preview').click();

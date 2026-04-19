@@ -201,7 +201,6 @@ function ensureEntityStateShape(entity) {
     from: String(transition?.from || ''),
     to: String(transition?.to || ''),
     action: String(transition?.action || ''),
-    role_id: String(transition?.role_id || ''),
     note: String(transition?.note || ''),
     field_name: String(transition?.field_name || ''),
   }));
@@ -214,7 +213,6 @@ function createStateTransitionDraft(entity, preferredFieldName = '') {
     from: values[0] || '',
     to: values[1] || values[0] || '',
     action: '',
-    role_id: '',
     note: '',
     field_name: field?.name || '',
   };

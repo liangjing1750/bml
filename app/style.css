@@ -300,15 +300,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  align-items: flex-start;
 }
 .entity-state-card {
   padding: 14px 16px 16px;
+  width: min(100%, 920px);
 }
 .entity-state-editor {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: #fff;
   padding: 14px 16px 16px;
+  width: min(100%, 920px);
 }
 .entity-state-editor-head {
   display: flex;
@@ -368,25 +371,146 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px;
   font-weight: 600;
 }
-.entity-state-diagram-canvas {
-  min-height: 320px;
-  background: #f8fafc;
-  border-radius: 10px;
+.entity-state-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.entity-state-transition-list {
+.entity-state-node-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.entity-state-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  min-width: 136px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+.entity-state-node-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 700;
+}
+.entity-state-node-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+.entity-state-edge-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.entity-state-edge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+.entity-state-edge-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.entity-state-edge-arrow {
+  color: var(--text-m);
+  font-size: 13px;
+  font-weight: 700;
+}
+.entity-state-mini {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+}
+.entity-state-edge-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.entity-state-action-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.entity-state-edge-note {
+  color: var(--text-m);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tone-neutral {
+  border-color: #d1d5db;
+  background: #f3f4f6;
+  color: #374151;
+}
+.tone-pending {
+  border-color: #fcd34d;
+  background: #fef3c7;
+  color: #92400e;
+}
+.tone-progress {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.tone-success {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #166534;
+}
+.tone-danger {
+  border-color: #fca5a5;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.entity-transition-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.entity-state-transition-row {
+.entity-transition-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) minmax(120px, 1fr);
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) minmax(140px, 1fr) minmax(160px, 1.1fr) 32px;
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
   border-radius: 10px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
+}
+.entity-transition-arrow {
+  color: var(--text-m);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
 }
 
 /* 可拖拽分隔条 */
@@ -952,6 +1076,51 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   color: var(--text); background: #fff;
 }
 
+/* 大纲 + 渲染 */
+.preview-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  overflow: hidden;
+}
+.preview-outline {
+  border-right: 1px solid var(--border);
+  background: linear-gradient(180deg, #fbfdff 0%, #f8fafc 100%);
+  overflow: auto;
+  padding: 16px 12px;
+}
+.preview-outline-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-m);
+  margin-bottom: 10px;
+}
+.preview-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.preview-outline-link {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.preview-outline-link:hover {
+  background: #eaf2ff;
+  color: var(--accent);
+}
+.preview-outline-link.depth-1 {
+  padding-left: 22px;
+  color: var(--text-m);
+}
+
 /* 渲染视图（Typora 风格） */
 .preview-rendered {
   flex: 1; overflow-y: auto;
@@ -973,6 +1142,20 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .preview-rendered pre code { background: none; padding: 0; }
 .preview-rendered strong { font-weight: 600; }
 .preview-rendered blockquote { border-left: 3px solid var(--accent); margin: 12px 0; padding: 4px 16px; color: var(--text-m); background: var(--active-bg); }
+
+@media (max-width: 960px) {
+  .preview-body {
+    grid-template-columns: 1fr;
+  }
+  .preview-outline {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 180px;
+  }
+  .preview-rendered {
+    padding: 20px 24px;
+  }
+}
 
 /* Mermaid 图嵌入 */
 .md-mermaid { margin: 16px 0; overflow-x: auto; background: #fafbfc; border-radius: 6px; padding: 12px; }
@@ -1784,28 +1967,18 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-.entity-transition-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.entity-transition-row {
-  display: grid;
-  grid-template-columns: minmax(100px, 1fr) 18px minmax(100px, 1fr) minmax(120px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) 28px;
-  gap: 8px;
-  align-items: center;
-}
-.entity-transition-arrow {
-  color: var(--text-m);
-  text-align: center;
-}
-
 @media (max-width: 1180px) {
   .entity-state-workbench {
     grid-template-columns: 1fr;
   }
   .entity-state-config-row {
     grid-template-columns: 1fr;
+  }
+  .entity-transition-row {
+    grid-template-columns: 1fr;
+  }
+  .entity-transition-arrow {
+    display: none;
   }
 }
 

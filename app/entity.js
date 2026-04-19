@@ -716,28 +716,44 @@ function setEntityStateValues(entityId, value) {
   markModified();
 }
 
-function buildEntityStateMermaid(entity, fieldName = '') {
+function getStateTone(state) {
+  const value = String(state || '');
+  if (/草稿|历史/.test(value)) return 'neutral';
+  if (/待|未读|未处理|待审核|待执行|待提交|待复检|待结算|待发送|待办理/.test(value)) return 'pending';
+  if (/中|办理中|审核中|处理中|进行中/.test(value)) return 'progress';
+  if (/已完成|完成|已通过|成功|正常|有效|启用|在线|可用|在库|最新|已发布|已配对|已备案|已签到|已抽样|已安排|已回复|已发送|已标定/.test(value)) return 'success';
+  if (/已拒绝|已撤销|已退回|已关闭|禁用|停用|离线|异常|失败|失效|占用|已注销/.test(value)) return 'danger';
+  return 'neutral';
+}
+
+function renderEntityStateGraphMarkup(entity, fieldName = '') {
   const states = getEntityStatusValues(entity, fieldName);
-  if (!states.length) return null;
-  const aliases = new Map(states.map((state, index) => [state, `S${index + 1}`]));
-  const lines = ['stateDiagram-v2', '  direction LR'];
-  states.forEach((state) => {
-    lines.push(`  state "${String(state).replace(/"/g, "'")}" as ${aliases.get(state)}`);
-  });
-  getEntityStateTransitions(entity, fieldName)
-    .map(({ transition }) => transition)
-    .filter((transition) => transition.from && transition.to)
-    .forEach((transition) => {
-    const fromAlias = aliases.get(transition.from);
-    const toAlias = aliases.get(transition.to);
-    if (!fromAlias || !toAlias) return;
-    const labelParts = [];
-    if (transition.action) labelParts.push(transition.action);
-    const roleName = getRoleName(transition.role_id || '');
-    if (roleName) labelParts.push(`角色：${roleName}`);
-    lines.push(`  ${fromAlias} --> ${toAlias}${labelParts.length ? ` : ${labelParts.join(' / ').replace(/"/g, "'")}` : ''}`);
-  });
-  return lines.join('\n');
+  if (!states.length) return '<div class="diag-empty">暂无状态值</div>';
+  const transitions = getEntityStateTransitions(entity, fieldName).map(({ transition }) => transition);
+  return `<div class="entity-state-graph">
+    <div class="entity-state-node-list">
+      ${states.map((state, index) => `<div class="entity-state-node tone-${getStateTone(state)}">
+        <span class="entity-state-node-index">${index + 1}</span>
+        <span class="entity-state-node-label">${esc(state)}</span>
+      </div>`).join('')}
+    </div>
+    <div class="entity-state-edge-list">
+      ${transitions.length
+        ? transitions.map((transition) => `<div class="entity-state-edge-card">
+            <div class="entity-state-edge-main">
+              <span class="entity-state-mini tone-${getStateTone(transition.from)}">${esc(transition.from || '—')}</span>
+              <span class="entity-state-edge-arrow">→</span>
+              <span class="entity-state-mini tone-${getStateTone(transition.to)}">${esc(transition.to || '—')}</span>
+            </div>
+            <div class="entity-state-edge-meta">
+              <span class="entity-state-action-chip">${esc(transition.action || '未命名动作')}</span>
+              ${transition.note ? `<span class="entity-state-edge-note">${esc(transition.note)}</span>` : ''}
+            </div>
+          </div>`).join('')
+        : '<p class="no-refs">暂无状态流转，先添加一条边。</p>'
+      }
+    </div>
+  </div>`;
 }
 
 function addEntity(group) {
@@ -886,6 +902,14 @@ function setStateTransition(entityId, idx, key, val) {
   markModified();
 }
 
+function setStateTransitionRows(entityId, fieldName) {
+  if (!entityId) return;
+  const entity = S.doc.entities.find((item) => item.id === entityId);
+  if (!entity) return;
+  S.ui.stateFieldName = getEntityStatusField(entity, fieldName)?.name || '';
+  renderDataTab();
+}
+
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Relations
 ═══════════════════════════════════════════════════════════ */
@@ -979,7 +1003,7 @@ function renderDataTab() {
                         </div>
                         <div class="entity-state-card-values">${stateValues.map((value) => `<span class="entity-state-value-chip">${esc(value)}</span>`).join('')}</div>
                       </div>
-                      <div id="entity-state-diagram-canvas" class="live-diagram entity-state-diagram-canvas"></div>
+                      ${renderEntityStateGraphMarkup(entity, stateField.name)}
                     </div>`
             }
             ${entity ? `<div class="entity-state-editor">
@@ -1026,10 +1050,6 @@ function renderDataTab() {
                         </select>
                         <input type="text" data-testid="entity-transition-action-${index}" value="${esc(transition.action||'')}" placeholder="触发动作"
                           oninput="setStateTransition('${esc(entity.id)}',${index},'action',this.value)">
-                        <select onchange="setStateTransition('${esc(entity.id)}',${index},'role_id',this.value)">
-                          <option value="">责任角色（可选）</option>
-                          ${getRoles().map((role) => `<option value="${role.id}" ${transition.role_id===role.id?'selected':''}>${esc(role.name)}</option>`).join('')}
-                        </select>
                         <input type="text" data-testid="entity-transition-note-${index}" value="${esc(transition.note||'')}" placeholder="说明"
                           oninput="setStateTransition('${esc(entity.id)}',${index},'note',this.value)">
                         <button class="btn-icon" onclick="removeStateTransition('${esc(entity.id)}',${index})">✕</button>
@@ -1166,8 +1186,6 @@ function renderDataTab() {
     for(const e of entities)
       clickMap[e.id]=()=>navigate('data',{entityId:e.id});
     renderEntityFlow('entity-diagram', S.doc, clickMap);
-  } else if (entity && stateField && stateValues.length) {
-    renderDiagram('entity-state-diagram-canvas', buildEntityStateMermaid(entity, stateField.name), null);
   }
 }
 

@@ -323,7 +323,6 @@ def migrate_document(document: dict | None) -> dict:
                     "from": str(transition.get("from", "")).strip(),
                     "to": str(transition.get("to", "")).strip(),
                     "action": str(transition.get("action", "")).strip(),
-                    "role_id": str(transition.get("role_id", "")).strip(),
                     "note": str(transition.get("note", "")).strip(),
                     "field_name": str(transition.get("field_name", default_field_name)).strip(),
                 }

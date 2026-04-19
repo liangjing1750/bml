@@ -140,9 +140,9 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(transition["from"], "草稿")
         self.assertEqual(transition["to"], "待审核")
         self.assertEqual(transition["action"], "提交")
-        self.assertEqual(transition["role_id"], "")
         self.assertEqual(transition["note"], "")
         self.assertEqual(transition["field_name"], "预约状态")
+        self.assertNotIn("role_id", transition)
 
 
 class MarkdownExporterTests(unittest.TestCase):
@@ -202,7 +202,6 @@ class MarkdownExporterTests(unittest.TestCase):
                             "from": "Draft",
                             "to": "Active",
                             "action": "Activate",
-                            "role_id": "R1",
                             "note": "Reader must be approved",
                         }
                     ],
