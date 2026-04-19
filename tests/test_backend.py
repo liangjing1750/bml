@@ -65,6 +65,7 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(migrated["entities"][0]["fields"][1]["type"], "number")
         self.assertEqual(migrated["roles"][0]["name"], "仓库管理员")
         self.assertEqual(migrated["roles"][0]["status"], "active")
+        self.assertEqual(migrated["roles"][0]["group"], "仓库作业方")
         self.assertEqual(migrated["roles"][0]["subDomains"], ["仓储仓单管理"])
         self.assertEqual(migrated["processes"][0]["tasks"][0]["role"], "仓库管理员")
         self.assertTrue(migrated["processes"][0]["tasks"][0]["role_id"])
@@ -97,6 +98,7 @@ class MigrateDocumentTests(unittest.TestCase):
 
         self.assertEqual(len(migrated["roles"]), 2)
         self.assertEqual(migrated["roles"][0]["name"], "会员")
+        self.assertEqual(migrated["roles"][0]["group"], "业务参与方")
         self.assertEqual(migrated["roles"][1]["id"], "R9")
         self.assertEqual(migrated["roles"][1]["status"], "disabled")
         self.assertEqual(migrated["processes"][0]["tasks"][0]["role"], "会员")
@@ -160,6 +162,7 @@ class MarkdownExporterTests(unittest.TestCase):
         self.assertIn("```mermaid", markdown)
         self.assertIn("T1", markdown)
         self.assertIn("Reader", markdown)
+        self.assertIn("业务参与方", markdown)
         self.assertIn("reader_id", markdown)
 
 

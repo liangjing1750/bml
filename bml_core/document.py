@@ -81,6 +81,35 @@ def normalize_role_status(role_status: str) -> str:
     return ROLE_STATUS_ALIASES.get(str(role_status).strip().casefold(), "active")
 
 
+def infer_role_group(role_name: str, tags: list[str] | None = None) -> str:
+    normalized_name = normalize_role_name(role_name)
+    normalized_tags = [normalize_role_name(tag) for tag in tags or []]
+    joined = f"{normalized_name} {' '.join(normalized_tags)}"
+    if "系统" in normalized_name or "系统" in joined or "自动化" in joined:
+        return "系统角色"
+    if "仓库" in normalized_name or "仓库" in joined or "现场" in joined or "作业" in joined:
+        return "仓库作业方"
+    if (
+        "平台管理员" in normalized_name
+        or "超级账号" in normalized_name
+        or "平台管理" in joined
+        or "账号管理" in joined
+        or "运维" in joined
+    ):
+        return "平台与运维方"
+    if (
+        "交割部" in normalized_name
+        or "交易所" in normalized_name
+        or "品种负责人" in normalized_name
+        or "监管" in joined
+        or "审核" in joined
+    ):
+        return "监管与审核方"
+    if not normalized_name:
+        return "待分类角色"
+    return "业务参与方"
+
+
 def _normalize_text_list(values: list[str] | None) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -114,6 +143,9 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
             "name": role_name,
             "desc": normalize_role_name(raw_role.get("desc", "")),
             "status": normalize_role_status(raw_role.get("status", "")),
+            "group": normalize_role_name(raw_role.get("group", "")) or infer_role_group(
+                role_name, raw_role.get("tags", [])
+            ),
             "subDomains": _normalize_text_list(raw_role.get("subDomains", [])),
             "tags": _normalize_text_list(raw_role.get("tags", [])),
         }
@@ -126,6 +158,7 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
         "name": role_name,
         "desc": "",
         "status": "active",
+        "group": infer_role_group(role_name, []),
         "subDomains": [],
         "tags": [],
     }
@@ -134,6 +167,8 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
 def _merge_role(target: dict, source: dict) -> dict:
     if not target.get("desc") and source.get("desc"):
         target["desc"] = source["desc"]
+    if not target.get("group") and source.get("group"):
+        target["group"] = source["group"]
     if source.get("status") == "disabled":
         target["status"] = "disabled"
     target["subDomains"] = _normalize_text_list([*target.get("subDomains", []), *source.get("subDomains", [])])

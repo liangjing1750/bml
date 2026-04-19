@@ -74,7 +74,7 @@ function getLightRoleSummary(role) {
 }
 
 function renderRoleSummaryCard() {
-  const roles = getRoles();
+  const roleGroups = getGroupedRoles();
   const summary = getRoleSummaryCounts();
 
   let h = `<div class="ctx-card role-light-card" data-testid="role-summary-card">
@@ -90,18 +90,35 @@ function renderRoleSummaryCard() {
       ${summary.disabledCount ? `<span class="role-summary-badge">已停用 ${summary.disabledCount}</span>` : ''}
     </div>`;
 
-  if(roles.length) {
-    h += `<div class="role-light-list">`;
-    roles.forEach((role) => {
-      const usage = getRoleUsageSummary(role.id);
-      const removable = usage.taskCount === 0;
-      h += `<div class="role-light-chip-wrap">
-        <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}"
-          data-testid="role-summary-chip" onclick="openRoleView('${esc(role.id)}')">
-          <span class="role-light-name">${esc(role.name)}</span>
-          <span class="role-light-count">${getLightRoleSummary(role)}</span>
-        </button>
-        ${removable ? `<button class="role-light-remove" title="删除未使用角色" onclick="removeRole('${esc(role.id)}')">×</button>` : ''}`;
+  if(roleGroups.length) {
+    h += `<div class="role-light-groups">`;
+    roleGroups.forEach(({ name, roles }) => {
+      const collapseKey = `rolegrp-${name}`;
+      const collapsed = S.ui.sbCollapse[collapseKey] === true;
+      h += `<div class="role-light-group" data-role-group="${esc(name)}">
+        <button class="role-light-group-head" onclick="toggleDomainSection('${esc(collapseKey)}')">
+          <span class="role-light-group-title">
+            <span class="role-light-group-caret">${collapsed ? '▶' : '▾'}</span>
+            <span>${esc(name)}</span>
+          </span>
+          <span class="sb-count">${roles.length}</span>
+        </button>`;
+      if(!collapsed) {
+        h += `<div class="role-light-list">`;
+        roles.forEach((role) => {
+          const usage = getRoleUsageSummary(role.id);
+          const removable = usage.taskCount === 0;
+          h += `<div class="role-light-chip-wrap">
+            <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}"
+              data-testid="role-summary-chip" onclick="openRoleView('${esc(role.id)}')">
+              <span class="role-light-name">${esc(role.name)}</span>
+              <span class="role-light-count">${getLightRoleSummary(role)}</span>
+            </button>
+            ${removable ? `<button class="role-light-remove" title="删除未使用角色" onclick="removeRole('${esc(role.id)}')">×</button>` : ''}`;
+          h += `</div>`;
+        });
+        h += `</div>`;
+      }
       h += `</div>`;
     });
     h += `</div>`;

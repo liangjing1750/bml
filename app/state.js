@@ -103,6 +103,14 @@ const FIELD_TYPES = [
   {value:'enum',   label:'枚举'},   {value:'text',    label:'长文本'},
   {value:'id',     label:'标识ID'},
 ];
+const ROLE_GROUPS = [
+  '业务参与方',
+  '仓库作业方',
+  '监管与审核方',
+  '平台与运维方',
+  '系统角色',
+  '待分类角色',
+];
 
 /* ═══════════════════════════════════════════════════════════
    UTILITIES
@@ -136,6 +144,35 @@ function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.proc
 function currentTask()  { return currentProc()?.tasks?.find(t=>t.id===S.ui.taskId)||null; }
 function normalizeRoleName(name) { return String(name || '').trim(); }
 function isRoleDisabled(role) { return role?.status === 'disabled'; }
+function inferRoleGroup(role) {
+  const name = normalizeRoleName(role?.name);
+  const tags = (role?.tags || []).map((tag) => normalizeRoleName(tag));
+  const joined = `${name} ${tags.join(' ')}`;
+  if (/系统/.test(name) || tags.includes('系统') || joined.includes('自动化')) return '系统角色';
+  if (/仓库/.test(name) || tags.includes('仓库') || tags.includes('现场') || joined.includes('作业')) return '仓库作业方';
+  if (/平台管理员|超级账号/.test(name) || tags.includes('平台管理') || tags.includes('账号管理') || joined.includes('运维')) return '平台与运维方';
+  if (/交割部|交易所|品种负责人/.test(name) || tags.includes('监管') || joined.includes('审核')) return '监管与审核方';
+  if (!name) return '待分类角色';
+  return '业务参与方';
+}
+function getRoleGroupName(role) {
+  const explicitGroup = normalizeRoleName(role?.group);
+  return explicitGroup || inferRoleGroup(role);
+}
+function getGroupedRoles() {
+  const buckets = new Map();
+  for (const groupName of ROLE_GROUPS) {
+    buckets.set(groupName, []);
+  }
+  for (const role of getRoles()) {
+    const groupName = getRoleGroupName(role);
+    if (!buckets.has(groupName)) buckets.set(groupName, []);
+    buckets.get(groupName).push(role);
+  }
+  return Array.from(buckets.entries())
+    .filter(([, roles]) => roles.length)
+    .map(([name, roles]) => ({ name, roles }));
+}
 function getRoles() {
   return Array.isArray(S.doc?.roles)
     ? S.doc.roles.filter((role) => role && typeof role === 'object' && !Array.isArray(role))
@@ -189,6 +226,7 @@ function createRoleDraft(name) {
     name: normalizeRoleName(name) || '新角色',
     desc: '',
     status: 'active',
+    group: '业务参与方',
     subDomains: [],
     tags: [],
   };
@@ -251,6 +289,16 @@ function getRoleUsageSummary(roleId) {
     processCount: processIds.size,
     subDomainCount: subDomains.size,
   };
+}
+function getRoleUsageByProcess(roleId) {
+  const usageByProcess = new Map();
+  for (const item of getRoleUsage(roleId)) {
+    if (!usageByProcess.has(item.proc.id)) {
+      usageByProcess.set(item.proc.id, { proc: item.proc, tasks: [] });
+    }
+    usageByProcess.get(item.proc.id).tasks.push(item.task);
+  }
+  return usageByProcess;
 }
 function getRoleSummaryCounts() {
   const roles = getRoles();

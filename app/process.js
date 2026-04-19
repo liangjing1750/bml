@@ -405,6 +405,122 @@ function endCardDrag(e) {
 /* ═══════════════════════════════════════════════════════════
    RENDER — Process Tab  (上：实时图 | 下：编辑)
 ═══════════════════════════════════════════════════════════ */
+function buildRoleUsecaseMap(selectedRole) {
+  const roleGroups = getGroupedRoles();
+  const processes = S.doc?.processes || [];
+  const subdomainGroups = Array.from(
+    processes.reduce((map, proc) => {
+      const subDomain = (proc.subDomain || '未归类业务子域').trim();
+      if(!map.has(subDomain)) map.set(subDomain, []);
+      map.get(subDomain).push(proc);
+      return map;
+    }, new Map()).entries(),
+  ).map(([name, items]) => ({ name, items }));
+
+  const roleFrames = [];
+  const roleNodes = [];
+  let roleY = 24;
+  for(const group of roleGroups) {
+    const frameHeight = 48 + group.roles.length * 46;
+    roleFrames.push({ name: group.name, x: 24, y: roleY, width: 250, height: frameHeight });
+    group.roles.forEach((role, index) => {
+      roleNodes.push({
+        role,
+        x: 42,
+        y: roleY + 34 + index * 42,
+        width: 214,
+        height: 32,
+      });
+    });
+    roleY += frameHeight + 18;
+  }
+
+  const processFrames = [];
+  const processNodes = [];
+  const columnX = [340, 650];
+  const columnHeights = [24, 24];
+  for(const group of subdomainGroups) {
+    const frameHeight = 52 + group.items.length * 40;
+    const columnIndex = columnHeights[0] <= columnHeights[1] ? 0 : 1;
+    const frameX = columnX[columnIndex];
+    const frameY = columnHeights[columnIndex];
+    processFrames.push({ name: group.name, x: frameX, y: frameY, width: 270, height: frameHeight });
+    group.items.forEach((proc, index) => {
+      processNodes.push({
+        proc,
+        x: frameX + 18,
+        y: frameY + 34 + index * 36,
+        width: 234,
+        height: 28,
+      });
+    });
+    columnHeights[columnIndex] += frameHeight + 18;
+  }
+
+  const canvasHeight = Math.max(roleY, ...columnHeights) + 24;
+  const usageByProcess = selectedRole ? getRoleUsageByProcess(selectedRole.id) : new Map();
+  const selectedNode = selectedRole ? roleNodes.find((node) => node.role.id === selectedRole.id) : null;
+
+  const lines = selectedNode ? processNodes
+    .filter((node) => usageByProcess.has(node.proc.id))
+    .map((node) => {
+      const taskCount = usageByProcess.get(node.proc.id).tasks.length;
+      const startX = selectedNode.x + selectedNode.width;
+      const startY = selectedNode.y + selectedNode.height / 2;
+      const endX = node.x;
+      const endY = node.y + node.height / 2;
+      const midX = startX + (endX - startX) / 2;
+      return {
+        path: `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`,
+        taskCount,
+        labelX: midX + 4,
+        labelY: endY - 6,
+      };
+    })
+    : [];
+
+  return `<div class="role-usecase-map-wrap" data-testid="role-usecase-map">
+    <div class="role-usecase-map-canvas" style="min-width:980px;height:${canvasHeight}px">
+      <svg class="role-usecase-map-svg" width="980" height="${canvasHeight}" viewBox="0 0 980 ${canvasHeight}" preserveAspectRatio="none">
+        ${lines.map((line) => `
+          <path d="${line.path}" class="role-usecase-line"></path>
+          <text x="${line.labelX}" y="${line.labelY}" class="role-usecase-line-label">${line.taskCount}T</text>
+        `).join('')}
+      </svg>
+      ${roleFrames.map((frame) => `
+        <div class="role-usecase-group role-side-group" style="left:${frame.x}px;top:${frame.y}px;width:${frame.width}px;height:${frame.height}px">
+          <div class="role-usecase-group-title">${esc(frame.name)}</div>
+        </div>
+      `).join('')}
+      ${processFrames.map((frame) => `
+        <div class="role-usecase-group role-proc-group" style="left:${frame.x}px;top:${frame.y}px;width:${frame.width}px;height:${frame.height}px">
+          <div class="role-usecase-group-title">${esc(frame.name)}</div>
+        </div>
+      `).join('')}
+      ${roleNodes.map((node) => {
+        const active = selectedRole?.id === node.role.id ? ' active' : '';
+        const usage = getRoleUsageSummary(node.role.id);
+        return `<button class="role-usecase-role${active}" data-role-id="${esc(node.role.id)}"
+          style="left:${node.x}px;top:${node.y}px;width:${node.width}px;height:${node.height}px"
+          onclick="S.ui.roleId='${esc(node.role.id)}';renderProcessTab()">
+          <span class="role-usecase-role-name">${esc(node.role.name)}</span>
+          <span class="role-usecase-role-meta">${usage.processCount}P · ${usage.taskCount}T</span>
+        </button>`;
+      }).join('')}
+      ${processNodes.map((node) => {
+        const linked = usageByProcess.has(node.proc.id) ? ' linked' : '';
+        const taskCount = usageByProcess.has(node.proc.id) ? usageByProcess.get(node.proc.id).tasks.length : 0;
+        return `<button class="role-usecase-process${linked}" data-process-id="${esc(node.proc.id)}"
+          style="left:${node.x}px;top:${node.y}px;width:${node.width}px;height:${node.height}px"
+          onclick="navigate('process',{procId:'${esc(node.proc.id)}',taskId:null})">
+          <span class="role-usecase-process-name">${esc(node.proc.id)} ${esc(node.proc.name || '未命名流程')}</span>
+          ${taskCount ? `<span class="role-usecase-process-count">${taskCount}T</span>` : ''}
+        </button>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
 function renderProcessRoleView() {
   const roles = getRoles();
   ensureSelectedRole();
@@ -416,37 +532,18 @@ function renderProcessRoleView() {
     </div>`;
   }
 
-  const roleList = roles.map((role) => {
-    const usage = getRoleUsageSummary(role.id);
-    return `<button class="proc-role-item${selectedRole?.id === role.id ? ' active' : ''}" data-role-id="${esc(role.id)}"
-      onclick="S.ui.roleId='${esc(role.id)}';renderProcessTab()">
-      <div class="proc-role-item-head">
-        <span class="proc-role-item-name">${esc(role.name)}</span>
-        <span class="proc-role-item-count">${usage.taskCount}T</span>
-      </div>
-      <div class="proc-role-item-meta">${isRoleDisabled(role) ? '已停用' : '启用中'} · 流程 ${usage.processCount}</div>
-    </button>`;
-  }).join('');
-
-  const usageByProcess = new Map();
-  if(selectedRole) {
-    for(const item of getRoleUsage(selectedRole.id)) {
-      if(!usageByProcess.has(item.proc.id)) {
-        usageByProcess.set(item.proc.id, { proc: item.proc, tasks: [] });
-      }
-      usageByProcess.get(item.proc.id).tasks.push(item.task);
-    }
-  }
+  const usageByProcess = selectedRole ? getRoleUsageByProcess(selectedRole.id) : new Map();
+  const selectedSummary = selectedRole ? getRoleUsageSummary(selectedRole.id) : { processCount: 0, taskCount: 0 };
 
   const detail = selectedRole ? `
     <div class="proc-role-detail-head">
       <div>
         <div class="proc-role-detail-title">${esc(selectedRole.name)}</div>
-        <div class="proc-role-detail-subtitle">${selectedRole.desc ? esc(selectedRole.desc) : '当前角色的流程与任务投影视图'}</div>
+        <div class="proc-role-detail-subtitle">${selectedRole.desc ? esc(selectedRole.desc) : '当前角色的流程与任务投影视图'} · 分组：${esc(getRoleGroupName(selectedRole))}</div>
       </div>
       <div class="proc-role-detail-badges">
-        <span class="proc-role-badge">流程 ${getRoleUsageSummary(selectedRole.id).processCount}</span>
-        <span class="proc-role-badge">任务 ${getRoleUsageSummary(selectedRole.id).taskCount}</span>
+        <span class="proc-role-badge">流程 ${selectedSummary.processCount}</span>
+        <span class="proc-role-badge">任务 ${selectedSummary.taskCount}</span>
       </div>
     </div>
     ${usageByProcess.size ? Array.from(usageByProcess.values()).map(({ proc, tasks }) => `
@@ -469,7 +566,16 @@ function renderProcessRoleView() {
   ` : '<p class="no-refs">请选择一个角色查看流程投影</p>';
 
   return `<div class="proc-role-view" data-testid="process-role-view">
-    <div class="proc-role-list">${roleList}</div>
+    <div class="proc-role-map-panel">
+      <div class="proc-role-map-head">
+        <div>
+          <div class="proc-role-map-title">角色用例图</div>
+          <div class="proc-role-map-subtitle">全局展示角色参与的流程模板。点击左侧角色可高亮它参与的流程，点击流程可进入编辑。</div>
+        </div>
+        ${selectedRole ? `<div class="proc-role-map-focus">当前高亮：${esc(selectedRole.name)}</div>` : ''}
+      </div>
+      ${buildRoleUsecaseMap(selectedRole)}
+    </div>
     <div class="proc-role-detail">${detail}</div>
   </div>`;
 }

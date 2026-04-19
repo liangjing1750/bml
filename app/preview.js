@@ -79,6 +79,10 @@ function getRoleDesc(role) {
   return typeof role === 'object' && role ? String(role.desc || '').trim() : '';
 }
 
+function getRoleGroup(role) {
+  return typeof role === 'object' && role ? String(role.group || '').trim() : '';
+}
+
 function getRoleSubDomains(role) {
   return typeof role === 'object' && role
     ? (role.subDomains || []).map((item) => String(item || '').trim()).filter(Boolean).join('、')
@@ -141,10 +145,11 @@ function buildHtmlPreview() {
   const roles = doc.roles||[];
   if(roles.length) {
     h += `<h2>角色</h2>`;
-    h += `<table><thead><tr><th>角色</th><th>说明</th><th>所属业务子域</th><th>标签</th><th>状态</th></tr></thead><tbody>`;
+    h += `<table><thead><tr><th>角色</th><th>分组</th><th>说明</th><th>所属业务子域</th><th>标签</th><th>状态</th></tr></thead><tbody>`;
     roles.forEach((role) => {
       h += `<tr>
         <td>${esc(getRoleName(role))}</td>
+        <td>${esc(getRoleGroup(role))}</td>
         <td>${esc(getRoleDesc(role))}</td>
         <td>${esc(getRoleSubDomains(role))}</td>
         <td>${esc(getRoleTags(role))}</td>
@@ -266,9 +271,9 @@ function buildMdFromDoc(doc) {
   const roles = doc.roles||[];
   if(roles.length){
     add(`## ${nums[sn++]}、角色`); add('');
-    add('| 角色 | 说明 | 所属业务子域 | 标签 | 状态 |');
-    add('|------|------|--------------|------|------|');
-    roles.forEach((role)=>add(`| ${getRoleName(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} | ${getRoleTags(role)} | ${getRoleStatusLabel(role)} |`));
+    add('| 角色 | 分组 | 说明 | 所属业务子域 | 标签 | 状态 |');
+    add('|------|------|------|--------------|------|------|');
+    roles.forEach((role)=>add(`| ${getRoleName(role)} | ${getRoleGroup(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} | ${getRoleTags(role)} | ${getRoleStatusLabel(role)} |`));
     add(''); sep();
   }
 
