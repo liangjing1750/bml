@@ -13,7 +13,7 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
   await page.getByTestId('new-doc-name-input').fill(documentName);
   await page.getByTestId('new-doc-confirm-button').click();
 
-  await page.locator('input[placeholder="2025-01"]').first().fill('2026-04');
+  await page.getByTestId('domain-date-input').fill('2026-04');
   await expect(page.locator('#modified-dot')).not.toHaveClass(/hidden/);
 
   await page.locator('#btn-save').click();

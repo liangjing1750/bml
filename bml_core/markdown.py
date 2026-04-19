@@ -34,6 +34,12 @@ SECTION_NUMBERS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"
 RELATION_LABELS = {"1:1": "1对1", "1:N": "1对多", "N:N": "多对多"}
 
 
+def get_role_name(role) -> str:
+    if isinstance(role, dict):
+        return str(role.get("name", "")).strip()
+    return str(role or "").strip()
+
+
 class MarkdownExporter:
     def export(self, document: dict) -> str:
         doc = migrate_document(document)
@@ -76,7 +82,7 @@ class MarkdownExporter:
             line("| 角色 |")
             line("|------|")
             for role in roles:
-                line(f"| {role} |")
+                line(f"| {get_role_name(role)} |")
             line()
             separator()
 
@@ -204,4 +210,3 @@ class MarkdownExporter:
                 relation_type += f"\\n{relation['label']}"
             line(f'  {relation.get("from", "")} -- "{relation_type}" --> {relation.get("to", "")}')
         line("```")
-

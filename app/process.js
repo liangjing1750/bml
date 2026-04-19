@@ -7,7 +7,7 @@ function buildProcMermaid(proc) {
   const roleMap = {};
   let colorIdx = 0;
   for(const t of tasks) {
-    const r = t.role||'';
+    const r = getTaskRoleName(t);
     if(!(r in roleMap)) { roleMap[r] = colorIdx % ROLE_COLORS.length; colorIdx++; }
   }
 
@@ -23,9 +23,10 @@ function buildProcMermaid(proc) {
   for(const t of tasks) {
     const name = (t.name||'').replace(/"/g,"'");
     const repeat = t.repeatable ? ' ↺' : '';
+    const roleName = getTaskRoleName(t);
     let label = `${name}${repeat}`;
-    if(t.role) label += `\\n(${t.role})`;
-    const ci = roleMap[t.role||''];
+    if(roleName) label += `\\n(${roleName})`;
+    const ci = roleMap[roleName];
     lines.push(`  ${t.id}["${label}"]:::rc${ci}`);
     /* 实体标签：横向附注（MD 导出用，不影响 app 内实时图） */
     const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
@@ -55,7 +56,7 @@ function renderProcFlow(containerId, proc, onClickMap) {
   const roleMap = {};
   let ci = 0;
   for(const t of tasks) {
-    const r = t.role||'';
+    const r = getTaskRoleName(t);
     if(!(r in roleMap)) roleMap[r] = ci++ % ROLE_COLORS.length;
   }
 
@@ -63,7 +64,8 @@ function renderProcFlow(containerId, proc, onClickMap) {
   h += `<div class="pf-se">开始</div>`;
 
   for(const t of tasks) {
-    const idx = roleMap[t.role||''];
+    const roleName = getTaskRoleName(t);
+    const idx = roleMap[roleName];
     const c   = ROLE_COLORS[idx];
     const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
     const repeat = t.repeatable ? `<span class="pf-repeat"> ↺</span>` : '';
@@ -75,7 +77,7 @@ function renderProcFlow(containerId, proc, onClickMap) {
     h += `<div class="pf-task${clickable}" data-id="${t.id}"
       style="background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
     h += `<div class="pf-tn">${esc(t.name||'')}${repeat}</div>`;
-    if(t.role) h += `<div class="pf-tr">(${esc(t.role)})</div>`;
+    if(roleName) h += `<div class="pf-tr">(${esc(roleName)})</div>`;
     h += `</div>`;
     /* 实体标签（正下方） */
     if(eops.length) {
@@ -248,7 +250,7 @@ function addTask(procId) {
   const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
   const allTasks=S.doc.processes.flatMap(p=>p.tasks||[]);
   const id=nextId('T',allTasks);
-  proc.tasks.push({id, name:'新任务', role:'', steps:[], entity_ops:[], repeatable:false});
+  proc.tasks.push({id, name:'新任务', role_id:'', role:'', steps:[], entity_ops:[], repeatable:false});
   markModified();
   navigate('process',{procId, taskId:id});
 }
@@ -401,76 +403,77 @@ function endCardDrag(e) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   RENDER — Domain Tab (原概览)
-═══════════════════════════════════════════════════════════ */
-function renderDomainTab() {
-  ensureProcPos(S.doc);
-  const m=S.doc.meta||{};
-  const roles=S.doc.roles||[];
-  const lang=S.doc.language||[];
-  let h='<div class="domain-scroll">';
-
-  /* ── 紧凑信息栏：业务域 / 角色 / 统一语言 三行合一卡片 ── */
-  const langCollapsed = S.ui.sbCollapse['lang'] !== false; /* 默认折叠 */
-  h+=`<div class="ctx-card domain-info-bar">
-    <div class="info-bar-row">
-      <span class="info-bar-label">业务域名称</span>
-      <input type="text" style="flex:1" value="${esc(m.domain||m.title||'')}"
-        oninput="setDomain(this.value)" placeholder="如：仓储管理 v2、采购">
-      <span class="info-bar-label" style="margin-left:12px">日期</span>
-      <input type="text" style="width:100px" value="${esc(m.date||'')}"
-        oninput="setMeta('date',this.value)" placeholder="2025-01">
-    </div>
-    <div class="info-bar-row">
-      <span class="info-bar-label">参与角色</span>
-      <div class="role-tag-list" style="flex:1;flex-wrap:wrap;margin:0">`;
-  roles.forEach((r,i)=>{
-    h+=`<span class="role-tag">${esc(r)}<button class="role-del" onclick="removeRole(${i})">×</button></span>`;
-  });
-  h+=`</div>
-      <input type="text" id="role-input" style="width:110px" placeholder="输入角色名"
-        onkeydown="if(event.key==='Enter')addRole()">
-      <button class="btn btn-outline btn-sm" onclick="addRole()">添加</button>
-    </div>
-    <div class="info-bar-row info-bar-lang" onclick="toggleDomainSection('lang')" style="cursor:pointer">
-      <span class="info-bar-label">统一语言</span>
-      <span class="lang-collapse-btn">${langCollapsed?'▶':'▾'}</span>
-      ${langCollapsed&&lang.length?`<span class="lang-summary">共 ${lang.length} 条术语，点击展开</span>`:''}
-      ${langCollapsed&&!lang.length?`<span class="lang-summary">暂无术语，点击展开添加</span>`:''}
-      <span style="flex:1"></span>
-      ${!langCollapsed?`<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();addTerm()">＋ 添加术语</button>`:''}
-    </div>
-  </div>`;
-
-  if(!langCollapsed) {
-    h+=`<div class="ctx-card" style="margin-top:-12px;border-top-left-radius:0;border-top-right-radius:0">`;
-    if(lang.length){
-      h+=`<table class="term-table">
-        <thead><tr><th>术语</th><th>定义</th><th></th></tr></thead><tbody>`;
-      lang.forEach((t,i)=>{
-        h+=`<tr>
-          <td><input type="text" value="${esc(t.term||'')}"
-            oninput="setTerm(${i},'term',this.value)" placeholder="术语"></td>
-          <td><input type="text" value="${esc(t.definition||'')}"
-            oninput="setTerm(${i},'definition',this.value)" placeholder="定义"></td>
-          <td><button class="field-del" onclick="removeTerm(${i})">✕</button></td>
-        </tr>`;
-      });
-      h+=`</tbody></table>`;
-    } else {
-      h+=`<p class="no-refs">暂无术语定义</p>`;
-    }
-    h+=`</div>`;
-  }
-
-  h+=`</div>`; /* end domain-scroll */
-
-  document.getElementById('tab-content').innerHTML=h;
-}
-
-/* ═══════════════════════════════════════════════════════════
    RENDER — Process Tab  (上：实时图 | 下：编辑)
 ═══════════════════════════════════════════════════════════ */
+function renderProcessRoleView() {
+  const roles = getRoles();
+  ensureSelectedRole();
+  const selectedRole = getRoleById(S.ui.roleId);
+  if(!roles.length) {
+    return `<div class="proc-role-empty" data-testid="process-role-view">
+      <p>暂无角色词典，请先到业务域页新增角色。</p>
+      <button class="btn btn-outline btn-sm" onclick="navigate('domain')">前往角色管理</button>
+    </div>`;
+  }
+
+  const roleList = roles.map((role) => {
+    const usage = getRoleUsageSummary(role.id);
+    return `<button class="proc-role-item${selectedRole?.id === role.id ? ' active' : ''}" data-role-id="${esc(role.id)}"
+      onclick="S.ui.roleId='${esc(role.id)}';renderProcessTab()">
+      <div class="proc-role-item-head">
+        <span class="proc-role-item-name">${esc(role.name)}</span>
+        <span class="proc-role-item-count">${usage.taskCount}T</span>
+      </div>
+      <div class="proc-role-item-meta">${isRoleDisabled(role) ? '已停用' : '启用中'} · 流程 ${usage.processCount}</div>
+    </button>`;
+  }).join('');
+
+  const usageByProcess = new Map();
+  if(selectedRole) {
+    for(const item of getRoleUsage(selectedRole.id)) {
+      if(!usageByProcess.has(item.proc.id)) {
+        usageByProcess.set(item.proc.id, { proc: item.proc, tasks: [] });
+      }
+      usageByProcess.get(item.proc.id).tasks.push(item.task);
+    }
+  }
+
+  const detail = selectedRole ? `
+    <div class="proc-role-detail-head">
+      <div>
+        <div class="proc-role-detail-title">${esc(selectedRole.name)}</div>
+        <div class="proc-role-detail-subtitle">${selectedRole.desc ? esc(selectedRole.desc) : '当前角色的流程与任务投影视图'}</div>
+      </div>
+      <div class="proc-role-detail-badges">
+        <span class="proc-role-badge">流程 ${getRoleUsageSummary(selectedRole.id).processCount}</span>
+        <span class="proc-role-badge">任务 ${getRoleUsageSummary(selectedRole.id).taskCount}</span>
+      </div>
+    </div>
+    ${usageByProcess.size ? Array.from(usageByProcess.values()).map(({ proc, tasks }) => `
+      <div class="proc-role-usage-card">
+        <div class="proc-role-usage-head">
+          <div>
+            <span class="proc-role-usage-proc">${esc(proc.id)} ${esc(proc.name || '未命名流程')}</span>
+            ${proc.subDomain ? `<span class="proc-role-usage-subdomain">${esc(proc.subDomain)}</span>` : ''}
+          </div>
+          <button class="btn btn-ghost-sm" onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})">查看流程</button>
+        </div>
+        <div class="proc-role-task-list">
+          ${tasks.map((task) => `<button class="role-task-chip" data-testid="role-view-task-chip"
+            onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:'${esc(task.id)}'})">
+            ${esc(task.id)} ${esc(task.name || '未命名任务')}
+          </button>`).join('')}
+        </div>
+      </div>
+    `).join('') : '<p class="no-refs">当前角色尚未被任何任务引用</p>'}
+  ` : '<p class="no-refs">请选择一个角色查看流程投影</p>';
+
+  return `<div class="proc-role-view" data-testid="process-role-view">
+    <div class="proc-role-list">${roleList}</div>
+    <div class="proc-role-detail">${detail}</div>
+  </div>`;
+}
+
 function renderProcessTab() {
   ensureProcPos(S.doc);
   const procs=S.doc.processes||[];
@@ -480,10 +483,11 @@ function renderProcessTab() {
 
   /* ── 视图切换工具栏 ── */
   let h=`<div class="proc-view-toolbar">
-    ${view==='card'
-      ? `<button class="btn btn-outline btn-sm" data-testid="process-switch-overview" onclick="setProcView('list')">切换概要视图</button>`
-      : `<button class="btn btn-outline btn-sm" data-testid="process-switch-card" onclick="setProcView('card')">切换卡片视图</button>`
-    }
+    <div class="view-toggle-group">
+      <button class="vtb ${view==='card'?'active':''}" data-testid="process-switch-card" onclick="setProcView('card')">卡片视图</button>
+      <button class="vtb ${view==='list'?'active':''}" data-testid="process-switch-overview" onclick="setProcView('list')">概要视图</button>
+      <button class="vtb ${view==='role'?'active':''}" data-testid="process-switch-role" onclick="setProcView('role')">角色视图</button>
+    </div>
     ${view==='list'&&proc?`<button class="btn btn-ghost-sm" data-testid="process-delete-button" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
     ${view==='list'?`<button class="btn btn-outline btn-sm" data-testid="process-add-button" onclick="addProcess()">＋ 新流程</button>`:''}
   </div>`;
@@ -522,6 +526,12 @@ function renderProcessTab() {
     for(const p of procs) {
       if((p.tasks||[]).length) renderProcFlow(`pc-diag-${p.id}`, p, null);
     }
+    return;
+  }
+
+  if(view==='role') {
+    h += renderProcessRoleView();
+    document.getElementById('tab-content').innerHTML = h;
     return;
   }
 
@@ -599,21 +609,21 @@ function renderProcessTab() {
         <div class="field-group">
           <label>执行角色</label>`;
 
-      const roles=getRoles();
-      const isCustomRole = roles.length && task.role && !roles.includes(task.role);
+      const taskRoleId = getTaskRoleId(task);
+      const roles = getRoles().filter((role) => !isRoleDisabled(role) || role.id === taskRoleId);
       if(roles.length) {
-        h+=`<div style="display:flex;gap:6px;align-items:center">
-          <select style="flex-shrink:0;width:auto" onchange="onRoleChange(this,'${esc(proc.id)}','${esc(task.id)}')">
+        h+=`<div class="task-role-picker">
+          <select data-testid="task-role-select" onchange="onRoleChange(this,'${esc(proc.id)}','${esc(task.id)}')">
             <option value="">请选择...</option>
-            ${roles.map(r=>`<option value="${esc(r)}" ${task.role===r?'selected':''}>${esc(r)}</option>`).join('')}
-            <option value="__custom__" ${isCustomRole?'selected':''}>自定义...</option>
+            ${roles.map((role) => `<option value="${esc(role.id)}" ${taskRoleId===role.id?'selected':''}>${esc(role.name)}${isRoleDisabled(role)?'（已停用）':''}</option>`).join('')}
           </select>
-          ${isCustomRole?`<input type="text" value="${esc(task.role)}" placeholder="自定义角色名"
-            style="flex:1"
-            oninput="setTask('${esc(proc.id)}','${esc(task.id)}','role',this.value);renderProcDiagramNow()">`:''}</div>`;
+          <button class="btn btn-ghost-sm" type="button" onclick="navigate('domain')">管理角色</button>
+        </div>`;
       } else {
-        h+=`<input type="text" value="${esc(task.role||'')}" placeholder="如：采购员"
-          oninput="setTask('${esc(proc.id)}','${esc(task.id)}','role',this.value);renderProcDiagramNow()">`;
+        h+=`<div class="task-role-picker-empty">
+          <span class="no-refs">暂无角色词典，请先到业务域页添加角色</span>
+          <button class="btn btn-outline btn-sm" type="button" onclick="navigate('domain')">前往角色管理</button>
+        </div>`;
       }
       h+=`</div>
         <div class="field-group" style="grid-column:1/-1">
@@ -755,21 +765,8 @@ function renderProcDiagramNow() {
 }
 
 function onRoleChange(sel, procId, taskId) {
-  if (sel.value === '__custom__') {
-    /* 不 re-render，直接 DOM 插入输入框 */
-    const wrap = sel.parentElement;
-    let inp = wrap.querySelector('input[placeholder="自定义角色名"]');
-    if (!inp) {
-      inp = document.createElement('input');
-      inp.type = 'text'; inp.placeholder = '自定义角色名'; inp.style.flex = '1';
-      inp.oninput = () => { setTask(procId, taskId, 'role', inp.value); renderProcDiagramNow(); };
-      wrap.appendChild(inp);
-    }
-    inp.focus();
-  } else {
-    setTask(procId, taskId, 'role', sel.value);
-    renderProcDiagramNow();
-  }
+  setTaskRole(procId, taskId, sel.value);
+  renderProcDiagramNow();
 }
 
 function isCustomStepType(type) {

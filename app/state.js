@@ -14,10 +14,12 @@ const S = {
     tab: 'domain',
     procId: null, taskId: null,
     entityId: null,
+    roleId: null,
+    roleQuery: '',
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
     sidebarCollapsed: false,
     sidebarW: 240,
-    procView: 'card',  // 'list' | 'card'
+    procView: 'card',  // 'list' | 'card' | 'role'
     procDrawerW: 480,
     entityDrawerW: 480,
   }
@@ -132,7 +134,142 @@ function markModified() {
 function getEntityName(id) { return S.doc?.entities?.find(e=>e.id===id)?.name||id; }
 function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.procId)||null; }
 function currentTask()  { return currentProc()?.tasks?.find(t=>t.id===S.ui.taskId)||null; }
-function getRoles()     { return S.doc?.roles||[]; }
+function normalizeRoleName(name) { return String(name || '').trim(); }
+function isRoleDisabled(role) { return role?.status === 'disabled'; }
+function getRoles() {
+  return Array.isArray(S.doc?.roles)
+    ? S.doc.roles.filter((role) => role && typeof role === 'object' && !Array.isArray(role))
+    : [];
+}
+function getRoleById(roleId) {
+  const normalizedId = normalizeRoleName(roleId);
+  return getRoles().find((role) => role.id === normalizedId) || null;
+}
+function getRoleByName(roleName) {
+  const normalizedName = normalizeRoleName(roleName);
+  return getRoles().find((role) => role.name === normalizedName) || null;
+}
+function getRoleName(roleOrId) {
+  if (roleOrId && typeof roleOrId === 'object') {
+    return normalizeRoleName(roleOrId.name);
+  }
+  return normalizeRoleName(getRoleById(roleOrId)?.name || roleOrId);
+}
+function getTaskRoleId(task) {
+  const roleId = normalizeRoleName(task?.role_id);
+  if (roleId && getRoleById(roleId)) return roleId;
+  const roleName = normalizeRoleName(task?.role);
+  return getRoleByName(roleName)?.id || '';
+}
+function getTaskRoleName(task) {
+  return getRoleName(getTaskRoleId(task)) || normalizeRoleName(task?.role);
+}
+function syncTaskRole(task) {
+  if (!task) return;
+  const roleId = getTaskRoleId(task);
+  task.role_id = roleId;
+  task.role = roleId ? getRoleName(roleId) : '';
+}
+function syncAllTaskRoles() {
+  for (const proc of (S.doc?.processes || [])) {
+    for (const task of (proc.tasks || [])) {
+      syncTaskRole(task);
+    }
+  }
+}
+function nextRoleId() {
+  const used = new Set(getRoles().map((role) => role.id));
+  let index = 1;
+  while (used.has(`R${index}`)) index += 1;
+  return `R${index}`;
+}
+function createRoleDraft(name) {
+  return {
+    id: nextRoleId(),
+    name: normalizeRoleName(name) || '新角色',
+    desc: '',
+    status: 'active',
+    subDomains: [],
+    tags: [],
+  };
+}
+function getUniqueRoleName(baseName) {
+  const base = normalizeRoleName(baseName) || '新角色';
+  const usedNames = new Set(getRoles().map((role) => role.name));
+  if (!usedNames.has(base)) return base;
+  let index = 2;
+  while (usedNames.has(`${base}${index}`)) index += 1;
+  return `${base}${index}`;
+}
+function ensureSelectedRole(preferredRoleId) {
+  const roles = getRoles();
+  if (!roles.length) {
+    S.ui.roleId = null;
+    return null;
+  }
+  const preferred = normalizeRoleName(preferredRoleId || S.ui.roleId);
+  if (preferred && getRoleById(preferred)) {
+    S.ui.roleId = preferred;
+    return preferred;
+  }
+  S.ui.roleId = roles[0].id;
+  return S.ui.roleId;
+}
+function parseRoleTokens(value) {
+  return Array.from(new Set(
+    String(value || '')
+      .split(/[，,]/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ));
+}
+function setTaskRole(procId, taskId, roleId) {
+  const task = S.doc?.processes?.find((proc) => proc.id === procId)?.tasks?.find((item) => item.id === taskId);
+  if (!task) return;
+  const normalizedRoleId = normalizeRoleName(roleId);
+  task.role_id = normalizedRoleId;
+  task.role = normalizedRoleId ? getRoleName(normalizedRoleId) : '';
+  markModified();
+}
+function getRoleUsage(roleId) {
+  const normalizedRoleId = normalizeRoleName(roleId);
+  const usage = [];
+  for (const proc of (S.doc?.processes || [])) {
+    for (const task of (proc.tasks || [])) {
+      if (getTaskRoleId(task) !== normalizedRoleId) continue;
+      usage.push({ proc, task });
+    }
+  }
+  return usage;
+}
+function getRoleUsageSummary(roleId) {
+  const usage = getRoleUsage(roleId);
+  const processIds = new Set(usage.map((item) => item.proc.id));
+  const subDomains = new Set(usage.map((item) => normalizeRoleName(item.proc.subDomain)).filter(Boolean));
+  return {
+    taskCount: usage.length,
+    processCount: processIds.size,
+    subDomainCount: subDomains.size,
+  };
+}
+function getRoleSummaryCounts() {
+  const roles = getRoles();
+  let activeCount = 0;
+  let unusedCount = 0;
+  let disabledCount = 0;
+  roles.forEach((role) => {
+    const usage = getRoleUsageSummary(role.id);
+    if (isRoleDisabled(role)) disabledCount += 1;
+    else if (usage.taskCount === 0) unusedCount += 1;
+    else activeCount += 1;
+  });
+  return {
+    roleCount: roles.length,
+    activeCount,
+    unusedCount,
+    disabledCount,
+  };
+}
 
 function getTasksReferencingEntity(entityId) {
   const result=[];

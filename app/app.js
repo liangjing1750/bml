@@ -117,11 +117,16 @@ const App = {
 };
 
 function createDocUiState(doc) {
+  const firstRoleId = Array.isArray(doc.roles) && doc.roles.length && typeof doc.roles[0] === 'object'
+    ? doc.roles[0].id
+    : null;
   return {
     tab: 'domain',
     procId: doc.processes?.[0]?.id || null,
     taskId: null,
     entityId: null,
+    roleId: firstRoleId,
+    roleQuery: '',
     sbCollapse: _defaultSbCollapse(doc),
     sidebarCollapsed: false,
     sidebarW: getUiPrefNumber('sidebarW', 240),

@@ -121,7 +121,7 @@ function buildHtmlPreview() {
   const roles = doc.roles||[];
   if(roles.length) {
     h += `<h2>角色</h2>`;
-    h += roles.map(r=>`<span class="role-tag">${esc(r)}</span>`).join('');
+    h += roles.map((role)=>`<span class="role-tag">${esc(getRoleName(role))}</span>`).join('');
   }
 
   /* Language */
@@ -152,8 +152,9 @@ function buildHtmlPreview() {
       if(tasks.length) {
         h += `<div class="pv-tasks">`;
         for(const t of tasks) {
+          const roleName = getTaskRoleName(t);
           h += `<div class="pv-task-detail">`;
-          h += `<h4>${esc(t.id)}: ${esc(t.name||'')} <span class="pv-role">(${esc(t.role||'')})</span></h4>`;
+          h += `<h4>${esc(t.id)}: ${esc(t.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>`;
           if(t.repeatable) h += `<p class="pv-note">↺ 可重复任务</p>`;
           if(t.steps?.length) {
             h += `<table><thead><tr><th>#</th><th>步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>`;
@@ -236,7 +237,7 @@ function buildMdFromDoc(doc) {
   if(roles.length){
     add(`## ${nums[sn++]}、角色`); add('');
     add('| 角色 |'); add('|------|');
-    roles.forEach(r=>add(`| ${r} |`));
+    roles.forEach((role)=>add(`| ${getRoleName(role)} |`));
     add(''); sep();
   }
 
@@ -264,7 +265,7 @@ function buildMdFromDoc(doc) {
       if(procCode){ add('```mermaid'); procCode.split('\n').forEach(l=>add(l)); add('```'); add(''); }
 
       for(const t of tasks){
-        add(`#### ${t.id}. ${t.name||''}（角色：${t.role||''}）`); add('');
+        add(`#### ${t.id}. ${t.name||''}（角色：${getTaskRoleName(t)}）`); add('');
         if(t.repeatable) { add('> ↺ 可重复任务'); add(''); }
         if(t.steps?.length){
           add('| # | 步骤 | 类型 | 条件/备注 |'); add('|---|------|------|----------|');
