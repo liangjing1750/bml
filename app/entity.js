@@ -711,33 +711,106 @@ function getStateTone(state) {
   return 'neutral';
 }
 
+function getStateToneStyle(tone) {
+  const styles = {
+    neutral: { fill: '#f3f4f6', stroke: '#9ca3af', text: '#374151' },
+    pending: { fill: '#fef3c7', stroke: '#f59e0b', text: '#92400e' },
+    progress: { fill: '#dbeafe', stroke: '#3b82f6', text: '#1d4ed8' },
+    success: { fill: '#dcfce7', stroke: '#22c55e', text: '#166534' },
+    danger: { fill: '#fee2e2', stroke: '#ef4444', text: '#b91c1c' },
+  };
+  return styles[tone] || styles.neutral;
+}
+
 function renderEntityStateGraphMarkup(entity, fieldName = '') {
   const states = getEntityStatusValues(entity, fieldName);
   if (!states.length) return '<div class="diag-empty">暂无状态值</div>';
   const transitions = getEntityStateTransitions(entity, fieldName).map(({ transition }) => transition);
-  return `<div class="entity-state-graph">
-    <div class="entity-state-node-list">
-      ${states.map((state, index) => `<div class="entity-state-node tone-${getStateTone(state)}">
-        <span class="entity-state-node-index">${index + 1}</span>
-        <span class="entity-state-node-label">${esc(state)}</span>
-      </div>`).join('')}
+  const nodeW = 148;
+  const nodeH = 58;
+  const gapX = 92;
+  const padX = 24;
+  const padY = 32;
+  const laneBase = 28;
+  const laneGap = 18;
+  const boardW = Math.max(480, padX * 2 + states.length * nodeW + Math.max(0, states.length - 1) * gapX);
+  const boardH = 210;
+  const posMap = Object.fromEntries(states.map((state, index) => [
+    state,
+    {
+      x: padX + index * (nodeW + gapX),
+      y: padY + 56,
+      cx: padX + index * (nodeW + gapX) + nodeW / 2,
+      cy: padY + 56 + nodeH / 2,
+    },
+  ]));
+  const channelCount = {};
+  const markerMarkup = transitions.map((transition, index) => {
+    const style = getStateToneStyle(getStateTone(transition.from));
+    return `<marker id="entity-state-arrow-${index}" markerWidth="10" markerHeight="10" refX="7" refY="3.5" orient="auto">
+      <path d="M0,0 L0,7 L8,3.5 z" fill="${style.stroke}"></path>
+    </marker>`;
+  }).join('');
+  const linesMarkup = transitions.map((transition, index) => {
+    const fromPos = posMap[transition.from];
+    const toPos = posMap[transition.to];
+    if (!fromPos || !toPos) return '';
+    const fromTone = getStateTone(transition.from);
+    const style = getStateToneStyle(fromTone);
+    const fromIndex = states.indexOf(transition.from);
+    const toIndex = states.indexOf(transition.to);
+    const isForward = fromIndex <= toIndex;
+    const channelKey = `${transition.from}=>${transition.to}`;
+    const channelIndex = channelCount[channelKey] || 0;
+    channelCount[channelKey] = channelIndex + 1;
+    let pathD = '';
+    let labelX = (fromPos.cx + toPos.cx) / 2;
+    let labelY = fromPos.y - 12;
+
+    if (fromIndex === toIndex) {
+      const loopX = fromPos.x + nodeW + 18 + channelIndex * 18;
+      const loopTop = fromPos.y - 18 - channelIndex * 10;
+      const loopBottom = fromPos.y + nodeH + 18 + channelIndex * 10;
+      pathD = `M ${fromPos.x + nodeW} ${fromPos.cy - 8} C ${loopX} ${loopTop}, ${loopX} ${loopBottom}, ${fromPos.x + nodeW} ${fromPos.cy + 8}`;
+      labelX = loopX + 12;
+      labelY = fromPos.cy - 8;
+    } else {
+      const startX = isForward ? fromPos.x + nodeW : fromPos.x;
+      const endX = isForward ? toPos.x : toPos.x + nodeW;
+      const startY = fromPos.cy;
+      const endY = toPos.cy;
+      const laneOffset = laneBase + channelIndex * laneGap;
+      const curveY = isForward ? Math.max(24, fromPos.y - laneOffset) : Math.min(boardH - 18, fromPos.y + nodeH + laneOffset);
+      pathD = `M ${startX} ${startY} C ${startX + (isForward ? 36 : -36)} ${curveY}, ${endX + (isForward ? -36 : 36)} ${curveY}, ${endX} ${endY}`;
+      labelY = isForward ? curveY - 6 : curveY + 18;
+    }
+
+    return `
+      <path class="entity-state-link" data-testid="entity-state-graph-link"
+        d="${pathD}" fill="none" stroke="${style.stroke}" stroke-width="2.2" stroke-linecap="round"
+        marker-end="url(#entity-state-arrow-${index})"></path>
+      <text x="${labelX}" y="${labelY}" text-anchor="middle" class="entity-state-link-label">${esc(transition.action || '流转')}</text>
+    `;
+  }).join('');
+
+  return `<div class="entity-state-graph" data-testid="entity-state-graph-canvas">
+    <div class="entity-state-canvas" style="width:${boardW}px;height:${boardH}px">
+      <svg class="entity-state-svg" width="${boardW}" height="${boardH}" viewBox="0 0 ${boardW} ${boardH}" aria-hidden="true">
+        <defs>${markerMarkup}</defs>
+        ${linesMarkup}
+      </svg>
+      <div class="entity-state-board" style="width:${boardW}px;height:${boardH}px">
+        ${states.map((state, index) => {
+          const pos = posMap[state];
+          return `<div class="entity-state-node tone-${getStateTone(state)}"
+            style="left:${pos.x}px;top:${pos.y}px;width:${nodeW}px;height:${nodeH}px">
+            <span class="entity-state-node-index">${index + 1}</span>
+            <span class="entity-state-node-label">${esc(state)}</span>
+          </div>`;
+        }).join('')}
+      </div>
     </div>
-    <div class="entity-state-edge-list">
-      ${transitions.length
-        ? transitions.map((transition) => `<div class="entity-state-edge-card">
-            <div class="entity-state-edge-main">
-              <span class="entity-state-mini tone-${getStateTone(transition.from)}">${esc(transition.from || '—')}</span>
-              <span class="entity-state-edge-arrow">→</span>
-              <span class="entity-state-mini tone-${getStateTone(transition.to)}">${esc(transition.to || '—')}</span>
-            </div>
-            <div class="entity-state-edge-meta">
-              <span class="entity-state-action-chip">${esc(transition.action || '未命名动作')}</span>
-              ${transition.note ? `<span class="entity-state-edge-note">${esc(transition.note)}</span>` : ''}
-            </div>
-          </div>`).join('')
-        : '<p class="no-refs">暂无状态流转，先添加一条边。</p>'
-      }
-    </div>
+    ${transitions.length ? '' : '<p class="no-refs">暂无状态流转，先添加一条边。</p>'}
   </div>`;
 }
 

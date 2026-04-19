@@ -55,6 +55,20 @@ const App = {
     document.getElementById('open-modal-overlay').classList.add('hidden');
   },
 
+  cmdSaveAs() {
+    if (!S.doc) return;
+    const input = document.getElementById('save-as-name');
+    if (input) {
+      input.value = (S.doc.meta?.domain || S.currentFile || '').trim();
+    }
+    document.getElementById('save-as-modal-overlay').classList.remove('hidden');
+    setTimeout(() => input?.focus(), 50);
+  },
+
+  closeSaveAsModal() {
+    document.getElementById('save-as-modal-overlay').classList.add('hidden');
+  },
+
   async openFile(name) {
     App.closeOpenModal();
     const doc = await api.load(name);
@@ -80,17 +94,7 @@ const App = {
 
   async cmdSave() {
     if (!S.doc || !S.currentFile) return;
-
-    const newDomain = (S.doc.meta?.domain || '').trim();
-    if (newDomain && newDomain !== S.currentFile) {
-      await api.save(newDomain, S.doc);
-      if (confirm(`文档将另存为"${newDomain}"，是否同时删除旧文件"${S.currentFile}"？`)) {
-        await api.del(S.currentFile);
-      }
-      S.currentFile = newDomain;
-    } else {
-      await api.save(S.currentFile, S.doc);
-    }
+    await api.save(S.currentFile, S.doc);
 
     S.modified = false;
     document.getElementById('modified-dot')?.classList.add('hidden');
@@ -98,20 +102,36 @@ const App = {
     if (S.ui.tab === 'domain') renderDomainTab();
   },
 
-  async cmdExport(format = 'md') {
+  async confirmSaveAs() {
+    if (!S.doc) return;
+    const name = document.getElementById('save-as-name').value.trim();
+    if (!name) return alert('请输入业务域名称');
+
+    S.doc.meta = S.doc.meta || {};
+    S.doc.meta.domain = name;
+    S.doc.meta.title = name;
+    S.currentFile = name;
+    await api.save(name, S.doc);
+
+    S.modified = false;
+    document.getElementById('modified-dot')?.classList.add('hidden');
+    App.closeSaveAsModal();
+    renderToolbar();
+    if (S.ui.tab === 'domain') renderDomainTab();
+  },
+
+  async cmdExport() {
     if (!S.currentFile) return;
     await App.cmdSave();
-    if (format === 'json') {
-      const document = await api.exportJson(S.currentFile);
-      App._downloadBlob(
-        `${JSON.stringify(document, null, 2)}\n`,
-        'application/json;charset=utf-8',
-        `${S.currentFile}.json`,
-      );
-      return;
-    }
-
-    const md = await api.exportMd(S.currentFile);
+    const [document, md] = await Promise.all([
+      api.exportJson(S.currentFile),
+      api.exportMd(S.currentFile),
+    ]);
+    App._downloadBlob(
+      `${JSON.stringify(document, null, 2)}\n`,
+      'application/json;charset=utf-8',
+      `${S.currentFile}.json`,
+    );
     App._downloadBlob(md, 'text/plain;charset=utf-8', `${S.currentFile}.md`);
   },
 };

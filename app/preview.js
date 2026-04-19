@@ -152,8 +152,7 @@ function renderPreviewTab() {
   document.getElementById('tab-content').innerHTML = `
     <div class="preview-wrap">
       <div class="preview-topbar">
-        <button class="btn btn-outline btn-sm" data-testid="preview-export-md" onclick="App.cmdExport('md')">↓ 下载 .md</button>
-        <button class="btn btn-outline btn-sm" data-testid="preview-export-json" onclick="App.cmdExport('json')">↓ 下载 .json</button>
+        <button class="btn btn-outline btn-sm" data-testid="preview-export-bundle" onclick="App.cmdExport()">↓ 导出</button>
         <button id="preview-raw-toggle" class="btn btn-ghost-sm" style="margin-left:auto" onclick="togglePreviewRaw()">显示原文 MD</button>
       </div>
       <div id="preview-body" class="preview-body">

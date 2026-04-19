@@ -18,7 +18,8 @@
     <button onclick="App.cmdNew()" class="btn btn-ghost" data-testid="toolbar-new-button">新建</button>
     <button onclick="App.cmdOpen()" class="btn btn-ghost" data-testid="toolbar-open-button">打开</button>
     <button onclick="App.cmdSave()" class="btn btn-primary" id="btn-save">保存</button>
-    <button onclick="App.cmdExport()" class="btn btn-ghost">导出 MD</button>
+    <button onclick="App.cmdSaveAs()" class="btn btn-ghost" data-testid="toolbar-save-as-button">另存</button>
+    <button onclick="App.cmdExport()" class="btn btn-ghost" data-testid="toolbar-export-button">导出</button>
   </div>
 </div>
 
@@ -61,6 +62,24 @@
     <div id="file-list" class="file-list"></div>
     <div class="modal-footer">
       <button onclick="App.closeOpenModal()" class="btn btn-ghost">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 另存文档弹窗 -->
+<div id="save-as-modal-overlay" class="hidden" onclick="App.closeSaveAsModal()" data-testid="save-as-modal">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>另存文档</h3>
+    <input
+      id="save-as-name"
+      type="text"
+      placeholder="输入业务域名称，例如：仓储仓单管理-v2"
+      data-testid="save-as-name-input"
+      onkeydown="if(event.key==='Enter') App.confirmSaveAs()"
+    >
+    <div class="modal-footer">
+      <button onclick="App.closeSaveAsModal()" class="btn btn-ghost">取消</button>
+      <button onclick="App.confirmSaveAs()" class="btn btn-primary" data-testid="save-as-confirm-button">确定</button>
     </div>
   </div>
 </div>
