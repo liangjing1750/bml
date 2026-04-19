@@ -89,9 +89,6 @@ function getRoleSubDomains(role) {
     : '';
 }
 
-function getRoleStatusLabel(role) {
-  return typeof role === 'object' && role && role.status === 'disabled' ? '已停用' : '启用';
-}
 
 /* ═══════════════════════════════════════════════════════════
    RENDER — Preview Tab
@@ -183,13 +180,12 @@ function buildPreviewMetaLine(meta) {
 function renderPreviewRolesHtml(roles) {
   if (!roles.length) return '';
   return `<h2 id="preview-roles">角色</h2>
-    <table><thead><tr><th>角色</th><th>分组</th><th>说明</th><th>所属业务子域</th><th>状态</th></tr></thead><tbody>
+    <table><thead><tr><th>角色</th><th>分组</th><th>说明</th><th>所属业务子域</th></tr></thead><tbody>
       ${roles.map((role) => `<tr>
         <td>${esc(getRoleName(role))}</td>
         <td>${esc(getRoleGroup(role))}</td>
         <td>${esc(getRoleDesc(role))}</td>
         <td>${esc(getRoleSubDomains(role))}</td>
-        <td>${esc(getRoleStatusLabel(role))}</td>
       </tr>`).join('')}
     </tbody></table>`;
 }
@@ -238,21 +234,20 @@ function renderPreviewEntitiesHtml(entities, fieldLabels) {
     ${entities.map((entity) => `<div class="pv-entity-section">
       <h3 id="${previewAnchorId('entity', entity.id || entity.name || 'entity')}">实体: ${esc(entity.name||entity.id)}</h3>
       ${entity.note ? `<p class="pv-note">${esc(entity.note)}</p>` : ''}
-      ${entity.fields?.length ? `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>状态值</th><th>公式/约束</th></tr></thead><tbody>
+      ${entity.fields?.length ? `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>字段规则</th></tr></thead><tbody>
         ${entity.fields.map((field) => `<tr>
           <td>${esc(field.name||'')}</td>
           <td>${esc(fieldLabels[field.type]||field.type||'')}</td>
           <td style="text-align:center">${field.is_key?'✓':''}</td>
           <td style="text-align:center">${field.is_status?'✓':''}</td>
-          <td>${esc(getFieldStateValueText(field) || '')}</td>
-          <td>${esc(field.note||'')}</td>
+          <td>${esc(getFieldRuleText(field) || '')}</td>
         </tr>`).join('')}
       </tbody></table>` : ''}
       ${entity.state_transitions?.length ? `<h4>状态流转</h4>
         ${(() => {
           const statusField = getEntityStatusField(entity);
           const statusLine = statusField
-            ? `<p class="pv-note"><strong>主状态字段</strong>: ${esc(statusField.name || '')}（状态值：${esc(getFieldStateValueText(statusField) || '—')}）</p>`
+            ? `<p class="pv-note"><strong>主状态字段</strong>: ${esc(statusField.name || '')}（状态列表：${esc(getFieldStateValueText(statusField) || '—')}）</p>`
             : '';
           return `${statusLine}
             <table><thead><tr><th>来源状态</th><th>目标状态</th><th>触发动作</th><th>说明</th></tr></thead><tbody>
@@ -298,9 +293,9 @@ function buildHtmlPreview() {
 }
 
 function appendPreviewRolesMd(add, roles) {
-  add('| 角色 | 分组 | 说明 | 所属业务子域 | 状态 |');
-  add('|------|------|------|--------------|------|');
-  roles.forEach((role) => add(`| ${getRoleName(role)} | ${getRoleGroup(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} | ${getRoleStatusLabel(role)} |`));
+  add('| 角色 | 分组 | 说明 | 所属业务子域 |');
+  add('|------|------|------|--------------|');
+  roles.forEach((role) => add(`| ${getRoleName(role)} | ${getRoleGroup(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} |`));
   add('');
 }
 
@@ -374,9 +369,9 @@ function appendPreviewEntitiesMd(add, doc, entities, fieldLabels) {
       add('');
     }
     if(entity.fields?.length){
-      add('| 字段 | 类型 | 主键 | 状态字段 | 状态值 | 公式/约束 |');
-      add('|------|------|------|---------|--------|---------|');
-      entity.fields.forEach((field) => add(`| ${field.name||''} | ${fieldLabels[field.type]||field.type||''} | ${field.is_key?'✓':''} | ${field.is_status?'✓':''} | ${getFieldStateValueText(field)||''} | ${field.note||''} |`));
+      add('| 字段 | 类型 | 主键 | 状态字段 | 字段规则 |');
+      add('|------|------|------|---------|---------|');
+      entity.fields.forEach((field) => add(`| ${field.name||''} | ${fieldLabels[field.type]||field.type||''} | ${field.is_key?'✓':''} | ${field.is_status?'✓':''} | ${getFieldRuleText(field)||''} |`));
       add('');
     }
     if(entity.state_transitions?.length){
@@ -384,7 +379,7 @@ function appendPreviewEntitiesMd(add, doc, entities, fieldLabels) {
       add('#### 状态流转');
       add('');
       if(statusField) {
-        add(`**主状态字段**: ${statusField.name||''}（状态值：${getFieldStateValueText(statusField)||'—'}）`);
+        add(`**主状态字段**: ${statusField.name||''}（状态列表：${getFieldStateValueText(statusField)||'—'}）`);
         add('');
       }
       add('| 来源状态 | 目标状态 | 触发动作 | 说明 |');

@@ -716,12 +716,12 @@ function renderProcessTab() {
           <label>执行角色</label>`;
 
       const taskRoleId = getTaskRoleId(task);
-      const roles = getRoles().filter((role) => !isRoleDisabled(role) || role.id === taskRoleId);
+      const roles = getRoles();
       if(roles.length) {
         h+=`<div class="task-role-picker">
           <select data-testid="task-role-select" onchange="onRoleChange(this,'${esc(proc.id)}','${esc(task.id)}')">
             <option value="">请选择...</option>
-            ${roles.map((role) => `<option value="${esc(role.id)}" ${taskRoleId===role.id?'selected':''}>${esc(role.name)}${isRoleDisabled(role)?'（已停用）':''}</option>`).join('')}
+            ${roles.map((role) => `<option value="${esc(role.id)}" ${taskRoleId===role.id?'selected':''}>${esc(role.name)}</option>`).join('')}
           </select>
           <button class="btn btn-ghost-sm" type="button" onclick="navigate('domain')">管理角色</button>
         </div>`;

@@ -58,12 +58,6 @@ def get_role_subdomains(role) -> str:
     return ""
 
 
-def get_role_status(role) -> str:
-    if isinstance(role, dict):
-        return "已停用" if role.get("status") == "disabled" else "启用"
-    return "启用"
-
-
 def get_entity_status_field(entity: dict) -> dict | None:
     return next((field for field in entity.get("fields", []) if field.get("is_status")), None)
 
@@ -80,6 +74,22 @@ def get_entity_state_values(entity: dict) -> str:
     if parts and all(len(item) <= 16 for item in parts):
         return "/".join(parts)
     return ""
+
+
+def get_field_rule_text(field: dict) -> str:
+    note_text = str(field.get("note", "")).strip()
+    if not field.get("is_status"):
+        return note_text
+    state_value_text = str(field.get("state_values", "")).strip()
+    if not state_value_text:
+        parts = [item.strip() for item in note_text.split("/") if item.strip()]
+        if parts and all(len(item) <= 16 for item in parts):
+            state_value_text = "/".join(parts)
+    inferred_text = "/".join([item.strip() for item in note_text.split("/") if item.strip()])
+    note_only = note_text if note_text and note_text != state_value_text and inferred_text != state_value_text else ""
+    if state_value_text and note_only:
+        return f"{state_value_text}；{note_only}"
+    return note_text or state_value_text
 
 
 class MarkdownExporter:
@@ -121,11 +131,11 @@ class MarkdownExporter:
         if roles:
             line(f"## {next_section_number()}、角色")
             line()
-            line("| 角色 | 分组 | 说明 | 所属业务子域 | 状态 |")
-            line("|------|------|------|--------------|------|")
+            line("| 角色 | 分组 | 说明 | 所属业务子域 |")
+            line("|------|------|------|--------------|")
             for role in roles:
                 line(
-                    f"| {get_role_name(role)} | {get_role_group(role)} | {get_role_desc(role)} | {get_role_subdomains(role)} | {get_role_status(role)} |"
+                    f"| {get_role_name(role)} | {get_role_group(role)} | {get_role_desc(role)} | {get_role_subdomains(role)} |"
                 )
             line()
             separator()
@@ -161,14 +171,14 @@ class MarkdownExporter:
                 line()
                 fields = entity.get("fields", [])
                 if fields:
-                    line("| 字段 | 类型 | 主键 | 状态字段 | 状态值 | 公式/约束 |")
-                    line("|------|------|------|---------|--------|---------|")
+                    line("| 字段 | 类型 | 主键 | 状态字段 | 字段规则 |")
+                    line("|------|------|------|---------|---------|")
                     for field in fields:
                         field_type = FIELD_LABELS.get(field.get("type", ""), field.get("type", ""))
                         is_key = "✓" if field.get("is_key") else ""
                         is_status = "✓" if field.get("is_status") else ""
                         line(
-                            f"| {field.get('name', '')} | {field_type} | {is_key} | {is_status} | {field.get('state_values', '')} | {field.get('note', '')} |"
+                            f"| {field.get('name', '')} | {field_type} | {is_key} | {is_status} | {get_field_rule_text(field)} |"
                         )
                     line()
                 state_transitions = entity.get("state_transitions", [])
@@ -178,7 +188,7 @@ class MarkdownExporter:
                     line()
                     if status_field:
                         line(
-                            f"**主状态字段**: {status_field.get('name', '')}（状态值：{get_entity_state_values(entity) or '—'}）"
+                            f"**主状态字段**: {status_field.get('name', '')}（状态列表：{get_entity_state_values(entity) or '—'}）"
                         )
                         line()
                     line("| 来源状态 | 目标状态 | 触发动作 | 说明 |")

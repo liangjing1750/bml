@@ -6,10 +6,34 @@
     "date": "2026-04-06"
   },
   "roles": [
-    "读者",
-    "图书管理员",
-    "系统",
-    "质检机构"
+    {
+      "id": "R1",
+      "name": "读者",
+      "desc": "",
+      "group": "业务参与方",
+      "subDomains": []
+    },
+    {
+      "id": "R2",
+      "name": "图书管理员",
+      "desc": "",
+      "group": "业务参与方",
+      "subDomains": []
+    },
+    {
+      "id": "R3",
+      "name": "系统",
+      "desc": "",
+      "group": "系统角色",
+      "subDomains": []
+    },
+    {
+      "id": "R4",
+      "name": "质检机构",
+      "desc": "",
+      "group": "业务参与方",
+      "subDomains": []
+    }
   ],
   "language": [
     {
@@ -52,12 +76,12 @@
             },
             {
               "name": "校验是否有超期未还",
-              "type": "Validate",
+              "type": "Check",
               "note": "存在超期记录则不允许借阅"
             },
             {
               "name": "校验在借数量是否达上限",
-              "type": "Validate",
+              "type": "Check",
               "note": "默认上限5本，特殊读者类型另设"
             },
             {
@@ -67,22 +91,22 @@
             },
             {
               "name": "校验馆藏状态为可借",
-              "type": "Validate",
+              "type": "Check",
               "note": "在借、预约锁定、下架状态不可借出"
             },
             {
               "name": "计算应还日期",
-              "type": "Calculate",
+              "type": "Compute",
               "note": "借出日期 + 借期天数（默认30天）"
             },
             {
               "name": "生成借阅记录",
-              "type": "Change",
+              "type": "Mutate",
               "note": "记录读者ID、馆藏ID、借出时间、应还时间"
             },
             {
               "name": "变更馆藏状态为在借",
-              "type": "Change",
+              "type": "Mutate",
               "note": ""
             }
           ],
@@ -101,13 +125,16 @@
               ]
             }
           ],
-          "repeatable": true
+          "repeatable": true,
+          "role_id": "R2",
+          "rules_note": ""
         }
       ],
       "pos": {
         "r": 1,
         "c": 2
-      }
+      },
+      "subDomain": ""
     },
     {
       "id": "P2",
@@ -166,7 +193,10 @@
                 "U"
               ]
             }
-          ]
+          ],
+          "role_id": "R2",
+          "repeatable": false,
+          "rules_note": ""
         },
         {
           "id": "T3",
@@ -180,7 +210,7 @@
             },
             {
               "name": "发送通知给预约读者",
-              "type": "Change",
+              "type": "Mutate",
               "note": "通知方式：站内消息"
             },
             {
@@ -205,13 +235,16 @@
               ]
             }
           ],
-          "repeatable": false
+          "repeatable": false,
+          "role_id": "R3",
+          "rules_note": ""
         }
       ],
       "pos": {
         "r": 1,
         "c": 4
-      }
+      },
+      "subDomain": ""
     },
     {
       "id": "P3",
@@ -255,13 +288,16 @@
               ]
             }
           ],
-          "repeatable": false
+          "repeatable": false,
+          "role_id": "R1",
+          "rules_note": ""
         }
       ],
       "pos": {
         "r": 1,
         "c": 1
-      }
+      },
+      "subDomain": ""
     },
     {
       "id": "P4",
@@ -281,27 +317,27 @@
             },
             {
               "name": "校验是否超期",
-              "type": "Validate",
+              "type": "Check",
               "note": "超期状态不允许续借"
             },
             {
               "name": "校验续借次数",
-              "type": "Validate",
+              "type": "Check",
               "note": "同一借阅记录最多续借1次"
             },
             {
               "name": "校验该馆藏是否有预约",
-              "type": "Validate",
+              "type": "Check",
               "note": "有待通知预约时不允许续借"
             },
             {
               "name": "更新应还日期",
-              "type": "Change",
+              "type": "Mutate",
               "note": "在原应还日期基础上顺延30天"
             },
             {
               "name": "记录续借次数+1",
-              "type": "Change",
+              "type": "Mutate",
               "note": ""
             }
           ],
@@ -319,13 +355,17 @@
                 "R"
               ]
             }
-          ]
+          ],
+          "role_id": "R1",
+          "repeatable": false,
+          "rules_note": ""
         }
       ],
       "pos": {
         "r": 1,
         "c": 3
-      }
+      },
+      "subDomain": ""
     }
   ],
   "entities": [
@@ -336,39 +376,51 @@
       "fields": [
         {
           "name": "读者ID",
-          "type": "String",
-          "pk": true,
-          "note": "系统生成"
+          "type": "string",
+          "note": "系统生成",
+          "is_key": true,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "姓名",
-          "type": "String",
-          "pk": false,
-          "note": ""
+          "type": "string",
+          "note": "",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "账户状态",
-          "type": "Enum",
-          "pk": false,
-          "note": "正常 / 冻结"
+          "type": "enum",
+          "note": "正常 / 冻结",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "读者类型",
-          "type": "Enum",
-          "pk": false,
-          "note": "普通 / 学生 / 教师，决定借期和上限"
+          "type": "enum",
+          "note": "普通 / 学生 / 教师，决定借期和上限",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "最大在借数量",
-          "type": "Int",
-          "pk": false,
-          "note": "由读者类型决定，默认5"
+          "type": "number",
+          "note": "由读者类型决定，默认5",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         }
       ],
       "pos": {
         "x": 136,
         "y": 264
-      }
+      },
+      "note": "",
+      "state_transitions": []
     },
     {
       "id": "E2",
@@ -377,33 +429,43 @@
       "fields": [
         {
           "name": "馆藏ID",
-          "type": "String",
-          "pk": true,
-          "note": "条码扫描值"
+          "type": "string",
+          "note": "条码扫描值",
+          "is_key": true,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "书目ID",
-          "type": "String",
-          "pk": false,
-          "note": "外键，关联书目"
+          "type": "string",
+          "note": "外键，关联书目",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "馆藏状态",
-          "type": "Enum",
-          "pk": false,
-          "note": "可借 / 在借 / 预约锁定 / 下架"
+          "type": "enum",
+          "note": "可借 / 在借 / 预约锁定 / 下架",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "存放位置",
-          "type": "String",
-          "pk": false,
-          "note": "区号-架号-层号"
+          "type": "string",
+          "note": "区号-架号-层号",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         }
       ],
       "pos": {
         "x": 20,
         "y": 9
-      }
+      },
+      "note": "",
+      "state_transitions": []
     },
     {
       "id": "E3",
@@ -412,57 +474,75 @@
       "fields": [
         {
           "name": "借阅ID",
-          "type": "String",
-          "pk": true,
-          "note": "系统生成"
+          "type": "string",
+          "note": "系统生成",
+          "is_key": true,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "读者ID",
-          "type": "String",
-          "pk": false,
-          "note": "外键"
+          "type": "string",
+          "note": "外键",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "馆藏ID",
-          "type": "String",
-          "pk": false,
-          "note": "外键"
+          "type": "string",
+          "note": "外键",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "借出时间",
-          "type": "DateTime",
-          "pk": false,
-          "note": ""
+          "type": "datetime",
+          "note": "",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "应还时间",
-          "type": "DateTime",
-          "pk": false,
-          "note": "借出时间 + 借期天数"
+          "type": "datetime",
+          "note": "借出时间 + 借期天数",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "实还时间",
-          "type": "DateTime",
-          "pk": false,
-          "note": "归还时填写，未还时为空"
+          "type": "datetime",
+          "note": "归还时填写，未还时为空",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "借阅状态",
-          "type": "Enum",
-          "pk": false,
-          "note": "在借 / 已还 / 超期"
+          "type": "enum",
+          "note": "在借 / 已还 / 超期",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "续借次数",
-          "type": "Int",
-          "pk": false,
-          "note": "最大值1"
+          "type": "number",
+          "note": "最大值1",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         }
       ],
       "pos": {
         "x": 19,
         "y": 130
-      }
+      },
+      "note": "",
+      "state_transitions": []
     },
     {
       "id": "E4",
@@ -471,51 +551,67 @@
       "fields": [
         {
           "name": "预约ID",
-          "type": "String",
-          "pk": true,
-          "note": "系统生成"
+          "type": "string",
+          "note": "系统生成",
+          "is_key": true,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "读者ID",
-          "type": "String",
-          "pk": false,
-          "note": "外键"
+          "type": "string",
+          "note": "外键",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "书目ID",
-          "type": "String",
-          "pk": false,
-          "note": "外键，预约到书目级别"
+          "type": "string",
+          "note": "外键，预约到书目级别",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "预约时间",
-          "type": "DateTime",
-          "pk": false,
-          "note": "用于排队顺序"
+          "type": "datetime",
+          "note": "用于排队顺序",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "预约状态",
-          "type": "Enum",
-          "pk": false,
-          "note": "待通知 / 已通知 / 已取书 / 已取消"
+          "type": "enum",
+          "note": "待通知 / 已通知 / 已取书 / 已取消",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "通知时间",
-          "type": "DateTime",
-          "pk": false,
-          "note": "发出通知的时间，未通知时为空"
+          "type": "datetime",
+          "note": "发出通知的时间，未通知时为空",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "锁定截止时间",
-          "type": "DateTime",
-          "pk": false,
-          "note": "已通知后锁定3天，超时自动释放"
+          "type": "datetime",
+          "note": "已通知后锁定3天，超时自动释放",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         }
       ],
       "pos": {
         "x": 241,
         "y": 132
-      }
+      },
+      "note": "",
+      "state_transitions": []
     },
     {
       "id": "E5",
@@ -524,33 +620,43 @@
       "fields": [
         {
           "name": "书目ID",
-          "type": "String",
-          "pk": true,
-          "note": "ISBN"
+          "type": "string",
+          "note": "ISBN",
+          "is_key": true,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "书名",
-          "type": "String",
-          "pk": false,
-          "note": ""
+          "type": "string",
+          "note": "",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "作者",
-          "type": "String",
-          "pk": false,
-          "note": ""
+          "type": "string",
+          "note": "",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         },
         {
           "name": "出版社",
-          "type": "String",
-          "pk": false,
-          "note": ""
+          "type": "string",
+          "note": "",
+          "is_key": false,
+          "is_status": false,
+          "state_values": ""
         }
       ],
       "pos": {
         "x": 303,
         "y": 6
-      }
+      },
+      "note": "",
+      "state_transitions": []
     }
   ],
   "relations": [
@@ -589,32 +695,50 @@
     {
       "id": "R1",
       "name": "超期读者不可借阅",
-      "description": "读者存在任意一条超期未还的借阅记录时，不允许新的借阅操作"
+      "description": "读者存在任意一条超期未还的借阅记录时，不允许新的借阅操作",
+      "type": "",
+      "applies_to": "",
+      "formula": ""
     },
     {
       "id": "R2",
       "name": "在借上限约束",
-      "description": "读者当前在借数量达到最大在借数量时，不允许新的借阅操作"
+      "description": "读者当前在借数量达到最大在借数量时，不允许新的借阅操作",
+      "type": "",
+      "applies_to": "",
+      "formula": ""
     },
     {
       "id": "R3",
       "name": "续借次数上限",
-      "description": "同一借阅记录最多续借1次"
+      "description": "同一借阅记录最多续借1次",
+      "type": "",
+      "applies_to": "",
+      "formula": ""
     },
     {
       "id": "R4",
       "name": "有预约不可续借",
-      "description": "馆藏对应书目存在待通知状态的预约时，不允许当前借阅人续借"
+      "description": "馆藏对应书目存在待通知状态的预约时，不允许当前借阅人续借",
+      "type": "",
+      "applies_to": "",
+      "formula": ""
     },
     {
       "id": "R5",
       "name": "预约锁定期",
-      "description": "馆藏归还后通知预约读者，锁定期3天；超过3天未取书，自动释放馆藏并通知下一位预约人"
+      "description": "馆藏归还后通知预约读者，锁定期3天；超过3天未取书，自动释放馆藏并通知下一位预约人",
+      "type": "",
+      "applies_to": "",
+      "formula": ""
     },
     {
       "id": "R6",
       "name": "同书目不可重复预约",
-      "description": "读者对同一书目只能有一条待通知或已通知状态的预约"
+      "description": "读者对同一书目只能有一条待通知或已通知状态的预约",
+      "type": "",
+      "applies_to": "",
+      "formula": ""
     }
   ]
 }

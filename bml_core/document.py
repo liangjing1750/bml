@@ -37,14 +37,6 @@ FIELD_TYPE_ALIASES = {
     "id": "id",
 }
 
-ROLE_STATUS_ALIASES = {
-    "active": "active",
-    "enabled": "active",
-    "inactive": "disabled",
-    "disabled": "disabled",
-}
-
-
 def create_empty_document(name: str) -> dict:
     return {
         "meta": {"title": name, "domain": "", "author": "", "date": ""},
@@ -73,12 +65,6 @@ def normalize_field_type(field_type: str) -> str:
 
 def normalize_role_name(role_name: str) -> str:
     return str(role_name or "").strip()
-
-
-def normalize_role_status(role_status: str) -> str:
-    if not role_status:
-        return "active"
-    return ROLE_STATUS_ALIASES.get(str(role_status).strip().casefold(), "active")
 
 
 def infer_role_group(role_name: str, tags: list[str] | None = None) -> str:
@@ -140,7 +126,6 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
             "id": role_id,
             "name": role_name,
             "desc": normalize_role_name(raw_role.get("desc", "")),
-            "status": normalize_role_status(raw_role.get("status", "")),
             "group": normalize_role_name(raw_role.get("group", "")) or infer_role_group(
                 role_name, raw_role.get("tags", [])
             ),
@@ -154,7 +139,6 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
         "id": _next_role_id(existing_roles),
         "name": role_name,
         "desc": "",
-        "status": "active",
         "group": infer_role_group(role_name, []),
         "subDomains": [],
     }
@@ -165,8 +149,6 @@ def _merge_role(target: dict, source: dict) -> dict:
         target["desc"] = source["desc"]
     if not target.get("group") and source.get("group"):
         target["group"] = source["group"]
-    if source.get("status") == "disabled":
-        target["status"] = "disabled"
     target["subDomains"] = _normalize_text_list([*target.get("subDomains", []), *source.get("subDomains", [])])
     return target
 

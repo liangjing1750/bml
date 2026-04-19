@@ -6,7 +6,7 @@ test('预览页提供大纲视图并支持跳转', async ({ page, request }) => 
   const documentName = `preview-outline-${Date.now()}`;
   await createDocument(request, documentName, {
     meta: { title: documentName, domain: documentName, author: 'tester', date: '2026-04' },
-    roles: [{ id: 'R1', name: '仓库管理员', group: '业务参与方', status: 'active' }],
+    roles: [{ id: 'R1', name: '仓库管理员', group: '业务参与方' }],
     language: [{ term: '预约', definition: '入库前的预约单据' }],
     processes: [
       {

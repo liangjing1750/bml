@@ -701,21 +701,6 @@ function setEntityPrimaryStatusField(entityId, fieldIndex) {
   renderDataTab();
 }
 
-function setEntityStateValues(entityId, value) {
-  const entity = S.doc.entities.find((item) => item.id === entityId);
-  if (!entity) return;
-  ensureEntityStateShape(entity);
-  const statusField = getEntityStatusField(entity, S.ui.stateFieldName);
-  if (!statusField) return;
-  const previousText = getFieldStateValueText(statusField);
-  statusField.state_values = value;
-  const noteText = String(statusField.note || '').trim();
-  if (!noteText || noteText === previousText || inferStateValuesFromNote(noteText).join('/') === previousText) {
-    statusField.note = value;
-  }
-  markModified();
-}
-
 function getStateTone(state) {
   const value = String(state || '');
   if (/草稿|历史/.test(value)) return 'neutral';
@@ -864,8 +849,20 @@ function setField(entityId,idx,key,val) {
     e.fields.forEach((field, fieldIndex) => {
       field.is_status = fieldIndex === idx ? !!val : false;
     });
+    if (val) {
+      const inferredStateValueText = inferStateValuesFromNote(e.fields[idx].note || '').join('/');
+      if (inferredStateValueText) {
+        e.fields[idx].state_values = inferredStateValueText;
+      }
+    }
   } else {
     e.fields[idx][key]=val;
+    if(key === 'note' && e.fields[idx].is_status) {
+      const inferredStateValueText = inferStateValuesFromNote(val).join('/');
+      if (inferredStateValueText || !String(val || '').trim()) {
+        e.fields[idx].state_values = inferredStateValueText;
+      }
+    }
   }
   markModified();
 }
@@ -876,7 +873,7 @@ function addStateTransition(entityId) {
   ensureEntityStateShape(entity);
   const fieldName = getEntityStatusField(entity, S.ui.stateFieldName)?.name || '';
   if (!getEntityStatusValues(entity, fieldName).length) {
-    alert('请先为主状态字段填写状态值，再配置状态流转。');
+    alert('请先在字段规则中填写主状态字段的状态值，再配置状态流转。');
     return;
   }
   entity.state_transitions.push(createStateTransitionDraft(entity, fieldName));
@@ -929,10 +926,10 @@ function renderStateDiagramCard(entity, stateField, stateValues) {
     return '<div class="diag-empty" data-testid="entity-state-empty">请选择一个实体查看状态图。</div>';
   }
   if (!stateField) {
-    return '<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义主状态字段，请先在下方选择一个状态字段，再填写状态值。</div>';
+    return '<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义主状态字段，请先在下方选择一个状态字段，再在字段规则中填写状态值。</div>';
   }
   if (!stateValues.length) {
-    return `<div class="diag-empty" data-testid="entity-state-empty">主状态字段“${esc(stateField.name || '')}”尚未填写状态值，请先补充例如：草稿/待审核/已完成。</div>`;
+    return `<div class="diag-empty" data-testid="entity-state-empty">主状态字段“${esc(stateField.name || '')}”尚未在字段规则中填写状态值，请先补充例如：草稿/待审核/已完成。</div>`;
   }
   return `<div class="entity-state-card" data-testid="entity-state-diagram">
     <div class="entity-state-card-head">
@@ -967,7 +964,7 @@ function renderStateFieldSelector(entity, statusFields, stateField, stateFieldIn
 
 function renderStateTransitionList(entity, stateField, stateValues, stateTransitionRows) {
   if (!stateField) {
-    return '<p class="no-refs">先选择一个主状态字段，再维护状态值和流转边。</p>';
+    return '<p class="no-refs">先选择一个主状态字段，再在字段规则中填写状态值，然后维护流转边。</p>';
   }
   if (!stateTransitionRows.length) {
     return '<p class="no-refs">暂无状态流转，先添加一条边，例如：草稿 → 待审核。</p>';
@@ -1003,9 +1000,8 @@ function renderStateEditor(entity, statusFields, stateField, stateFieldIndex, st
     <div class="entity-state-config-row">
       ${renderStateFieldSelector(entity, statusFields, stateField, stateFieldIndex)}
       <label class="field-group entity-state-values-field">
-        <span>状态值 <span class="inline-help" tabindex="0" data-tip="请使用 / 分隔状态值，例如：草稿/待审核/审核通过/已作废。">?</span></span>
-        <input type="text" data-testid="entity-state-values-input" value="${esc(stateValueText)}" placeholder="如：草稿/待审核/审核通过/已作废" ${stateField ? '' : 'disabled'}
-          oninput="setEntityStateValues('${esc(entity.id)}', this.value)">
+        <span>状态值来源 <span class="inline-help" tabindex="0" data-tip="请在下方字段表的“字段规则”中填写状态值，并用 / 分隔，例如：草稿/待审核/审核通过/已作废。">?</span></span>
+        <div class="entity-state-values-readonly" data-testid="entity-state-values-text">${esc(stateValueText || '请在下方“字段规则”中填写，例如：草稿/待审核/审核通过/已作废')}</div>
       </label>
     </div>
     ${statusFields.length > 1 ? '<p class="entity-state-editor-hint">当前实体存在多个状态字段。本版按“一个状态字段一张状态图”处理，先分别维护，不处理字段之间的联动。</p>' : ''}
@@ -1049,7 +1045,7 @@ function renderEntityFieldsSection(entity) {
   return `<div class="form-section">
     <h4>字段 <button class="btn btn-outline btn-sm" data-testid="entity-field-add-button" onclick="addField('${esc(entity.id)}')">＋</button></h4>
     ${entity.fields?.length ? `<table class="field-table">
-      <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>公式/约束</th><th></th></tr></thead>
+      <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>字段规则</th><th></th></tr></thead>
       <tbody>
         ${entity.fields.map((field, index) => `<tr>
           <td class="field-td-name"><input type="text" data-testid="entity-field-name-${index}" value="${esc(field.name||'')}" placeholder="字段名"
@@ -1061,7 +1057,7 @@ function renderEntityFieldsSection(entity) {
             onchange="setField('${esc(entity.id)}',${index},'is_key',this.checked)"></td>
           <td style="text-align:center"><input type="checkbox" data-testid="entity-status-toggle-${index}" ${field.is_status?'checked':''}
             onchange="setField('${esc(entity.id)}',${index},'is_status',this.checked);renderDataTab()"></td>
-          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束"
+          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="字段规则"
             oninput="setField('${esc(entity.id)}',${index},'note',this.value);autoResize(this)"
             >${esc(field.note||'')}</textarea></td>
           <td><button class="field-del" onclick="removeField('${esc(entity.id)}',${index})">✕</button></td>

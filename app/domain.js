@@ -110,7 +110,6 @@ function setTerm(idx, key, val) {
 
 function getLightRoleSummary(role) {
   const usage = getRoleUsageSummary(role.id);
-  if (isRoleDisabled(role)) return '已停用';
   return usage.taskCount ? `${usage.taskCount}T` : '未使用';
 }
 
@@ -142,10 +141,9 @@ function renderRoleSummaryCard() {
   const availableRoleGroups = getAvailableRoleGroups();
   const summaryText = [
     `角色 ${summary.roleCount}`,
-    `使用中 ${summary.activeCount}`,
+    `使用中 ${summary.usedCount}`,
     `未使用 ${summary.unusedCount}`,
   ];
-  if (summary.disabledCount) summaryText.push(`已停用 ${summary.disabledCount}`);
 
   const groupOptions = availableRoleGroups
     .map((groupName) => `<option value="${esc(groupName)}" ${groupName === preferredRoleGroup ? 'selected' : ''}>${esc(groupName)}</option>`)
@@ -188,7 +186,7 @@ function renderRoleSummaryCard() {
           const usage = getRoleUsageSummary(role.id);
           const removable = usage.taskCount === 0;
           h += `<div class="role-light-chip-wrap">
-            <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}" data-testid="role-summary-chip" title="${esc(`${role.name}\n分组：${getRoleGroupName(role)}`)}" onclick="openRoleView('${esc(role.id)}')">
+            <button class="role-light-chip" data-role-id="${esc(role.id)}" data-testid="role-summary-chip" title="${esc(`${role.name}\n分组：${getRoleGroupName(role)}`)}" onclick="openRoleView('${esc(role.id)}')">
               <span class="role-light-name">${esc(role.name)}</span>
               <span class="role-light-count">${getLightRoleSummary(role)}</span>
             </button>

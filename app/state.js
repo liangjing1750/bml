@@ -162,6 +162,15 @@ function getFieldStateValueText(field) {
   const inferred = inferStateValuesFromNote(field?.note || '');
   return inferred.join('/');
 }
+function getFieldRuleText(field) {
+  const noteText = String(field?.note || '').trim();
+  const stateValueText = getFieldStateValueText(field);
+  if (!field?.is_status) return noteText;
+  const inferredText = inferStateValuesFromNote(noteText).join('/');
+  const noteOnly = noteText && noteText !== stateValueText && inferredText !== stateValueText ? noteText : '';
+  if (stateValueText && noteOnly) return `${stateValueText}；${noteOnly}`;
+  return noteText || stateValueText;
+}
 function getFieldStateValues(field) {
   return normalizeSlashList(getFieldStateValueText(field));
 }
@@ -215,7 +224,6 @@ function createStateTransitionDraft(entity, preferredFieldName = '') {
     field_name: field?.name || '',
   };
 }
-function isRoleDisabled(role) { return role?.status === 'disabled'; }
 function inferRoleGroup(role) {
   const name = normalizeRoleName(role?.name);
   if (/系统|自动化/.test(name)) return '系统角色';
@@ -295,7 +303,6 @@ function createRoleDraft(name) {
     id: nextRoleId(),
     name: normalizeRoleName(name) || '新角色',
     desc: '',
-    status: 'active',
     group: '业务参与方',
     subDomains: [],
   };
@@ -393,7 +400,6 @@ function createRoleDraft(name, options = {}) {
     id: nextRoleId(),
     name: normalizeRoleName(name) || '新角色',
     desc: '',
-    status: 'active',
     group: normalizeRoleName(options.group) || getDefaultRoleGroup(),
     subDomains: [],
   };
@@ -458,20 +464,17 @@ function getRoleUsageByProcess(roleId) {
 }
 function getRoleSummaryCounts() {
   const roles = getRoles();
-  let activeCount = 0;
+  let usedCount = 0;
   let unusedCount = 0;
-  let disabledCount = 0;
   roles.forEach((role) => {
     const usage = getRoleUsageSummary(role.id);
-    if (isRoleDisabled(role)) disabledCount += 1;
-    else if (usage.taskCount === 0) unusedCount += 1;
-    else activeCount += 1;
+    if (usage.taskCount === 0) unusedCount += 1;
+    else usedCount += 1;
   });
   return {
     roleCount: roles.length,
-    activeCount,
+    usedCount,
     unusedCount,
-    disabledCount,
   };
 }
 

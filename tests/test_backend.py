@@ -64,9 +64,9 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertFalse(migrated["entities"][0]["fields"][0]["is_status"])
         self.assertEqual(migrated["entities"][0]["fields"][1]["type"], "number")
         self.assertEqual(migrated["roles"][0]["name"], "仓库管理员")
-        self.assertEqual(migrated["roles"][0]["status"], "active")
         self.assertEqual(migrated["roles"][0]["group"], "仓库作业方")
         self.assertEqual(migrated["roles"][0]["subDomains"], ["仓储仓单管理"])
+        self.assertNotIn("status", migrated["roles"][0])
         self.assertEqual(migrated["processes"][0]["tasks"][0]["role"], "仓库管理员")
         self.assertTrue(migrated["processes"][0]["tasks"][0]["role_id"])
         self.assertEqual(migrated["relations"], [])
@@ -76,7 +76,7 @@ class MigrateDocumentTests(unittest.TestCase):
     def test_migrate_document_promotes_string_roles_to_role_objects_and_links_tasks(self):
         document = {
             "meta": {"title": "交割平台"},
-            "roles": ["会员", {"id": "R9", "name": "监管员", "status": "disabled"}],
+            "roles": ["会员", {"id": "R9", "name": "监管员"}],
             "processes": [
                 {
                     "id": "P1",
@@ -99,8 +99,9 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(len(migrated["roles"]), 2)
         self.assertEqual(migrated["roles"][0]["name"], "会员")
         self.assertEqual(migrated["roles"][0]["group"], "业务参与方")
+        self.assertNotIn("status", migrated["roles"][0])
         self.assertEqual(migrated["roles"][1]["id"], "R9")
-        self.assertEqual(migrated["roles"][1]["status"], "disabled")
+        self.assertNotIn("status", migrated["roles"][1])
         self.assertEqual(migrated["processes"][0]["tasks"][0]["role"], "会员")
         self.assertEqual(migrated["processes"][0]["tasks"][1]["role"], "监管员")
         self.assertEqual(migrated["processes"][0]["tasks"][1]["role_id"], "R9")
@@ -154,7 +155,7 @@ class MarkdownExporterTests(unittest.TestCase):
                 "author": "LJ",
                 "date": "2026-04",
             },
-            "roles": [{"id": "R1", "name": "Reader", "status": "active"}],
+            "roles": [{"id": "R1", "name": "Reader"}],
             "language": [{"term": "Borrow", "definition": "Borrow a book"}],
             "processes": [
                 {
@@ -221,6 +222,7 @@ class MarkdownExporterTests(unittest.TestCase):
         self.assertIn("业务参与方", markdown)
         self.assertIn("reader_id", markdown)
         self.assertIn("reader_status", markdown)
+        self.assertIn("字段规则", markdown)
         self.assertIn("Draft/Active/Archived", markdown)
         self.assertIn("状态流转", markdown)
         self.assertIn("Activate", markdown)
