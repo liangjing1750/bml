@@ -129,7 +129,8 @@ function toggleCollapse(key) {
 /* 业务域 Tab 内的卡片折叠（不影响侧边栏） */
 function toggleDomainSection(key) {
   S.ui.sbCollapse[key] = !S.ui.sbCollapse[key];
-  renderDomainTab();
+  const domainScroll = document.querySelector('.domain-scroll');
+  renderDomainTab({ scrollTop: domainScroll ? domainScroll.scrollTop : 0 });
 }
 
 function toggleSidebar() {
