@@ -19,37 +19,52 @@ function rerenderDomainTabPreserveScroll() {
   renderDomainTab({ scrollTop: scroller ? scroller.scrollTop : 0 });
 }
 
-function buildRoleGroupOptionsMarkup() {
-  return getAvailableRoleGroups()
-    .map((groupName) => `<option value="${esc(groupName)}"></option>`)
-    .join('');
+function getSelectedRoleGroupInputValue() {
+  const select = document.getElementById('role-create-group-select');
+  const customInput = document.getElementById('role-create-group-custom');
+  if (!select) return '';
+  if (select.value === '__custom__') return normalizeRoleName(customInput?.value || '');
+  return normalizeRoleName(select.value);
+}
+
+function onRoleGroupSelectChange(value) {
+  const customWrap = document.getElementById('role-create-group-custom-wrap');
+  const customInput = document.getElementById('role-create-group-custom');
+  if (!customWrap) return;
+  const showCustom = value === '__custom__';
+  customWrap.classList.toggle('hidden', !showCustom);
+  if (showCustom) {
+    setTimeout(() => customInput?.focus(), 0);
+  } else if (customInput) {
+    customInput.value = '';
+  }
 }
 
 function addRole() {
   if (!S.doc) return;
-  const input = document.getElementById('role-create-input');
-  const groupInput = document.getElementById('role-create-group');
-  const tagsInput = document.getElementById('role-create-tags');
-  const roleName = getUniqueRoleName(input?.value || '新角色');
-  const roleGroup = normalizeRoleName(groupInput?.value || getDefaultRoleGroup());
-  const roleTags = parseRoleTokens(tagsInput?.value || '');
+  const nameInput = document.getElementById('role-create-input');
+  const roleName = getUniqueRoleName(nameInput?.value || '新角色');
+  const roleGroup = getSelectedRoleGroupInputValue();
 
   if (!roleGroup) {
-    alert('请先填写角色分组。');
-    groupInput?.focus();
+    alert('请先选择或填写角色分组。');
+    const select = document.getElementById('role-create-group-select');
+    if (select?.value === '__custom__') {
+      document.getElementById('role-create-group-custom')?.focus();
+    } else {
+      select?.focus();
+    }
     return;
   }
 
   if (!S.doc.roles) S.doc.roles = [];
-  const role = createRoleDraft(roleName, { group: roleGroup, tags: roleTags });
+  const role = createRoleDraft(roleName, { group: roleGroup, tags: [] });
   role.name = roleName;
   role.group = roleGroup;
-  role.tags = roleTags;
+  role.tags = [];
   S.doc.roles.push(role);
 
-  if (input) input.value = '';
-  if (tagsInput) tagsInput.value = '';
-  if (groupInput && !groupInput.value) groupInput.value = roleGroup;
+  if (nameInput) nameInput.value = '';
   ensureSelectedRole(role.id);
   markModified();
   rerenderDomainTabPreserveScroll();
@@ -125,6 +140,7 @@ function renderRoleSummaryCard() {
   const summary = getRoleSummaryCounts();
   const selectedRole = getRoleById(S.ui.roleId);
   const preferredRoleGroup = selectedRole ? getRoleGroupName(selectedRole) : getDefaultRoleGroup();
+  const availableRoleGroups = getAvailableRoleGroups();
   const summaryText = [
     `角色 ${summary.roleCount}`,
     `使用中 ${summary.activeCount}`,
@@ -132,24 +148,27 @@ function renderRoleSummaryCard() {
   ];
   if (summary.disabledCount) summaryText.push(`已停用 ${summary.disabledCount}`);
 
+  const groupOptions = availableRoleGroups
+    .map((groupName) => `<option value="${esc(groupName)}" ${groupName === preferredRoleGroup ? 'selected' : ''}>${esc(groupName)}</option>`)
+    .join('');
+
   const actions = `
     <div class="role-create-inline">
       <input id="role-create-input" class="role-light-input" type="text" placeholder="角色名称" onkeydown="if(event.key==='Enter')addRole()">
-      <input id="role-create-group" class="role-light-group-input" type="text" list="role-group-options" value="${esc(preferredRoleGroup)}" placeholder="角色分组" onkeydown="if(event.key==='Enter')addRole()">
-      <datalist id="role-group-options">${buildRoleGroupOptionsMarkup()}</datalist>
-      <input id="role-create-tags" class="role-light-tags-input" type="text" placeholder="标签，可选" onkeydown="if(event.key==='Enter')addRole()">
-      <button class="btn btn-outline btn-sm" data-testid="role-add-button" onclick="addRole()">+ 角色</button>
+      <select id="role-create-group-select" class="role-light-group-select" onchange="onRoleGroupSelectChange(this.value)">
+        ${groupOptions}
+        <option value="__custom__">新建分组...</option>
+      </select>
+      <span id="role-create-group-custom-wrap" class="role-light-group-custom hidden">
+        <input id="role-create-group-custom" class="role-light-group-input" type="text" placeholder="输入新分组" onkeydown="if(event.key==='Enter')addRole()">
+      </span>
+      <button class="btn btn-outline btn-sm" data-testid="role-add-button" onclick="addRole()">添加角色</button>
       <button class="btn btn-outline btn-sm" data-testid="role-view-entry" onclick="openRoleView('${esc(ensureSelectedRole() || '')}')">角色视图</button>
     </div>
   `;
 
   let h = `<div class="ctx-card domain-panel role-light-card" data-testid="role-summary-card">
-    ${renderDomainPanelHeader(
-      '角色词典',
-      '上一层概念优先使用“角色分组”，标签用于辅助检索；如果确实需要区分组织，可先通过标签表达。',
-      actions,
-      { badge: summaryText.join(' · ') }
-    )}`;
+    ${renderDomainPanelHeader('角色管理', '', actions, { badge: summaryText.join(' · ') })}`;
 
   if (roleGroups.length) {
     h += '<div class="role-light-groups">';
@@ -169,13 +188,8 @@ function renderRoleSummaryCard() {
         roles.forEach((role) => {
           const usage = getRoleUsageSummary(role.id);
           const removable = usage.taskCount === 0;
-          const title = [
-            role.name,
-            `分组：${getRoleGroupName(role)}`,
-            role.tags?.length ? `标签：${role.tags.join('、')}` : '',
-          ].filter(Boolean).join('\n');
           h += `<div class="role-light-chip-wrap">
-            <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}" data-testid="role-summary-chip" title="${esc(title)}" onclick="openRoleView('${esc(role.id)}')">
+            <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}" data-testid="role-summary-chip" title="${esc(`${role.name}\n分组：${getRoleGroupName(role)}`)}" onclick="openRoleView('${esc(role.id)}')">
               <span class="role-light-name">${esc(role.name)}</span>
               <span class="role-light-count">${getLightRoleSummary(role)}</span>
             </button>
@@ -188,7 +202,7 @@ function renderRoleSummaryCard() {
     });
     h += '</div>';
   } else {
-    h += '<p class="no-refs domain-panel-empty">暂无角色词典，先在流程任务里明确执行角色，再回到这里轻量整理。</p>';
+    h += '<p class="no-refs domain-panel-empty">暂无角色，先在流程任务里明确执行角色，再回到这里统一整理。</p>';
   }
 
   h += '</div>';
@@ -201,13 +215,10 @@ function renderDomainTab(options = {}) {
   const language = S.doc.language || [];
   const langCollapsed = S.ui.sbCollapse.lang !== false;
 
-  const languageActions = `
-    <span class="domain-panel-stat">${language.length ? `${language.length} 条` : '可选'}</span>
-    <span class="lang-collapse-btn">${langCollapsed ? '▸' : '▾'}</span>
-  `;
+  const languageActions = `<span class="domain-panel-toggle">${langCollapsed ? '展开' : '折叠'}</span>`;
   const languageSubtitle = language.length
     ? `已收录 ${language.length} 条术语，用于统一命名和口径。`
-    : '可选，用于固定高频核心名词，避免不同流程叫法不一致。';
+    : '用于固定高频核心名词，避免不同流程叫法不一致。';
 
   let h = '<div class="domain-scroll" data-testid="domain-scroll">';
 
@@ -235,7 +246,6 @@ function renderDomainTab(options = {}) {
       languageSubtitle,
       languageActions,
       {
-        badge: '可选',
         button: true,
         onclick: "toggleDomainSection('lang')",
         dataTestId: 'language-toggle',
@@ -248,7 +258,7 @@ function renderDomainTab(options = {}) {
     h += `<div class="domain-panel-body domain-language-body">
       <div class="domain-language-toolbar">
         <span class="domain-language-hint">建议只保留高频且容易混用的术语，不用追求把所有名词都填满。</span>
-        <button class="btn btn-outline btn-sm" onclick="addTerm()">+ 术语</button>
+        <button class="btn btn-outline btn-sm" onclick="addTerm()">添加术语</button>
       </div>`;
     if (language.length) {
       h += `<table class="term-table">
