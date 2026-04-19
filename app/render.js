@@ -115,6 +115,9 @@ function navigate(tab, opts) {
     if('taskId'   in opts) S.ui.taskId   = opts.taskId;
     if('entityId' in opts) S.ui.entityId = opts.entityId;
   }
+  if(tab === 'process' && opts && ('procId' in opts || 'taskId' in opts)) {
+    S.ui.procView = 'list';
+  }
   render();
 }
 
@@ -132,6 +135,16 @@ function toggleDomainSection(key) {
 function toggleSidebar() {
   S.ui.sidebarCollapsed = !S.ui.sidebarCollapsed;
   renderSidebar();
+}
+
+function openProcessHome() {
+  S.ui.tab = 'process';
+  S.ui.procView = 'card';
+  S.ui.taskId = null;
+  if(!S.ui.procId && S.doc?.processes?.length) {
+    S.ui.procId = S.doc.processes[0].id;
+  }
+  render();
 }
 
 function setProcView(v) {
@@ -343,10 +356,11 @@ function renderTabBar() {
     {id:'data',   label:'数据'},
     {id:'preview',label:'预览'},
   ];
-  document.getElementById('tab-bar').innerHTML=tabs.map(t=>
-    `<button class="tab-btn ${S.ui.tab===t.id?'active':''}"
-      onclick="navigate('${t.id}',{})">${t.label}</button>`
-  ).join('');
+  document.getElementById('tab-bar').innerHTML=tabs.map(t=>{
+    const onclick = t.id === 'process' ? 'openProcessHome()' : `navigate('${t.id}',{})`;
+    return `<button class="tab-btn ${S.ui.tab===t.id?'active':''}" data-testid="tab-${t.id}"
+      onclick="${onclick}">${t.label}</button>`;
+  }).join('');
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -357,6 +371,7 @@ function startDrawerResize(e) {
   e.preventDefault(); e.stopPropagation();
   const drawer = e.currentTarget.closest('.proc-drawer, .entity-drawer');
   if(!drawer) return;
+  const drawerKind = drawer.classList.contains('proc-drawer') ? 'process' : 'entity';
   const startX = e.clientX;
   const startW = drawer.offsetWidth;
   document.body.style.cursor = 'ew-resize';
@@ -364,7 +379,7 @@ function startDrawerResize(e) {
   function onMove(ev) {
     const newW = Math.max(300, Math.min(window.innerWidth * 0.75, startW + startX - ev.clientX));
     drawer.style.width = newW + 'px';
-    S.ui.drawerW = newW;
+    setDrawerWidth(drawerKind, newW);
   }
   function onUp() {
     document.body.style.cursor = '';

@@ -10,7 +10,8 @@ test('概要视图拖拽后仍保持概要视图的网格间距', async ({ page 
 
   await expect(page.getByTestId('new-doc-modal')).toHaveClass(/hidden/);
   await expect(page.getByTestId('current-file-name')).toHaveText(documentName);
-  await page.locator('.tab-btn').nth(1).click();
+  await page.getByTestId('tab-process').click();
+  await page.getByTestId('process-switch-overview').click();
 
   const header = page.locator('.proc-card.ov-card[data-id="P1"] .ovc-header');
   const box = await header.boundingBox();

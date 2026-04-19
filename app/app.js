@@ -108,7 +108,9 @@ function createDocUiState(doc) {
     entityId: null,
     sbCollapse: _defaultSbCollapse(doc),
     sidebarCollapsed: false,
-    procView: 'list',
+    procView: 'card',
+    procDrawerW: getUiPrefNumber('procDrawerW', 480),
+    entityDrawerW: getUiPrefNumber('entityDrawerW', 480),
   };
 }
 

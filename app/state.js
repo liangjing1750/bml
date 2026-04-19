@@ -16,9 +16,54 @@ const S = {
     entityId: null,
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
     sidebarCollapsed: false,
-    procView: 'list'  // 'list' | 'card'
+    procView: 'card',  // 'list' | 'card'
+    procDrawerW: 480,
+    entityDrawerW: 480,
   }
 };
+
+const UI_PREFS_KEY = 'bml-ui-prefs';
+
+function loadUiPrefs() {
+  try {
+    const raw = window.localStorage?.getItem(UI_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveUiPrefs(partialPrefs) {
+  try {
+    const prefs = { ...loadUiPrefs(), ...partialPrefs };
+    window.localStorage?.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
+  } catch (_) {
+    // 忽略本地存储不可用的场景
+  }
+}
+
+function getUiPrefNumber(key, fallback) {
+  const value = loadUiPrefs()[key];
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function getDrawerWidth(kind) {
+  return kind === 'process'
+    ? (S.ui.procDrawerW || getUiPrefNumber('procDrawerW', 480))
+    : (S.ui.entityDrawerW || getUiPrefNumber('entityDrawerW', 480));
+}
+
+function setDrawerWidth(kind, width) {
+  if (kind === 'process') {
+    S.ui.procDrawerW = width;
+    saveUiPrefs({ procDrawerW: width });
+    return;
+  }
+  S.ui.entityDrawerW = width;
+  saveUiPrefs({ entityDrawerW: width });
+}
 
 /* ═══════════════════════════════════════════════════════════
    API

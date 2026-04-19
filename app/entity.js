@@ -1,28 +1,58 @@
 'use strict';
 
 function _efSortLayout(entities, relations) {
-  const deg = {};  // entity id → degree
-  for(const e of entities) deg[e.id] = 0;
+  const deg = {};
+  const grpScore = {};
+  const grpLink = {};
+  for(const e of entities) {
+    deg[e.id] = 0;
+    const grp = e.group || '';
+    grpScore[grp] = grpScore[grp] || 0;
+    grpLink[grp] = grpLink[grp] || {};
+  }
   for(const r of relations) {
     if(deg[r.from]!==undefined) deg[r.from]++;
     if(deg[r.to]  !==undefined) deg[r.to]++;
+    const fromGrp = entities.find(e=>e.id===r.from)?.group || '';
+    const toGrp   = entities.find(e=>e.id===r.to)?.group || '';
+    grpScore[fromGrp] = (grpScore[fromGrp] || 0) + 1;
+    grpScore[toGrp]   = (grpScore[toGrp] || 0) + 1;
+    if(fromGrp !== toGrp) {
+      grpLink[fromGrp] = grpLink[fromGrp] || {};
+      grpLink[toGrp] = grpLink[toGrp] || {};
+      grpLink[fromGrp][toGrp] = (grpLink[fromGrp][toGrp] || 0) + 1;
+      grpLink[toGrp][fromGrp] = (grpLink[toGrp][fromGrp] || 0) + 1;
+    }
   }
-
-  // 组间连接权重（用于排序组顺序，让关联紧密的组相邻）
-  const grpScore = {};
-  for(const e of entities) { const g=e.group||''; grpScore[g]=(grpScore[g]||0)+deg[e.id]; }
 
   const allGroups = [...new Set(entities.map(e=>e.group||''))];
-  allGroups.sort((a,b)=>(grpScore[b]||0)-(grpScore[a]||0));
+  if(!allGroups.length) return [];
 
-  // 组内实体按度排序（度高的放中间——先排序后放中间位置）
-  const sorted = [];
-  for(const grp of allGroups) {
-    const ge = entities.filter(e=>(e.group||'')=== grp)
-                       .sort((a,b)=>(deg[b.id]||0)-(deg[a.id]||0));
-    sorted.push({grp, entities: ge});
+  const sortedGroups = [];
+  const used = new Set();
+  let current = [...allGroups].sort((a,b)=>(grpScore[b]||0)-(grpScore[a]||0))[0];
+  while(current) {
+    sortedGroups.push(current);
+    used.add(current);
+    let nextGroup = null;
+    let nextScore = -1;
+    for(const grp of allGroups) {
+      if(used.has(grp)) continue;
+      const score = (grpLink[current]?.[grp] || 0) * 100 + (grpScore[grp] || 0);
+      if(score > nextScore) {
+        nextScore = score;
+        nextGroup = grp;
+      }
+    }
+    current = nextGroup;
   }
-  return sorted;
+
+  return sortedGroups.map((grp) => ({
+    grp,
+    entities: entities
+      .filter(e=>(e.group||'')===grp)
+      .sort((a,b)=>(deg[b.id]||0)-(deg[a.id]||0) || a.id.localeCompare(b.id)),
+  }));
 }
 
 /* ── ER 图节点默认布局计算 ── */
@@ -31,56 +61,66 @@ const EF_NODE_H = 38;    // 预估节点高
 const EF_GAP_X  = 40;    // 同行间距
 const EF_GAP_Y  = 70;    // 行间距
 const EF_PAD    = 20;    // 边距
+const EF_GROUP_HEADER_H = 28;
+const EF_GROUP_PAD_X = 22;
+const EF_GROUP_PAD_Y = 18;
+const EF_GROUP_GAP_X = 72;
 
-/* 辐射布局：连接数最多的实体居中，其余按连通度排序向外散布 */
 function _efComputeDefaultPos(entities, relations) {
   if(!entities.length) return {};
-
-  const deg = {};
-  for(const e of entities) deg[e.id] = 0;
-  for(const r of relations) {
-    if(deg[r.from]!==undefined) deg[r.from]++;
-    if(deg[r.to]  !==undefined) deg[r.to]++;
-  }
-
-  /* 按连接数降序排列 */
-  const sorted = [...entities].sort((a,b)=>(deg[b.id]||0)-(deg[a.id]||0));
-  const n = sorted.length;
   const posMap = {};
+  const sortedGroups = _efSortLayout(entities, relations);
+  let baseX = EF_PAD;
 
-  /* 计算每圈容量（保证节点间距 ≥ 140px）*/
-  const rings = [];
-  let radius = 0, placed = 0;
-  while(placed < n) {
-    const cap = radius === 0 ? 1 : Math.max(1, Math.floor(2 * Math.PI * radius / 145));
-    const take = Math.min(cap, n - placed);
-    rings.push({radius, take});
-    placed += take;
-    radius += 160;
-    if(radius > 1200) break; // safety
-  }
-
-  /* 圆心坐标 */
-  const maxR = rings[rings.length-1]?.radius || 0;
-  const cx   = maxR + EF_NODE_W  + EF_PAD * 3;
-  const cy   = maxR + EF_NODE_H  + EF_PAD * 3;
-
-  let idx = 0;
-  for(const {radius: r, take} of rings) {
-    for(let i = 0; i < take; i++, idx++) {
-      const e = sorted[idx];
-      if(r === 0) {
-        posMap[e.id] = {x: cx - EF_NODE_W/2, y: cy - EF_NODE_H/2};
-      } else {
-        const angle = (i / take) * 2 * Math.PI - Math.PI / 2;
-        posMap[e.id] = {
-          x: Math.round(cx + r * Math.cos(angle) - EF_NODE_W/2),
-          y: Math.round(cy + r * Math.sin(angle) - EF_NODE_H/2)
-        };
-      }
-    }
+  for(const groupBlock of sortedGroups) {
+    const groupEntities = groupBlock.entities || [];
+    const colCount = groupEntities.length >= 8 ? 2 : 1;
+    const rowGap = EF_NODE_H + EF_GAP_Y;
+    const colGap = EF_NODE_W + EF_GAP_X;
+    groupEntities.forEach((entity, index) => {
+      const col = index % colCount;
+      const row = Math.floor(index / colCount);
+      posMap[entity.id] = {
+        x: baseX + EF_GROUP_PAD_X + col * colGap,
+        y: EF_PAD + EF_GROUP_HEADER_H + EF_GROUP_PAD_Y + row * rowGap,
+      };
+    });
+    const groupWidth = Math.max(1, colCount) * colGap - EF_GAP_X + EF_GROUP_PAD_X * 2;
+    baseX += groupWidth + EF_GROUP_GAP_X;
   }
   return posMap;
+}
+
+function _efGetFocusRelatedIds(relations, focusEntityId) {
+  const ids = new Set();
+  if(!focusEntityId) return ids;
+  for(const rel of relations) {
+    if(rel.from === focusEntityId) ids.add(rel.to);
+    if(rel.to === focusEntityId) ids.add(rel.from);
+  }
+  return ids;
+}
+
+function _efComputeGroupFrames(entities) {
+  const frames = {};
+  for(const entity of entities) {
+    const group = entity.group || '未分组';
+    const x = entity.pos?.x || EF_PAD;
+    const y = entity.pos?.y || EF_PAD;
+    const left = x - EF_GROUP_PAD_X;
+    const top = y - EF_GROUP_HEADER_H - EF_GROUP_PAD_Y;
+    const right = x + EF_NODE_W + EF_GROUP_PAD_X;
+    const bottom = y + EF_NODE_H + EF_GROUP_PAD_Y;
+    if(!frames[group]) {
+      frames[group] = { group, left, top, right, bottom };
+      continue;
+    }
+    frames[group].left = Math.min(frames[group].left, left);
+    frames[group].top = Math.min(frames[group].top, top);
+    frames[group].right = Math.max(frames[group].right, right);
+    frames[group].bottom = Math.max(frames[group].bottom, bottom);
+  }
+  return Object.values(frames);
 }
 
 /* ── 实体图交互状态 ──────────────────────────────────────── */
@@ -97,6 +137,35 @@ function updateEfSelection(containerId) {
   if(!canvas) return;
   canvas.querySelectorAll('.ef-node').forEach(node => {
     node.classList.toggle('ef-selected', efSelectedIds.has(node.dataset.id));
+  });
+}
+
+function updateEfGroupFrames(containerId) {
+  const board = document.getElementById(`ef-board-${containerId}`);
+  if(!board) return;
+  const boxes = {};
+  board.querySelectorAll('.ef-node').forEach((node) => {
+    const group = node.dataset.group || '未分组';
+    const left = node.offsetLeft - EF_GROUP_PAD_X;
+    const top = node.offsetTop - EF_GROUP_HEADER_H - EF_GROUP_PAD_Y;
+    const right = node.offsetLeft + node.offsetWidth + EF_GROUP_PAD_X;
+    const bottom = node.offsetTop + node.offsetHeight + EF_GROUP_PAD_Y;
+    if(!boxes[group]) {
+      boxes[group] = { left, top, right, bottom };
+      return;
+    }
+    boxes[group].left = Math.min(boxes[group].left, left);
+    boxes[group].top = Math.min(boxes[group].top, top);
+    boxes[group].right = Math.max(boxes[group].right, right);
+    boxes[group].bottom = Math.max(boxes[group].bottom, bottom);
+  });
+  board.querySelectorAll('.ef-group-frame').forEach((frame) => {
+    const box = boxes[frame.dataset.group || '未分组'];
+    if(!box) return;
+    frame.style.left = `${box.left}px`;
+    frame.style.top = `${box.top}px`;
+    frame.style.width = `${box.right - box.left}px`;
+    frame.style.height = `${box.bottom - box.top}px`;
   });
 }
 
@@ -150,6 +219,7 @@ function onEfNodeDrag(e) {
     if(neededW > parseInt(board.style.width ||'0')) { board.style.width  = neededW+'px'; if(svgEl) svgEl.setAttribute('width',  neededW); }
     if(neededH > parseInt(board.style.height||'0')) { board.style.height = neededH+'px'; if(svgEl) svgEl.setAttribute('height', neededH); }
   }
+  updateEfGroupFrames(efDragState.containerId);
   drawEfLines(efDragState.containerId, S.doc?.relations||[]);
 }
 
@@ -265,6 +335,10 @@ function renderEntityFlow(containerId, doc, onClickMap) {
     if(!e.pos) e.pos = defaultPosMap[e.id] || {x: EF_PAD, y: EF_PAD};
   }
 
+  const focusEntityId = containerId === 'entity-diagram' ? S.ui.entityId : null;
+  const focusRelatedIds = _efGetFocusRelatedIds(relations, focusEntityId);
+  const groupFrames = _efComputeGroupFrames(entities);
+
   /* 颜色索引（原始 group 顺序保持颜色不变） */
   const grpMap = {};
   let ci = 0;
@@ -279,6 +353,10 @@ function renderEntityFlow(containerId, doc, onClickMap) {
     boardW = Math.max(boardW, (e.pos.x||0) + EF_NODE_W + 80);
     boardH = Math.max(boardH, (e.pos.y||0) + EF_NODE_H + 100);
   }
+  for(const frame of groupFrames) {
+    boardW = Math.max(boardW, frame.right + EF_PAD);
+    boardH = Math.max(boardH, frame.bottom + EF_PAD);
+  }
 
   const isDraggable = (containerId === 'entity-diagram');
 
@@ -286,12 +364,25 @@ function renderEntityFlow(containerId, doc, onClickMap) {
   h += `<svg class="ef-svg" id="ef-svg-${containerId}" width="${boardW}" height="${boardH}"></svg>`;
   h += `<div class="ef-board" id="ef-board-${containerId}" style="width:${boardW}px;height:${boardH}px">`;
 
+  for(const frame of groupFrames) {
+    const idx = grpMap[frame.group === '未分组' ? '' : frame.group] ?? 0;
+    const c = ROLE_COLORS[idx];
+    h += `<div class="ef-group-frame" data-group="${esc(frame.group)}"
+      style="left:${frame.left}px;top:${frame.top}px;width:${frame.right-frame.left}px;height:${frame.bottom-frame.top}px;
+      --ef-group-fill:${c.fill}22;--ef-group-stroke:${c.stroke};">
+      <div class="ef-group-title">${esc(frame.group)}</div>
+    </div>`;
+  }
+
   for(const e of entities) {
     const idx = grpMap[e.group||''];
     const c   = ROLE_COLORS[idx];
     const clickable = onClickMap?.[e.id] ? ' ef-clickable' : '';
     const draggable = isDraggable ? ' ef-draggable' : '';
-    h += `<div class="ef-node${clickable}${draggable}" data-id="${e.id}"
+    const focusCls = focusEntityId
+      ? (e.id === focusEntityId ? ' ef-focus' : (focusRelatedIds.has(e.id) ? ' ef-neighbor' : ' ef-muted'))
+      : '';
+    h += `<div class="ef-node${clickable}${draggable}${focusCls}" data-id="${e.id}" data-group="${esc(e.group||'未分组')}"
       style="left:${e.pos.x}px;top:${e.pos.y}px;background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
     h += `<span class="ef-nid">${esc(e.id)}</span>`;
     h += `<span class="ef-nname">${esc(e.name||e.id)}</span>`;
@@ -361,6 +452,8 @@ function drawEfLines(containerId, relations) {
   const board = document.getElementById(`ef-board-${containerId}`);
   const svg   = document.getElementById(`ef-svg-${containerId}`);
   if(!board || !svg) return;
+  const entityMap = new Map((S.doc?.entities||[]).map(entity => [entity.id, entity]));
+  const focusEntityId = containerId === 'entity-diagram' ? S.ui.entityId : null;
 
   /* 节点矩形（board 坐标系，offsetLeft/offsetTop 直接可用） */
   function nr(id) {
@@ -387,7 +480,14 @@ function drawEfLines(containerId, relations) {
 
     const color = STROKE_COLORS[ri % STROKE_COLORS.length];
     const lbl   = (rl[rel.type]||rel.type||'') + (rel.label ? ` ${rel.label}` : '');
-    const dash  = rel.type==='N:N' ? 'stroke-dasharray="5,3"' : '';
+    const fromGroup = entityMap.get(rel.from)?.group || '';
+    const toGroup = entityMap.get(rel.to)?.group || '';
+    const isCrossGroup = fromGroup !== toGroup;
+    const isFocusRelation = !!focusEntityId && (rel.from === focusEntityId || rel.to === focusEntityId);
+    const relationOpacity = focusEntityId ? (isFocusRelation ? 0.96 : 0.16) : (isCrossGroup ? 0.3 : 0.82);
+    const relationWidth = focusEntityId ? (isFocusRelation ? 2.4 : 1.1) : (isCrossGroup ? 1.1 : 1.7);
+    const dash  = (rel.type==='N:N' || isCrossGroup) ? 'stroke-dasharray="5,3"' : '';
+    const labelOpacity = focusEntityId ? (isFocusRelation ? 0.98 : 0.14) : (isCrossGroup ? 0.4 : 0.78);
 
     let pathD, lx, ly;
 
@@ -401,8 +501,10 @@ function drawEfLines(containerId, relations) {
       pathD = `M ${A.r} ${exitY} L ${A.r+loopW} ${exitY} L ${A.r+loopW} ${enterY} L ${A.r} ${enterY}`;
       lx = A.r + loopW + 4;
       ly = A.cy + 4;
-      pathsHtml += `<path d="${pathD}" stroke="${color}" stroke-width="1.5" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
-      if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="start" font-size="10" fill="${color}">${esc(lbl)}</text>`;
+      pathsHtml += `<path class="ef-rel${isCrossGroup?' ef-rel-cross':''}${isFocusRelation?' ef-rel-focus':''}${focusEntityId&&!isFocusRelation?' ef-rel-muted':''}"
+        data-cross-group="${isCrossGroup}" data-related="${!focusEntityId || isFocusRelation}"
+        d="${pathD}" stroke="${color}" stroke-width="${relationWidth}" stroke-opacity="${relationOpacity}" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
+      if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="start" font-size="10" fill="${color}" fill-opacity="${labelOpacity}">${esc(lbl)}</text>`;
       return;   /* 跳过后续通用路由 */
     }
 
@@ -455,8 +557,10 @@ function drawEfLines(containerId, relations) {
       lx = xM + 8; ly = (A.cy + B.cy) / 2 - 4;
     }
 
-    pathsHtml += `<path d="${pathD}" stroke="${color}" stroke-width="1.5" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
-    if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="10" fill="${color}">${esc(lbl)}</text>`;
+    pathsHtml += `<path class="ef-rel${isCrossGroup?' ef-rel-cross':''}${isFocusRelation?' ef-rel-focus':''}${focusEntityId&&!isFocusRelation?' ef-rel-muted':''}"
+      data-cross-group="${isCrossGroup}" data-related="${!focusEntityId || isFocusRelation}"
+      d="${pathD}" stroke="${color}" stroke-width="${relationWidth}" stroke-opacity="${relationOpacity}" fill="none" ${dash} marker-end="url(#${markerId}-${ri})"/>`;
+    if(lbl) pathsHtml += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="10" fill="${color}" fill-opacity="${labelOpacity}">${esc(lbl)}</text>`;
   });
 
   const markerDefs = relations.map((rel,ri)=>{
@@ -604,11 +708,20 @@ function setField(entityId,idx,key,val) {
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Relations
 ═══════════════════════════════════════════════════════════ */
-function addRelation() {
+function getRelationsForEntity(entityId) {
+  return (S.doc.relations||[])
+    .map((relation, index) => ({ relation, index }))
+    .filter(({ relation }) => relation.from === entityId || relation.to === entityId);
+}
+
+function addRelation(entityId) {
   const ents=S.doc.entities||[];
   if(ents.length<2){alert('至少需要2个实体才能建立关系');return;}
+  const baseEntityId = entityId || ents[0].id;
+  const targetEntity = ents.find(e => e.id !== baseEntityId);
+  if(!targetEntity) { alert('至少需要2个实体才能建立关系'); return; }
   S.doc.relations=S.doc.relations||[];
-  S.doc.relations.push({from:ents[0].id,to:ents[1].id,type:'1:N',label:''});
+  S.doc.relations.push({from:baseEntityId,to:targetEntity.id,type:'1:N',label:''});
   markModified(); render();
 }
 function removeRelation(idx){S.doc.relations.splice(idx,1);markModified();render();}
@@ -617,7 +730,7 @@ function setRelation(idx,key,val){if(S.doc.relations[idx]){S.doc.relations[idx][
 function renderDataTab() {
   const entities=S.doc.entities||[];
   const entity=entities.find(e=>e.id===S.ui.entityId)||null;
-  const drawerW = S.ui.drawerW || 480;
+  const drawerW = getDrawerWidth('entity');
 
   let h='';
 
@@ -638,8 +751,9 @@ function renderDataTab() {
 
   /* 右侧抽屉 */
   const relations=S.doc.relations||[];
+  const scopedRelations=entity ? getRelationsForEntity(entity.id) : [];
   h+=`<div class="entity-drawer${entity?' open':''}" style="width:${drawerW}px">
-    <div class="drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
+    <div class="drawer-resize-handle" data-testid="entity-drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
 
   if(entity) {
     const refs=getTasksReferencingEntity(entity.id);
@@ -719,10 +833,11 @@ function renderDataTab() {
 
     /* 实体关系 */
     h+=`<div class="form-section">
-      <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation()">＋</button></h4>`;
-    if(relations.length){
-      h+=`<div class="rel-list">`;
-      relations.forEach((r,i)=>{
+      <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation('${esc(entity.id)}')">＋</button></h4>
+      <p class="rel-scope-tip">仅显示与当前实体直接相关的关系，减少全局噪音。</p>`;
+    if(scopedRelations.length){
+      h+=`<div class="rel-list" data-testid="entity-relation-list">`;
+      scopedRelations.forEach(({relation:r,index:i})=>{
         h+=`<div class="rel-row">
           <select onchange="setRelation(${i},'from',this.value)">
             ${entities.map(e=>`<option value="${e.id}" ${r.from===e.id?'selected':''}>${e.id} ${esc(e.name)}</option>`).join('')}
@@ -739,7 +854,7 @@ function renderDataTab() {
         </div>`;
       });
       h+=`</div>`;
-    } else { h+=`<p class="no-refs">暂无关系</p>`; }
+    } else { h+=`<p class="no-refs">当前实体暂无关系</p>`; }
     h+=`</div>`;
 
     h+=`</div>`; /* drawer-body */

@@ -476,16 +476,16 @@ function renderProcessTab() {
   const procs=S.doc.processes||[];
   const proc=currentProc();
   const task=currentTask();
-  const view=S.ui.procView||'list';
+  const view=S.ui.procView||'card';
 
   /* ── 视图切换工具栏 ── */
   let h=`<div class="proc-view-toolbar">
-    <div class="view-toggle-group">
-      <button class="vtb ${view==='list'?'active':''}" onclick="setProcView('list')">概要视图</button>
-      <button class="vtb ${view==='card'?'active':''}" onclick="setProcView('card')">卡片视图</button>
-    </div>
-    ${proc&&view==='list'?`<button class="btn btn-ghost-sm" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
-    <button class="btn btn-outline btn-sm" onclick="addProcess()">＋ 新流程</button>
+    ${view==='card'
+      ? `<button class="btn btn-outline btn-sm" data-testid="process-switch-overview" onclick="setProcView('list')">切换概要视图</button>`
+      : `<button class="btn btn-outline btn-sm" data-testid="process-switch-card" onclick="setProcView('card')">切换卡片视图</button>`
+    }
+    ${view==='list'&&proc?`<button class="btn btn-ghost-sm" data-testid="process-delete-button" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
+    ${view==='list'?`<button class="btn btn-outline btn-sm" data-testid="process-add-button" onclick="addProcess()">＋ 新流程</button>`:''}
   </div>`;
 
   if(!procs.length) {
@@ -498,7 +498,7 @@ function renderProcessTab() {
   if(view==='card') {
     const maxRow=Math.max(...procs.map(p=>p.pos?.r||1));
     const maxCol=Math.max(...procs.map(p=>p.pos?.c||1));
-    h+=`<div class="card-view-area">
+    h+=`<div class="card-view-area" data-testid="process-card-view">
       <div id="card-map" class="card-map"
         style="height:${maxRow*CARD_H+8}px;min-width:${Math.max(maxCol*CARD_W+8,600)}px">`;
     for(const p of procs) {
@@ -528,7 +528,7 @@ function renderProcessTab() {
   /* ══ 概要视图：映射网格（全高）+ 右侧抽屉编辑 ══ */
   const ovMaxRow=Math.max(...procs.map(p=>p.pos?.r||1));
   const ovMaxCol=Math.max(...procs.map(p=>p.pos?.c||1));
-  h+=`<div class="ov-map-wrap ov-full">
+  h+=`<div class="ov-map-wrap ov-full" data-testid="process-overview-view">
     <div id="card-map" class="ov-map"
       style="height:${ovMaxRow*OV_CARD_H+8}px;min-width:${Math.max(ovMaxCol*OV_CARD_W+8,400)}px">`;
   for(const p of procs) {
@@ -551,9 +551,9 @@ function renderProcessTab() {
   h+=`</div></div>`;
 
   /* ── 右侧抽屉（点击流程卡片后滑入） ── */
-  const drawerW = S.ui.drawerW || 480;
+  const drawerW = getDrawerWidth('process');
   h+=`<div class="proc-drawer${proc?' open':''}" style="width:${drawerW}px">
-    <div class="drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
+    <div class="drawer-resize-handle" data-testid="process-drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
 
   if(proc) {
     /* 抽屉头部 */

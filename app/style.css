@@ -653,6 +653,11 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 }
 .rel-row select, .rel-row input { flex: 1; }
 .rel-sym { color: var(--text-m); white-space: nowrap; font-size: 13px; padding: 0 4px; }
+.rel-scope-tip {
+  font-size: 12px;
+  color: var(--text-m);
+  margin-bottom: 8px;
+}
 
 /* ─── 规则标签 ───────────────────────────────────────────── */
 .rule-type-StepRule  { background: #ede9fe; color: #6d28d9; }
@@ -979,6 +984,26 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .ef-canvas { position: relative; overflow: auto; min-height: 80px; cursor: grab; }
 .ef-canvas:active { cursor: grabbing; }
 .ef-board  { position: relative; }
+.ef-group-frame {
+  position: absolute;
+  border: 1px dashed var(--ef-group-stroke);
+  background: var(--ef-group-fill);
+  border-radius: 16px;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .85;
+}
+.ef-group-title {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ef-group-stroke);
+  background: rgba(255,255,255,.85);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
 .ef-node {
   position: absolute;
   border: 2px solid; border-radius: 6px;
@@ -986,12 +1011,26 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   display: flex; flex-direction: column; gap: 2px;
   min-width: 80px; white-space: nowrap;
   user-select: none;
+  z-index: 1;
+  transition: opacity .15s ease, filter .15s ease, box-shadow .15s ease, transform .15s ease;
 }
 .ef-node.ef-clickable { cursor: pointer; }
 .ef-node.ef-clickable:hover { filter: brightness(0.93); }
 .ef-node.ef-draggable { cursor: grab; }
 .ef-node.ef-draggable:active { cursor: grabbing; }
 .ef-node.ef-draggable.ef-clickable:hover { filter: brightness(0.96); }
+.ef-node.ef-muted {
+  opacity: .38;
+  filter: saturate(.72);
+}
+.ef-node.ef-neighbor {
+  box-shadow: 0 0 0 2px rgba(59,130,246,.12);
+}
+.ef-node.ef-focus {
+  z-index: 2;
+  box-shadow: 0 10px 24px rgba(59,130,246,.18);
+  transform: translateY(-1px);
+}
 /* 选中状态 */
 .ef-node.ef-selected {
   outline: 2px solid #3b82f6;
