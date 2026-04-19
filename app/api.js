@@ -18,5 +18,6 @@ const api = {
       method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
     }).then(r => r.json());
   },
-  async exportMd(name) { return fetch(`/api/export/${encodeURIComponent(name)}`).then(r => r.text()); }
+  async exportMd(name) { return fetch(`/api/export/${encodeURIComponent(name)}`).then(r => r.text()); },
+  async exportJson(name) { return this.load(name); }
 };

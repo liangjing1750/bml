@@ -1,6 +1,16 @@
 'use strict';
 
 const App = {
+  _downloadBlob(content, type, filename) {
+    const blob = new Blob([content], { type });
+    const link = document.createElement('a');
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  },
+
   cmdNew() {
     document.getElementById('new-doc-name').value = '';
     document.getElementById('modal-overlay').classList.remove('hidden');
@@ -88,15 +98,21 @@ const App = {
     if (S.ui.tab === 'domain') renderDomainTab();
   },
 
-  async cmdExport() {
+  async cmdExport(format = 'md') {
     if (!S.currentFile) return;
     await App.cmdSave();
+    if (format === 'json') {
+      const document = await api.exportJson(S.currentFile);
+      App._downloadBlob(
+        `${JSON.stringify(document, null, 2)}\n`,
+        'application/json;charset=utf-8',
+        `${S.currentFile}.json`,
+      );
+      return;
+    }
+
     const md = await api.exportMd(S.currentFile);
-    const blob = new Blob([md], { type: 'text/plain;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${S.currentFile}.md`;
-    link.click();
+    App._downloadBlob(md, 'text/plain;charset=utf-8', `${S.currentFile}.md`);
   },
 };
 

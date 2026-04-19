@@ -67,6 +67,15 @@ const EF_GROUP_PAD_Y = 18;
 const EF_GROUP_GAP_X = 56;
 const EF_GROUP_GAP_Y = 56;
 
+function _efGetBoardPoint(containerId, board, event) {
+  const scale = ZOOM[containerId] || 1;
+  const rect = board.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) / scale,
+    y: (event.clientY - rect.top) / scale,
+  };
+}
+
 function _efGetGroupColumnCount(entityCount) {
   if(entityCount >= 12) return 3;
   if(entityCount >= 7) return 2;
@@ -226,16 +235,18 @@ function startEfNodeDrag(containerId, entityId, e) {
     if(ent) multiDrag.set(eid, { entity: ent, origX: ent.pos?.x||0, origY: ent.pos?.y||0 });
   }
 
+  const scale = ZOOM[containerId] || 1;
   efDragState = { containerId, multiDrag,
-    startX: e.clientX, startY: e.clientY };
+    startX: e.clientX, startY: e.clientY, scale };
   document.addEventListener('mousemove', onEfNodeDrag);
   document.addEventListener('mouseup',   endEfNodeDrag);
 }
 
 function onEfNodeDrag(e) {
   if(!efDragState) return;
-  const dx = e.clientX - efDragState.startX;
-  const dy = e.clientY - efDragState.startY;
+  const scale = efDragState.scale || 1;
+  const dx = (e.clientX - efDragState.startX) / scale;
+  const dy = (e.clientY - efDragState.startY) / scale;
   if(Math.abs(dx) > 3 || Math.abs(dy) > 3) efDragMoved = true;
   if(!efDragMoved) return;
   let neededW = 0, neededH = 0;
@@ -305,9 +316,7 @@ function endEfPan() {
 function startEfRubber(containerId, canvas, e) {
   const board = document.getElementById(`ef-board-${containerId}`);
   if(!board) return;
-  const cr = canvas.getBoundingClientRect();
-  const bx = e.clientX - cr.left + canvas.scrollLeft;
-  const by = e.clientY - cr.top  + canvas.scrollTop;
+  const { x: bx, y: by } = _efGetBoardPoint(containerId, board, e);
   efRubberEl = document.createElement('div');
   efRubberEl.className = 'ef-rubber';
   Object.assign(efRubberEl.style, { left: bx+'px', top: by+'px', width:'0', height:'0' });
@@ -318,10 +327,8 @@ function startEfRubber(containerId, canvas, e) {
 }
 function onEfRubber(e) {
   if(!efRubberState || !efRubberEl) return;
-  const { canvas, bx0, by0 } = efRubberState;
-  const cr = canvas.getBoundingClientRect();
-  const bx1 = e.clientX - cr.left + canvas.scrollLeft;
-  const by1 = e.clientY - cr.top  + canvas.scrollTop;
+  const { containerId, board, bx0, by0 } = efRubberState;
+  const { x: bx1, y: by1 } = _efGetBoardPoint(containerId, board, e);
   efRubberState.bx1 = bx1; efRubberState.by1 = by1;
   const l = Math.min(bx0,bx1), t = Math.min(by0,by1);
   Object.assign(efRubberEl.style, { left:l+'px', top:t+'px',
@@ -451,6 +458,12 @@ function renderEntityFlow(containerId, doc, onClickMap) {
     if(isDraggable) {
       node.addEventListener('mousedown', ev => {
         if(ev.ctrlKey || ev.metaKey) return; /* Ctrl+drag 不移动 */
+        if(ev.shiftKey) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          startEfRubber(containerId, canvas, ev);
+          return;
+        }
         ev.stopPropagation();                /* 阻止冒泡到背景 */
         startEfNodeDrag(containerId, e.id, ev);
       });
