@@ -58,6 +58,13 @@ test('流程抽屉和实体抽屉宽度会分别记住上次调整结果', async
   await page.goto('/');
   await openDocument(page, documentName);
 
+  const sidebar = page.locator('#sidebar');
+  const sidebarHandle = page.getByTestId('sidebar-resize-handle');
+  const sidebarWidthBefore = await sidebar.evaluate((node) => node.offsetWidth);
+  await dragResizeHandle(page, sidebarHandle, 120);
+  const sidebarWidthAfter = await sidebar.evaluate((node) => node.offsetWidth);
+  expect(sidebarWidthAfter).toBeGreaterThan(sidebarWidthBefore + 40);
+
   await page.getByTestId('tab-process').click();
   await page.getByTestId('process-switch-overview').click();
 
@@ -80,6 +87,13 @@ test('流程抽屉和实体抽屉宽度会分别记住上次调整结果', async
 
   await page.reload();
   await openDocument(page, documentName);
+
+  await expect
+    .poll(async () => {
+      const width = await page.locator('#sidebar').evaluate((node) => node.offsetWidth);
+      return Math.abs(width - sidebarWidthAfter) <= 4;
+    })
+    .toBeTruthy();
 
   await page.getByTestId('tab-process').click();
   await page.getByTestId('process-switch-overview').click();

@@ -16,6 +16,7 @@ const S = {
     entityId: null,
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
     sidebarCollapsed: false,
+    sidebarW: 240,
     procView: 'card',  // 'list' | 'card'
     procDrawerW: 480,
     entityDrawerW: 480,
@@ -53,6 +54,15 @@ function getDrawerWidth(kind) {
   return kind === 'process'
     ? (S.ui.procDrawerW || getUiPrefNumber('procDrawerW', 480))
     : (S.ui.entityDrawerW || getUiPrefNumber('entityDrawerW', 480));
+}
+
+function getSidebarWidth() {
+  return S.ui.sidebarW || getUiPrefNumber('sidebarW', 240);
+}
+
+function setSidebarWidth(width) {
+  S.ui.sidebarW = width;
+  saveUiPrefs({ sidebarW: width });
 }
 
 function setDrawerWidth(kind, width) {

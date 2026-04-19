@@ -137,6 +137,32 @@ function toggleSidebar() {
   renderSidebar();
 }
 
+function startSidebarResize(e) {
+  if(S.ui.sidebarCollapsed) return;
+  e.preventDefault();
+  const sidebar = document.getElementById('sidebar');
+  if(!sidebar) return;
+  const startX = e.clientX;
+  const startW = sidebar.offsetWidth;
+  sidebar.classList.add('sb-resizing');
+
+  function onMove(ev) {
+    const nextWidth = Math.max(220, Math.min(460, startW + (ev.clientX - startX)));
+    sidebar.style.width = `${nextWidth}px`;
+    sidebar.style.minWidth = `${nextWidth}px`;
+    setSidebarWidth(nextWidth);
+  }
+
+  function onUp() {
+    sidebar.classList.remove('sb-resizing');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
 function openProcessHome() {
   S.ui.tab = 'process';
   S.ui.procView = 'card';
@@ -211,7 +237,7 @@ function _renderSbProc(p) {
     onclick="navigate('process',{procId:'${p.id}',taskId:null})">
     <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
     <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'proc','${p.id}')" title="点击编辑ID">${esc(p.id)}</span>
-    <span class="sb-name">${esc(p.name||'未命名')}</span>
+    <span class="sb-name" title="${esc(p.name||'未命名')}">${esc(p.name||'未命名')}</span>
     ${_renderSbCount(taskCount)}
     <span class="sb-move-btns">
       <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',-1,event)" title="上移">↑</button>
@@ -224,7 +250,7 @@ function _renderSbProc(p) {
       h+=`<div class="sb-task-item ${tActive?'active':''}"
         onclick="navigate('process',{procId:'${p.id}',taskId:'${t.id}'})">
         <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'task','${p.id}','${t.id}')" title="点击编辑ID">${esc(t.id)}</span>
-        <span class="sb-name">${esc(t.name||'未命名')}</span>
+        <span class="sb-name" title="${esc(t.name||'未命名')}">${esc(t.name||'未命名')}</span>
         ${t.repeatable?'<span class="sb-repeat" title="可重复">↺</span>':''}
       </div>`;
     }
@@ -246,7 +272,17 @@ function renderSidebar() {
 
   /* 控制侧边栏宽度 & 外部按钮文字 */
   const sb = document.getElementById('sidebar');
-  if(sb) sb.classList.toggle('sb-collapsed', collapsed);
+  if(sb) {
+    sb.classList.toggle('sb-collapsed', collapsed);
+    if(collapsed) {
+      sb.style.width = '';
+      sb.style.minWidth = '';
+    } else {
+      const sidebarW = getSidebarWidth();
+      sb.style.width = `${sidebarW}px`;
+      sb.style.minWidth = `${sidebarW}px`;
+    }
+  }
   const toggleBtn = document.getElementById('sb-toggle-btn');
   if(toggleBtn) toggleBtn.textContent = collapsed ? '展开' : '折叠';
 
@@ -275,7 +311,7 @@ function renderSidebar() {
         const collapsed=S.ui.sbCollapse[sdKey];
         h+=`<div class="sb-grp-head" data-subdomain="${esc(sd)}" onclick="toggleCollapse('${sdKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
-          <span class="sb-name">${esc(sd)}</span>
+          <span class="sb-name" title="${esc(sd)}">${esc(sd)}</span>
           ${_renderSbCount(sdProcs.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
           <span class="sb-move-btns">
@@ -316,7 +352,7 @@ function renderSidebar() {
         const collapsed=S.ui.sbCollapse[grpKey];
         h+=`<div class="sb-grp-head" data-group="${esc(grp)}" onclick="toggleCollapse('${grpKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
-          <span class="sb-name">${esc(grp)}</span>
+          <span class="sb-name" title="${esc(grp)}">${esc(grp)}</span>
           ${_renderSbCount(grpEntities.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>
           <span class="sb-move-btns">
@@ -330,7 +366,7 @@ function renderSidebar() {
             h+=`<div class="sb-entity-item ${active?'active':''}" data-entity-id="${esc(e.id)}"
               onclick="navigate('data',{entityId:'${e.id}'})">
               <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'entity','${e.id}')" title="点击编辑ID">${esc(e.id)}</span>
-              <span class="sb-name">${esc(e.name||'未命名')}</span>
+              <span class="sb-name" title="${esc(e.name||'未命名')}">${esc(e.name||'未命名')}</span>
               <span class="sb-move-btns">
                 <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="上移">↑</button>
                 <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="下移">↓</button>
@@ -345,7 +381,7 @@ function renderSidebar() {
           h+=`<div class="sb-item ${active?'active':''}"
             onclick="navigate('data',{entityId:'${e.id}'})">
             <span class="sb-id">${esc(e.id)}</span>
-            <span class="sb-name">${esc(e.name||'未命名')}</span>
+            <span class="sb-name" title="${esc(e.name||'未命名')}">${esc(e.name||'未命名')}</span>
             <span class="sb-move-btns">
               <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="上移">↑</button>
               <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="下移">↓</button>

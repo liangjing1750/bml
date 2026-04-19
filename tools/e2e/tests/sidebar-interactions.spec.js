@@ -97,10 +97,12 @@ test('左侧目录悬停显示移动按钮时不应把目录项挤成两行', as
   const nameMetrics = await processName.evaluate((node) => ({
     clientHeight: node.clientHeight,
     scrollHeight: node.scrollHeight,
+    paddingRight: parseFloat(window.getComputedStyle(node.parentElement).paddingRight || '0'),
   }));
 
   expect(beforeBox).not.toBeNull();
   expect(afterBox).not.toBeNull();
   expect(Math.abs(afterBox.height - beforeBox.height)).toBeLessThanOrEqual(1);
   expect(nameMetrics.scrollHeight - nameMetrics.clientHeight).toBeLessThanOrEqual(1);
+  expect(nameMetrics.paddingRight).toBeLessThanOrEqual(16);
 });
