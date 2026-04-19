@@ -228,6 +228,15 @@ function _renderSbCount(count) {
   return `<span class="sb-count" data-count="${count}">${count}</span>`;
 }
 
+function _renderSbMetrics(metrics) {
+  return `<div class="sb-metrics">${metrics.map((metric) => `
+    <span class="sb-metric" title="${esc(metric.label)} ${metric.value}">
+      <span class="sb-metric-label">${esc(metric.label)}</span>
+      <span class="sb-metric-gap"> </span>
+      <span class="sb-metric-value">${metric.value}</span>
+    </span>`).join('')}</div>`;
+}
+
 function _renderSbProc(p) {
   const procKey=`proc-${p.id}`;
   const collapsed=S.ui.sbCollapse[procKey];
@@ -269,6 +278,12 @@ function renderSidebar() {
   const groups=[...new Set(entities.map(e=>e.group||''))];
   const processBucketCount = subDomains.filter(Boolean).length + (subDomains.includes('') ? 1 : 0);
   const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
+  const processCount = procs.length;
+  const stepCount = procs.reduce((sum, proc) => {
+    return sum + (proc.tasks || []).reduce((taskSum, task) => taskSum + ((task.steps || []).length), 0);
+  }, 0);
+  const entityCount = entities.length;
+  const fieldCount = entities.reduce((sum, entity) => sum + ((entity.fields || []).length), 0);
 
   /* 控制侧边栏宽度 & 外部按钮文字 */
   const sb = document.getElementById('sidebar');
@@ -296,9 +311,15 @@ function renderSidebar() {
   /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
     <div class="sb-header" data-section="process">
-      <span>流程</span>
-      ${_renderSbCount(processBucketCount)}
-      <button class="sb-add-btn" onclick="addProcess()" title="新建流程">＋</button>
+      <div class="sb-header-main">
+        <span class="sb-header-title">\u6d41\u7a0b</span>
+        ${_renderSbMetrics([
+          { label: '\u5b50\u57df', value: processBucketCount },
+          { label: '\u6d41\u7a0b', value: processCount },
+          { label: '\u6b65\u9aa4', value: stepCount },
+        ])}
+      </div>
+      <button class="sb-add-btn" onclick="addProcess()" title="\u65b0\u5efa\u6d41\u7a0b">+</button>
     </div>`;
 
   if(!procs.length){
@@ -337,9 +358,15 @@ function renderSidebar() {
   /* ── 实体区（按主题域分组） ── */
   h+=`<div class="sb-section">
     <div class="sb-header" data-section="entity">
-      <span>实体</span>
-      ${_renderSbCount(entityBucketCount)}
-      <button class="sb-add-btn" onclick="addEntity()" title="新建实体">＋</button>
+      <div class="sb-header-main">
+        <span class="sb-header-title">\u5b9e\u4f53</span>
+        ${_renderSbMetrics([
+          { label: '\u4e3b\u9898\u57df', value: entityBucketCount },
+          { label: '\u5b9e\u4f53', value: entityCount },
+          { label: '\u5b57\u6bb5', value: fieldCount },
+        ])}
+      </div>
+      <button class="sb-add-btn" onclick="addEntity()" title="\u65b0\u5efa\u5b9e\u4f53">+</button>
     </div>`;
 
   if(!entities.length){
