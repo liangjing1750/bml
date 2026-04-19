@@ -8,13 +8,25 @@
 
 ```text
 bml/
-├── bml.py              # Python 后端（文件读写、MD 导出）
-├── workspace/          # 文档存储目录（.json 格式）
-└── app/
-    ├── index.html      # 单页应用入口
-    ├── app.js          # 全部前端逻辑
-    └── style.css       # 样式
+├── bml.py              # 启动入口
+├── bml_core/           # 后端核心：文档、存储、导出、HTTP 服务
+├── app/                # 前端界面：状态、渲染、领域、流程、实体、预览
+├── workspace/          # 本地文档目录（.json / .md）
+├── tests/              # Python 单元测试与结构测试
+└── tools/
+    └── e2e/            # 可选的浏览器端到端测试工具链（Node + Playwright）
 ```
+
+---
+
+## 产品定位
+
+BML 是一个**本地优先、文件驱动、可审查的业务建模记事本**。
+
+- 轻量简单：运行时尽量只依赖 Python 标准库和静态前端。
+- 数据透明：文档直接存为本地 JSON / Markdown，不锁在平台里。
+- 结构清晰：代码和数据格式尽量简单，便于理解、排查和二次修改。
+- 克制边界：不追求在线协同平台能力，优先把单机建模体验做好。
 
 ---
 
@@ -51,14 +63,33 @@ bml/
 
 ## 快速上手
 
-**依赖**：Python 3.8+，无需安装额外库
+**运行依赖**：Python 3.8+，无需安装 Node、npm 或额外第三方库
 
 ```bash
 cd bml
-python bml.py          # 启动本地服务，默认 http://localhost:8765
+python bml.py          # 启动本地服务，默认 http://127.0.0.1:8888
 ```
 
 浏览器打开后：新建文档 → 填写业务域信息 → 添加流程和实体 → 导出 MD
+
+---
+
+## 测试说明
+
+Python 测试直接在项目根目录执行：
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+浏览器端到端测试是**可选工具链**，与运行主路径分离，放在 `tools/e2e/`：
+
+```bash
+cd tools/e2e
+npm install
+npm run install:browser
+npm run test:e2e
+```
 
 ---
 

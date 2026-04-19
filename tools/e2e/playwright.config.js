@@ -1,14 +1,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const rootDir = __dirname;
-const workspaceDir = path.join(rootDir, '.tmp', 'playwright-workspace');
+const toolDir = __dirname;
+const repoRoot = path.resolve(toolDir, '..', '..');
+const workspaceDir = path.join(toolDir, '.tmp', 'playwright-workspace');
 
 fs.rmSync(workspaceDir, { recursive: true, force: true });
 fs.mkdirSync(workspaceDir, { recursive: true });
 
 module.exports = {
-  testDir: path.join(rootDir, 'tests', 'e2e'),
+  testDir: path.join(toolDir, 'tests'),
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,
@@ -21,7 +22,7 @@ module.exports = {
     url: 'http://127.0.0.1:8899',
     reuseExistingServer: false,
     timeout: 30_000,
-    cwd: rootDir,
+    cwd: repoRoot,
     env: {
       ...process.env,
       BML_PORT: '8899',

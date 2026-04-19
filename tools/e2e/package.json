@@ -1,0 +1,11 @@
+{
+  "name": "bml-e2e",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "install:browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}
