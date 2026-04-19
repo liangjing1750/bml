@@ -249,8 +249,8 @@ function _renderSbProc(p) {
     <span class="sb-name" title="${esc(p.name||'未命名')}">${esc(p.name||'未命名')}</span>
     ${_renderSbCount(taskCount)}
     <span class="sb-move-btns">
-      <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',-1,event)" title="上移">↑</button>
-      <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',1,event)" title="下移">↓</button>
+      <button class="sb-move-btn sb-move-up" onclick="moveProcInSd('${esc(p.id)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
+      <button class="sb-move-btn sb-move-down" onclick="moveProcInSd('${esc(p.id)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
     </span>
   </div>`;
   if(!collapsed) {
@@ -336,8 +336,8 @@ function renderSidebar() {
           ${_renderSbCount(sdProcs.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
           <span class="sb-move-btns">
-            <button class="sb-move-btn" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="上移">↑</button>
-            <button class="sb-move-btn" onclick="moveSdGroup('${esc(sd)}',1,event)" title="下移">↓</button>
+            <button class="sb-move-btn sb-move-up" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
+            <button class="sb-move-btn sb-move-down" onclick="moveSdGroup('${esc(sd)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
           </span>
         </div>`;
         if(!collapsed) {
@@ -383,8 +383,8 @@ function renderSidebar() {
           ${_renderSbCount(grpEntities.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>
           <span class="sb-move-btns">
-            <button class="sb-move-btn" onclick="moveGrpGroup('${esc(grp)}',-1,event)" title="上移">↑</button>
-            <button class="sb-move-btn" onclick="moveGrpGroup('${esc(grp)}',1,event)" title="下移">↓</button>
+            <button class="sb-move-btn sb-move-up" onclick="moveGrpGroup('${esc(grp)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
+            <button class="sb-move-btn sb-move-down" onclick="moveGrpGroup('${esc(grp)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
           </span>
         </div>`;
         if(!collapsed) {
@@ -395,8 +395,8 @@ function renderSidebar() {
               <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'entity','${e.id}')" title="点击编辑ID">${esc(e.id)}</span>
               <span class="sb-name" title="${esc(e.name||'未命名')}">${esc(e.name||'未命名')}</span>
               <span class="sb-move-btns">
-                <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="上移">↑</button>
-                <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="下移">↓</button>
+                <button class="sb-move-btn sb-move-up" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
+                <button class="sb-move-btn sb-move-down" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
               </span>
             </div>`;
           }
@@ -410,8 +410,8 @@ function renderSidebar() {
             <span class="sb-id">${esc(e.id)}</span>
             <span class="sb-name" title="${esc(e.name||'未命名')}">${esc(e.name||'未命名')}</span>
             <span class="sb-move-btns">
-              <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="上移">↑</button>
-              <button class="sb-move-btn" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="下移">↓</button>
+              <button class="sb-move-btn sb-move-up" onclick="moveEntityInGrp('${esc(e.id)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
+              <button class="sb-move-btn sb-move-down" onclick="moveEntityInGrp('${esc(e.id)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
             </span>
           </div>`;
         }

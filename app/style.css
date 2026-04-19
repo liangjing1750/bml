@@ -923,23 +923,28 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 
 /* ─── 侧边栏移动按钮（hover 时浮现） ─── */
 .sb-move-btns {
-  display: flex; align-items: center; gap: 1px;
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity .15s ease;
-  padding-left: 8px;
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.92) 42%);
+  padding-left: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.94) 34%);
 }
+.sb-grp-head .sb-move-btns { right: 40px; }
 .sb-proc-head:hover .sb-move-btns,
 .sb-grp-head:hover  .sb-move-btns,
 .sb-entity-item:hover .sb-move-btns,
 .sb-item:hover .sb-move-btns { opacity: 1; visibility: visible; pointer-events: auto; }
 .sb-move-btn {
-  padding: 0 3px; line-height: 14px; font-size: 11px;
+  width: 18px; height: 14px; padding: 0;
   color: var(--text-m); background: none;
   border: 1px solid var(--border); border-radius: 3px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .sb-move-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sb-move-btn::before { font-size: 10px; line-height: 1; }
+.sb-move-up::before { content: '\2191'; }
+.sb-move-down::before { content: '\2193'; }
 
 /* ─── 流程新建栏 ─────────────────────────────────────────── */
 .proc-add-bar {
