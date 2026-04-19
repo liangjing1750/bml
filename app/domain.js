@@ -19,15 +19,37 @@ function rerenderDomainTabPreserveScroll() {
   renderDomainTab({ scrollTop: scroller ? scroller.scrollTop : 0 });
 }
 
+function buildRoleGroupOptionsMarkup() {
+  return getAvailableRoleGroups()
+    .map((groupName) => `<option value="${esc(groupName)}"></option>`)
+    .join('');
+}
+
 function addRole() {
   if (!S.doc) return;
   const input = document.getElementById('role-create-input');
+  const groupInput = document.getElementById('role-create-group');
+  const tagsInput = document.getElementById('role-create-tags');
   const roleName = getUniqueRoleName(input?.value || '新角色');
+  const roleGroup = normalizeRoleName(groupInput?.value || getDefaultRoleGroup());
+  const roleTags = parseRoleTokens(tagsInput?.value || '');
+
+  if (!roleGroup) {
+    alert('请先填写角色分组。');
+    groupInput?.focus();
+    return;
+  }
+
   if (!S.doc.roles) S.doc.roles = [];
-  const role = createRoleDraft(roleName);
+  const role = createRoleDraft(roleName, { group: roleGroup, tags: roleTags });
   role.name = roleName;
+  role.group = roleGroup;
+  role.tags = roleTags;
   S.doc.roles.push(role);
+
   if (input) input.value = '';
+  if (tagsInput) tagsInput.value = '';
+  if (groupInput && !groupInput.value) groupInput.value = roleGroup;
   ensureSelectedRole(role.id);
   markModified();
   rerenderDomainTabPreserveScroll();
@@ -85,6 +107,7 @@ function renderDomainPanelHeader(title, subtitle, actions = '', options = {}) {
   if (options.onclick) attrs.push(`onclick="${options.onclick}"`);
   if (options.dataTestId) attrs.push(`data-testid="${options.dataTestId}"`);
   if (options.dataPanel) attrs.push(`data-panel="${esc(options.dataPanel)}"`);
+  if (options.ariaExpanded !== undefined) attrs.push(`aria-expanded="${options.ariaExpanded ? 'true' : 'false'}"`);
   return `<${tag} class="domain-panel-head${options.button ? ' domain-panel-head-button' : ''}" ${attrs.join(' ')}>
     <div class="domain-panel-copy">
       <div class="domain-panel-title-row">
@@ -100,6 +123,8 @@ function renderDomainPanelHeader(title, subtitle, actions = '', options = {}) {
 function renderRoleSummaryCard() {
   const roleGroups = getGroupedRoles();
   const summary = getRoleSummaryCounts();
+  const selectedRole = getRoleById(S.ui.roleId);
+  const preferredRoleGroup = selectedRole ? getRoleGroupName(selectedRole) : getDefaultRoleGroup();
   const summaryText = [
     `角色 ${summary.roleCount}`,
     `使用中 ${summary.activeCount}`,
@@ -108,15 +133,20 @@ function renderRoleSummaryCard() {
   if (summary.disabledCount) summaryText.push(`已停用 ${summary.disabledCount}`);
 
   const actions = `
-    <input id="role-create-input" class="role-light-input" type="text" placeholder="补充角色名称后回车" onkeydown="if(event.key==='Enter')addRole()">
-    <button class="btn btn-outline btn-sm" data-testid="role-add-button" onclick="addRole()">+ 角色</button>
-    <button class="btn btn-outline btn-sm" data-testid="role-view-entry" onclick="openRoleView('${esc(ensureSelectedRole() || '')}')">角色视图</button>
+    <div class="role-create-inline">
+      <input id="role-create-input" class="role-light-input" type="text" placeholder="角色名称" onkeydown="if(event.key==='Enter')addRole()">
+      <input id="role-create-group" class="role-light-group-input" type="text" list="role-group-options" value="${esc(preferredRoleGroup)}" placeholder="角色分组" onkeydown="if(event.key==='Enter')addRole()">
+      <datalist id="role-group-options">${buildRoleGroupOptionsMarkup()}</datalist>
+      <input id="role-create-tags" class="role-light-tags-input" type="text" placeholder="标签，可选" onkeydown="if(event.key==='Enter')addRole()">
+      <button class="btn btn-outline btn-sm" data-testid="role-add-button" onclick="addRole()">+ 角色</button>
+      <button class="btn btn-outline btn-sm" data-testid="role-view-entry" onclick="openRoleView('${esc(ensureSelectedRole() || '')}')">角色视图</button>
+    </div>
   `;
 
   let h = `<div class="ctx-card domain-panel role-light-card" data-testid="role-summary-card">
     ${renderDomainPanelHeader(
       '角色词典',
-      '轻量统一任务执行角色命名，完整参与关系请在“流程 -> 角色视图”查看。',
+      '上一层概念优先使用“角色分组”，标签用于辅助检索；如果确实需要区分组织，可先通过标签表达。',
       actions,
       { badge: summaryText.join(' · ') }
     )}`;
@@ -139,8 +169,13 @@ function renderRoleSummaryCard() {
         roles.forEach((role) => {
           const usage = getRoleUsageSummary(role.id);
           const removable = usage.taskCount === 0;
+          const title = [
+            role.name,
+            `分组：${getRoleGroupName(role)}`,
+            role.tags?.length ? `标签：${role.tags.join('、')}` : '',
+          ].filter(Boolean).join('\n');
           h += `<div class="role-light-chip-wrap">
-            <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}" data-testid="role-summary-chip" onclick="openRoleView('${esc(role.id)}')">
+            <button class="role-light-chip${isRoleDisabled(role) ? ' is-disabled' : ''}" data-role-id="${esc(role.id)}" data-testid="role-summary-chip" title="${esc(title)}" onclick="openRoleView('${esc(role.id)}')">
               <span class="role-light-name">${esc(role.name)}</span>
               <span class="role-light-count">${getLightRoleSummary(role)}</span>
             </button>
@@ -205,6 +240,7 @@ function renderDomainTab(options = {}) {
         onclick: "toggleDomainSection('lang')",
         dataTestId: 'language-toggle',
         dataPanel: 'language',
+        ariaExpanded: !langCollapsed,
       }
     )}`;
 

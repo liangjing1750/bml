@@ -1333,6 +1333,20 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .role-light-input {
   min-width: 200px;
 }
+.role-create-inline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.role-light-group-input,
+.role-light-tags-input {
+  min-width: 150px;
+}
+.role-light-tags-input {
+  min-width: 180px;
+}
 .domain-panel {
   padding: 0;
   overflow: hidden;
@@ -1384,6 +1398,7 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   gap: 8px;
   flex-wrap: wrap;
   flex-shrink: 0;
+  min-width: min(100%, 520px);
 }
 .domain-panel-badge,
 .domain-panel-stat {
@@ -1433,9 +1448,21 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   }
   .domain-panel-actions {
     justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
   }
   .role-light-groups {
     grid-template-columns: 1fr;
+  }
+  .role-create-inline {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .role-light-input,
+  .role-light-group-input,
+  .role-light-tags-input {
+    min-width: 0;
+    flex: 1 1 180px;
   }
 }
 

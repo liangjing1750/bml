@@ -261,6 +261,97 @@ function parseRoleTokens(value) {
       .filter(Boolean),
   ));
 }
+const ROLE_GROUP_PRESETS = [
+  '业务参与方',
+  '仓库作业方',
+  '监管与审核方',
+  '平台与运维方',
+  '系统角色',
+  '待分类角色',
+];
+
+function inferRoleGroup(role) {
+  const name = normalizeRoleName(role?.name);
+  const tags = (role?.tags || []).map((tag) => normalizeRoleName(tag));
+  const joined = `${name} ${tags.join(' ')}`;
+  if (/系统/.test(name) || tags.includes('系统') || joined.includes('自动化')) return '系统角色';
+  if (/仓库/.test(name) || tags.includes('仓库') || tags.includes('现场') || joined.includes('作业')) return '仓库作业方';
+  if (/平台管理员|超级账号/.test(name) || tags.includes('平台管理') || tags.includes('账号管理') || joined.includes('运维')) return '平台与运维方';
+  if (/交割部|交易所|品种负责人/.test(name) || tags.includes('监管') || joined.includes('审核')) return '监管与审核方';
+  if (!name) return '待分类角色';
+  return '业务参与方';
+}
+
+function getRoleGroupName(role) {
+  const explicitGroup = normalizeRoleName(role?.group);
+  return explicitGroup || inferRoleGroup(role);
+}
+
+function getAvailableRoleGroups() {
+  const groups = [];
+  const seen = new Set();
+  function pushGroup(groupName) {
+    const normalized = normalizeRoleName(groupName);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    groups.push(normalized);
+  }
+
+  ROLE_GROUP_PRESETS.forEach(pushGroup);
+  getRoles().forEach((role) => pushGroup(getRoleGroupName(role)));
+  return groups;
+}
+
+function getDefaultRoleGroup() {
+  return getAvailableRoleGroups()[0] || '业务参与方';
+}
+
+function getGroupedRoles() {
+  const buckets = new Map();
+  for (const groupName of getAvailableRoleGroups()) {
+    buckets.set(groupName, []);
+  }
+  for (const role of getRoles()) {
+    const groupName = getRoleGroupName(role);
+    if (!buckets.has(groupName)) buckets.set(groupName, []);
+    buckets.get(groupName).push(role);
+  }
+  return Array.from(buckets.entries())
+    .filter(([, roles]) => roles.length)
+    .map(([name, roles]) => ({ name, roles }));
+}
+
+function createRoleDraft(name, options = {}) {
+  const tags = Array.isArray(options.tags) ? options.tags : [];
+  return {
+    id: nextRoleId(),
+    name: normalizeRoleName(name) || '新角色',
+    desc: '',
+    status: 'active',
+    group: normalizeRoleName(options.group) || getDefaultRoleGroup(),
+    subDomains: [],
+    tags: Array.from(new Set(tags.map((tag) => normalizeRoleName(tag)).filter(Boolean))),
+  };
+}
+
+function getUniqueRoleName(baseName) {
+  const base = normalizeRoleName(baseName) || '新角色';
+  const usedNames = new Set(getRoles().map((role) => role.name));
+  if (!usedNames.has(base)) return base;
+  let index = 2;
+  while (usedNames.has(`${base}${index}`)) index += 1;
+  return `${base}${index}`;
+}
+
+function parseRoleTokens(value) {
+  return Array.from(new Set(
+    String(value || '')
+      .split(/[，,、;；/\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ));
+}
+
 function setTaskRole(procId, taskId, roleId) {
   const task = S.doc?.processes?.find((proc) => proc.id === procId)?.tasks?.find((item) => item.id === taskId);
   if (!task) return;
