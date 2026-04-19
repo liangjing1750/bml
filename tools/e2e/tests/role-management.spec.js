@@ -62,26 +62,25 @@ function buildRoleDoc(documentName) {
   };
 }
 
-test('角色管理禁止删除使用中角色，并允许删除未使用角色', async ({ page, request }) => {
-  const documentName = `role-manage-${Date.now()}`;
+test('业务域页只展示轻量角色摘要，并可从角色条目进入角色视图', async ({ page, request }) => {
+  const documentName = `role-summary-${Date.now()}`;
   const doc = buildRoleDoc(documentName);
 
   await createDocument(request, documentName, doc);
   await page.goto('/');
   await openDocument(page, documentName);
 
-  await expect(page.getByTestId('role-management')).toBeVisible();
+  await expect(page.getByTestId('role-summary-card')).toBeVisible();
+  await expect(page.locator('.role-light-tip')).toContainText('责任视角');
+  await expect(page.getByTestId('role-view-entry')).toBeVisible();
+  await expect(page.locator('[data-role-id="R1"]')).toContainText('仓库管理员');
+  await expect(page.locator('[data-role-id="R1"]')).toContainText('2T');
 
   await page.locator('[data-role-id="R1"]').click();
-  await expect(page.getByTestId('role-delete-button')).toBeDisabled();
 
-  await page.locator('[data-role-id="R2"]').click();
-  await expect(page.getByTestId('role-delete-button')).toBeEnabled();
-
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByTestId('role-delete-button').click();
-
-  await expect(page.locator('[data-role-id="R2"]')).toHaveCount(0);
+  await expect(page.getByTestId('process-role-view')).toBeVisible();
+  await expect(page.locator('.proc-role-detail')).toContainText('仓库管理员');
+  await expect(page.locator('.proc-role-detail')).toContainText('入库办理');
 });
 
 test('流程角色视图可以按角色聚合流程和任务', async ({ page, request }) => {
@@ -104,4 +103,24 @@ test('流程角色视图可以按角色聚合流程和任务', async ({ page, re
 
   await expect(page.getByTestId('process-overview-view')).toBeVisible();
   await expect(page.locator('.drawer-crumb')).toContainText('确认到货');
+});
+
+test('业务域页只允许删除未使用角色的轻量词典项', async ({ page, request }) => {
+  const documentName = `role-remove-${Date.now()}`;
+  const doc = buildRoleDoc(documentName);
+
+  await createDocument(request, documentName, doc);
+  await page.goto('/');
+  await openDocument(page, documentName);
+
+  const usedRoleWrap = page.locator('.role-light-chip-wrap').filter({ has: page.locator('[data-role-id="R1"]') });
+  const unusedRoleWrap = page.locator('.role-light-chip-wrap').filter({ has: page.locator('[data-role-id="R2"]') });
+
+  await expect(usedRoleWrap.locator('.role-light-remove')).toHaveCount(0);
+  await expect(unusedRoleWrap.locator('.role-light-remove')).toHaveCount(1);
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await unusedRoleWrap.locator('.role-light-remove').click();
+
+  await expect(page.locator('[data-role-id="R2"]')).toHaveCount(0);
 });

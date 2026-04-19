@@ -1224,6 +1224,85 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   padding: 14px 16px 16px;
 }
 
+.role-light-card {
+  margin-bottom: 16px;
+}
+.role-light-tip {
+  color: var(--text-m);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+.role-light-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.role-light-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.role-light-chip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.role-light-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.role-light-chip:hover {
+  background: #eff6ff;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.role-light-chip.is-disabled {
+  opacity: .7;
+  border-style: dashed;
+}
+.role-light-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.role-light-count {
+  color: var(--text-m);
+  font-size: 11px;
+}
+.role-light-remove {
+  margin-left: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.role-light-remove:hover {
+  background: #fecaca;
+}
+.role-light-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.role-light-create input {
+  flex: 1;
+}
+
 /* ─── 字段表格：列宽控制 ─────────────────────────────────── */
 .field-td-name { width: 120px; }
 .field-td-type { width: 80px; }
