@@ -62,6 +62,23 @@ test('左侧目录默认折叠到业务子域和主题域层级', async ({ page,
   await expect(page.locator('[data-entity-id="E1"]')).toBeVisible();
 });
 
+test('左侧目录会显示分层统计数字', async ({ page, request }) => {
+  const documentName = `sidebar-count-${Date.now()}`;
+  const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程');
+
+  await createDocument(request, documentName, doc);
+  await page.goto('/');
+  await openDocument(page, documentName);
+
+  await expect(page.locator('[data-section="process"] .sb-count')).toHaveText('2');
+  await expect(page.locator('[data-section="entity"] .sb-count')).toHaveText('2');
+  await expect(page.locator('[data-subdomain="仓储仓单管理"] .sb-count')).toHaveText('1');
+  await expect(page.locator('[data-group="仓储仓单管理主题域"] .sb-count')).toHaveText('1');
+
+  await page.locator('[data-subdomain="仓储仓单管理"]').click();
+  await expect(page.locator('[data-process-id="P1"] .sb-count')).toHaveText('1');
+});
+
 test('左侧目录悬停显示移动按钮时不应把目录项挤成两行', async ({ page, request }) => {
   const documentName = `sidebar-hover-${Date.now()}`;
   const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程名称很长用于验证悬停后不要换行');

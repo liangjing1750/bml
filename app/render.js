@@ -198,15 +198,21 @@ function renderNoDoc() {
 }
 
 /* ─── 辅助：渲染单个流程条目及其任务 ─── */
+function _renderSbCount(count) {
+  return `<span class="sb-count" data-count="${count}">${count}</span>`;
+}
+
 function _renderSbProc(p) {
   const procKey=`proc-${p.id}`;
   const collapsed=S.ui.sbCollapse[procKey];
   const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
+  const taskCount=(p.tasks||[]).length;
   let h=`<div class="sb-proc-head ${procActive?'active':''}" data-process-id="${esc(p.id)}"
     onclick="navigate('process',{procId:'${p.id}',taskId:null})">
     <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
     <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'proc','${p.id}')" title="点击编辑ID">${esc(p.id)}</span>
     <span class="sb-name">${esc(p.name||'未命名')}</span>
+    ${_renderSbCount(taskCount)}
     <span class="sb-move-btns">
       <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',-1,event)" title="上移">↑</button>
       <button class="sb-move-btn" onclick="moveProcInSd('${esc(p.id)}',1,event)" title="下移">↓</button>
@@ -233,6 +239,10 @@ function renderSidebar() {
   const procs    = S.doc.processes||[];
   const entities = S.doc.entities||[];
   const collapsed = S.ui.sidebarCollapsed;
+  const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
+  const groups=[...new Set(entities.map(e=>e.group||''))];
+  const processBucketCount = subDomains.filter(Boolean).length + (subDomains.includes('') ? 1 : 0);
+  const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
 
   /* 控制侧边栏宽度 & 外部按钮文字 */
   const sb = document.getElementById('sidebar');
@@ -249,16 +259,15 @@ function renderSidebar() {
 
   /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
-    <div class="sb-header">
+    <div class="sb-header" data-section="process">
       <span>流程</span>
+      ${_renderSbCount(processBucketCount)}
       <button class="sb-add-btn" onclick="addProcess()" title="新建流程">＋</button>
     </div>`;
 
   if(!procs.length){
     h+=`<div class="sb-empty">暂无流程</div>`;
   } else {
-    /* 收集业务子域 */
-    const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
     for(const sd of subDomains) {
       const sdProcs=procs.filter(p=>(p.subDomain||'')===sd);
       if(sd) {
@@ -267,6 +276,7 @@ function renderSidebar() {
         h+=`<div class="sb-grp-head" data-subdomain="${esc(sd)}" onclick="toggleCollapse('${sdKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
           <span class="sb-name">${esc(sd)}</span>
+          ${_renderSbCount(sdProcs.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
           <span class="sb-move-btns">
             <button class="sb-move-btn" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="上移">↑</button>
@@ -290,16 +300,15 @@ function renderSidebar() {
 
   /* ── 实体区（按主题域分组） ── */
   h+=`<div class="sb-section">
-    <div class="sb-header">
+    <div class="sb-header" data-section="entity">
       <span>实体</span>
+      ${_renderSbCount(entityBucketCount)}
       <button class="sb-add-btn" onclick="addEntity()" title="新建实体">＋</button>
     </div>`;
 
   if(!entities.length){
     h+=`<div class="sb-empty">暂无实体</div>`;
   } else {
-    /* 收集主题域 */
-    const groups=[...new Set(entities.map(e=>e.group||''))];
     for(const grp of groups) {
       const grpEntities=entities.filter(e=>(e.group||'')===grp);
       if(grp) {
@@ -308,6 +317,7 @@ function renderSidebar() {
         h+=`<div class="sb-grp-head" data-group="${esc(grp)}" onclick="toggleCollapse('${grpKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
           <span class="sb-name">${esc(grp)}</span>
+          ${_renderSbCount(grpEntities.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>
           <span class="sb-move-btns">
             <button class="sb-move-btn" onclick="moveGrpGroup('${esc(grp)}',-1,event)" title="上移">↑</button>
