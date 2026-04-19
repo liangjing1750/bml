@@ -23,7 +23,7 @@ class ProjectLayoutTests(unittest.TestCase):
 
     def test_e2e_package_uses_dedicated_script(self):
         package_data = json.loads((ROOT / "tools" / "e2e" / "package.json").read_text("utf-8"))
-        self.assertEqual(package_data["name"], "bml-e2e")
+        self.assertEqual(package_data["name"], "blm-e2e")
         self.assertIn("test:e2e", package_data["scripts"])
         self.assertIn("test:e2e:demo", package_data["scripts"])
         self.assertIn("install:browser", package_data["scripts"])

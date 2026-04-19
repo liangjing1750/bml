@@ -789,11 +789,6 @@ function renderDataTab() {
       <span class="live-diagram-hint">拖拽节点 · Ctrl+滚轮缩放 · 点击节点进入编辑</span>
       <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
       <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复分组布局">重置布局</button>
-      <div class="zoom-controls">
-        <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大">＋</button>
-        <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置">⊙</button>
-        <button class="zoom-btn" onclick="zoomBy('entity-diagram',-0.2)" title="缩小">－</button>
-      </div>
     </div>
     <div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>
   </div>`;

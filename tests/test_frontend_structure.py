@@ -40,6 +40,8 @@ class FrontendStructureTests(unittest.TestCase):
 
     def test_index_html_references_split_scripts_in_order(self):
         html = (APP_DIR / "index.html").read_text("utf-8")
+        self.assertIn("<title>BLM - Business Language Modeling</title>", html)
+        self.assertIn('<span class="logo">BLM</span>', html)
         previous_position = -1
         for script_name in EXPECTED_SCRIPTS:
             marker = f'<script src="{script_name}"></script>'

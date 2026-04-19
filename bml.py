@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BML - Business Modeling Language Tool
+BLM - Business Language Modeling Tool
 用法: python bml.py
 """
 

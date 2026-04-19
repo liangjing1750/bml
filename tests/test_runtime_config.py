@@ -33,7 +33,7 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.workspace_dir, bml.ROOT / "tmp-test-workspace")
 
     def test_keeps_absolute_workspace_path(self):
-        absolute_path = Path("C:/tmp/bml-e2e-workspace")
+        absolute_path = Path("C:/tmp/blm-e2e-workspace")
         with patch.dict(
             os.environ,
             {

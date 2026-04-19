@@ -1,6 +1,6 @@
 'use strict';
 
-function renderBmlMd(md) {
+function renderBlmMd(md) {
   /* 先把 mermaid 块抽出来 */
   const diagrams = [];
   const src = md.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
@@ -311,7 +311,7 @@ function buildMdFromDoc(doc) {
 async function doRenderPreview(md) {
   const container = document.getElementById('preview-rendered');
   if(!container) return;
-  const {html, diagrams} = renderBmlMd(md);
+  const {html, diagrams} = renderBlmMd(md);
   container.innerHTML = html;
   setPreviewHint(diagrams.length ? '离线渲染' : '离线渲染');
 

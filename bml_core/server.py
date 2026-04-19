@@ -11,7 +11,7 @@ from bml_core.storage import InvalidDocumentNameError, WorkspaceStorage
 
 
 def create_handler(app_dir: Path, storage: WorkspaceStorage):
-    class BmlRequestHandler(http.server.SimpleHTTPRequestHandler):
+    class BlmRequestHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(app_dir), **kwargs)
 
@@ -111,7 +111,7 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
             self.end_headers()
             self.wfile.write(body)
 
-    return BmlRequestHandler
+    return BlmRequestHandler
 
 
 def run_server(port: int, app_dir: Path, workspace_dir: Path, open_browser: bool = True) -> None:
@@ -120,7 +120,7 @@ def run_server(port: int, app_dir: Path, workspace_dir: Path, open_browser: bool
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
     url = f"http://127.0.0.1:{port}"
 
-    print(f"BML Tool 已启动: {url}")
+    print(f"BLM Tool 已启动: {url}")
     print(f"文档目录: {workspace_dir}")
     print("按 Ctrl+C 退出\n")
 
@@ -131,4 +131,3 @@ def run_server(port: int, app_dir: Path, workspace_dir: Path, open_browser: bool
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n已退出")
-
