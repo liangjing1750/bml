@@ -219,23 +219,23 @@ function renderDomainTab(options = {}) {
   const languageSubtitle = language.length
     ? `已收录 ${language.length} 条术语，用于统一命名和口径。`
     : '用于固定高频核心名词，避免不同流程叫法不一致。';
+  const domainInfoActions = `
+    <div class="domain-info-inline" data-testid="domain-info-inline">
+      <label class="domain-info-inline-field">
+        <span>业务域</span>
+        <input type="text" value="${esc(meta.domain || meta.title || '')}" oninput="setDomain(this.value)" placeholder="如：仓储管理 v2、采购域">
+      </label>
+      <label class="domain-info-inline-field domain-info-date-field">
+        <span>日期</span>
+        <input type="text" data-testid="domain-date-input" value="${esc(meta.date || '')}" oninput="setMeta('date',this.value)" placeholder="2026-04">
+      </label>
+    </div>
+  `;
 
   let h = '<div class="domain-scroll" data-testid="domain-scroll">';
 
   h += `<div class="ctx-card domain-panel domain-info-card">
-    ${renderDomainPanelHeader('业务域信息', '定义当前建模文档的名称与时间版本。')}
-    <div class="domain-panel-body">
-      <div class="form-grid">
-        <div class="field-group">
-          <label>业务域名称</label>
-          <input type="text" value="${esc(meta.domain || meta.title || '')}" oninput="setDomain(this.value)" placeholder="如：仓储管理 v2、采购域">
-        </div>
-        <div class="field-group">
-          <label>日期</label>
-          <input type="text" data-testid="domain-date-input" value="${esc(meta.date || '')}" oninput="setMeta('date',this.value)" placeholder="2026-04">
-        </div>
-      </div>
-    </div>
+    ${renderDomainPanelHeader('业务域信息', '', domainInfoActions)}
   </div>`;
 
   h += renderRoleSummaryCard();

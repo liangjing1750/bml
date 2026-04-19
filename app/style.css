@@ -1435,6 +1435,42 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .domain-panel-empty {
   margin: 0;
 }
+.domain-info-card .domain-panel-head {
+  align-items: center;
+  padding: 10px 16px;
+}
+.domain-info-card .domain-panel-copy {
+  flex: 0 0 auto;
+}
+.domain-info-card .domain-panel-actions {
+  flex: 1;
+}
+.domain-info-inline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.domain-info-inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.domain-info-inline-field span {
+  color: var(--text-m);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.domain-info-inline-field input {
+  min-width: 220px;
+}
+.domain-info-date-field input {
+  min-width: 110px;
+}
 .domain-language-card .domain-panel-head-button {
   border-bottom: 1px solid var(--border);
 }
@@ -1474,6 +1510,20 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   }
   .role-light-groups {
     grid-template-columns: 1fr;
+  }
+  .domain-info-card .domain-panel-copy {
+    flex: 1 1 auto;
+  }
+  .domain-info-inline {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .domain-info-inline-field {
+    width: 100%;
+  }
+  .domain-info-inline-field input {
+    min-width: 0;
+    flex: 1 1 auto;
   }
   .role-create-inline {
     width: 100%;
