@@ -75,6 +75,26 @@ function renderBlmMd(md) {
   return { html, diagrams };
 }
 
+function getRoleDesc(role) {
+  return typeof role === 'object' && role ? String(role.desc || '').trim() : '';
+}
+
+function getRoleSubDomains(role) {
+  return typeof role === 'object' && role
+    ? (role.subDomains || []).map((item) => String(item || '').trim()).filter(Boolean).join('、')
+    : '';
+}
+
+function getRoleTags(role) {
+  return typeof role === 'object' && role
+    ? (role.tags || []).map((item) => String(item || '').trim()).filter(Boolean).join('、')
+    : '';
+}
+
+function getRoleStatusLabel(role) {
+  return typeof role === 'object' && role && role.status === 'disabled' ? '已停用' : '启用';
+}
+
 /* ═══════════════════════════════════════════════════════════
    RENDER — Preview Tab
 ═══════════════════════════════════════════════════════════ */
@@ -121,7 +141,17 @@ function buildHtmlPreview() {
   const roles = doc.roles||[];
   if(roles.length) {
     h += `<h2>角色</h2>`;
-    h += roles.map((role)=>`<span class="role-tag">${esc(getRoleName(role))}</span>`).join('');
+    h += `<table><thead><tr><th>角色</th><th>说明</th><th>所属业务子域</th><th>标签</th><th>状态</th></tr></thead><tbody>`;
+    roles.forEach((role) => {
+      h += `<tr>
+        <td>${esc(getRoleName(role))}</td>
+        <td>${esc(getRoleDesc(role))}</td>
+        <td>${esc(getRoleSubDomains(role))}</td>
+        <td>${esc(getRoleTags(role))}</td>
+        <td>${esc(getRoleStatusLabel(role))}</td>
+      </tr>`;
+    });
+    h += `</tbody></table>`;
   }
 
   /* Language */
@@ -236,8 +266,9 @@ function buildMdFromDoc(doc) {
   const roles = doc.roles||[];
   if(roles.length){
     add(`## ${nums[sn++]}、角色`); add('');
-    add('| 角色 |'); add('|------|');
-    roles.forEach((role)=>add(`| ${getRoleName(role)} |`));
+    add('| 角色 | 说明 | 所属业务子域 | 标签 | 状态 |');
+    add('|------|------|--------------|------|------|');
+    roles.forEach((role)=>add(`| ${getRoleName(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} | ${getRoleTags(role)} | ${getRoleStatusLabel(role)} |`));
     add(''); sep();
   }
 

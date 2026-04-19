@@ -40,6 +40,30 @@ def get_role_name(role) -> str:
     return str(role or "").strip()
 
 
+def get_role_desc(role) -> str:
+    if isinstance(role, dict):
+        return str(role.get("desc", "")).strip()
+    return ""
+
+
+def get_role_subdomains(role) -> str:
+    if isinstance(role, dict):
+      return "、".join([str(value).strip() for value in role.get("subDomains", []) if str(value).strip()])
+    return ""
+
+
+def get_role_tags(role) -> str:
+    if isinstance(role, dict):
+      return "、".join([str(value).strip() for value in role.get("tags", []) if str(value).strip()])
+    return ""
+
+
+def get_role_status(role) -> str:
+    if isinstance(role, dict):
+        return "已停用" if role.get("status") == "disabled" else "启用"
+    return "启用"
+
+
 class MarkdownExporter:
     def export(self, document: dict) -> str:
         doc = migrate_document(document)
@@ -79,10 +103,12 @@ class MarkdownExporter:
         if roles:
             line(f"## {next_section_number()}、角色")
             line()
-            line("| 角色 |")
-            line("|------|")
+            line("| 角色 | 说明 | 所属业务子域 | 标签 | 状态 |")
+            line("|------|------|--------------|------|------|")
             for role in roles:
-                line(f"| {get_role_name(role)} |")
+                line(
+                    f"| {get_role_name(role)} | {get_role_desc(role)} | {get_role_subdomains(role)} | {get_role_tags(role)} | {get_role_status(role)} |"
+                )
             line()
             separator()
 
