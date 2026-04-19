@@ -128,8 +128,8 @@ const CARD_W = 300;
 const CARD_H = 200;
 const OV_CARD_W = 180;
 const OV_CARD_H = 72;
-function _cardGridW() { return S.ui.procView === 'list' ? OV_CARD_W : CARD_W; }
-function _cardGridH() { return S.ui.procView === 'list' ? OV_CARD_H : CARD_H; }
+function _cardGridW() { return (S.ui.procView || 'list') === 'list' ? OV_CARD_W : CARD_W; }
+function _cardGridH() { return (S.ui.procView || 'list') === 'list' ? OV_CARD_H : CARD_H; }
 let dragState = null;
 
 
