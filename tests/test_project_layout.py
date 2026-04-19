@@ -17,6 +17,7 @@ class ProjectLayoutTests(unittest.TestCase):
         self.assertTrue((tool_dir / "package.json").exists())
         self.assertTrue((tool_dir / "package-lock.json").exists())
         self.assertTrue((tool_dir / "playwright.config.js").exists())
+        self.assertTrue((tool_dir / "playwright.demo.config.js").exists())
         self.assertTrue((tool_dir / "tests" / "new-document.spec.js").exists())
         self.assertTrue((tool_dir / "tests" / "support" / "test-env.js").exists())
 
@@ -24,6 +25,7 @@ class ProjectLayoutTests(unittest.TestCase):
         package_data = json.loads((ROOT / "tools" / "e2e" / "package.json").read_text("utf-8"))
         self.assertEqual(package_data["name"], "bml-e2e")
         self.assertIn("test:e2e", package_data["scripts"])
+        self.assertIn("test:e2e:demo", package_data["scripts"])
         self.assertIn("install:browser", package_data["scripts"])
 
 

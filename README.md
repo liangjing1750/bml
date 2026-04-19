@@ -91,6 +91,13 @@ npm run install:browser
 npm run test:e2e
 ```
 
+如果想看到浏览器真实打开、慢速点击和输入，可使用演示模式：
+
+```bash
+cd tools/e2e
+npm run test:e2e:demo
+```
+
 ---
 
 ## 功能演示 · 图书馆借阅管理

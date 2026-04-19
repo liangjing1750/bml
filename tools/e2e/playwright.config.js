@@ -7,6 +7,7 @@ const workspaceDir = path.join(toolDir, '.tmp', 'playwright-workspace');
 
 fs.rmSync(workspaceDir, { recursive: true, force: true });
 fs.mkdirSync(workspaceDir, { recursive: true });
+process.env.BML_E2E_WORKSPACE_DIR = workspaceDir;
 
 module.exports = {
   testDir: path.join(toolDir, 'tests'),
