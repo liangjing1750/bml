@@ -5,6 +5,10 @@
 
 workspace/
 docs/
+node_modules/
+playwright-report/
+test-results/
+.tmp/
 
 __pycache__/
 *.pyc

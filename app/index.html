@@ -11,13 +11,13 @@
 <div id="toolbar">
   <div class="toolbar-left">
     <span class="logo">BML</span>
-    <span id="file-name" class="file-name">—</span>
+    <span id="file-name" class="file-name" data-testid="current-file-name">—</span>
     <span id="modified-dot" class="modified-dot hidden">●</span>
   </div>
   <div class="toolbar-right">
-    <button onclick="App.cmdNew()"    class="btn btn-ghost">新建</button>
-    <button onclick="App.cmdOpen()"   class="btn btn-ghost">打开</button>
-    <button onclick="App.cmdSave()"   class="btn btn-primary" id="btn-save">保存</button>
+    <button onclick="App.cmdNew()" class="btn btn-ghost" data-testid="toolbar-new-button">新建</button>
+    <button onclick="App.cmdOpen()" class="btn btn-ghost">打开</button>
+    <button onclick="App.cmdSave()" class="btn btn-primary" id="btn-save">保存</button>
     <button onclick="App.cmdExport()" class="btn btn-ghost">导出 MD</button>
   </div>
 </div>
@@ -35,20 +35,25 @@
   </main>
 </div>
 
-<!-- 新建文档 弹窗 -->
-<div id="modal-overlay" class="hidden" onclick="App.closeModal()">
+<!-- 新建文档弹窗 -->
+<div id="modal-overlay" class="hidden" onclick="App.closeModal()" data-testid="new-doc-modal">
   <div class="modal" onclick="event.stopPropagation()">
     <h3>新建文档</h3>
-    <input id="new-doc-name" type="text" placeholder="输入文档名称（如：入库流程）"
-           onkeydown="if(event.key==='Enter') App.confirmNew()">
+    <input
+      id="new-doc-name"
+      type="text"
+      placeholder="输入文档名称，例如：入库流程"
+      data-testid="new-doc-name-input"
+      onkeydown="if(event.key==='Enter') App.confirmNew()"
+    >
     <div class="modal-footer">
       <button onclick="App.closeModal()" class="btn btn-ghost">取消</button>
-      <button onclick="App.confirmNew()" class="btn btn-primary">创建</button>
+      <button onclick="App.confirmNew()" class="btn btn-primary" data-testid="new-doc-confirm-button">创建</button>
     </div>
   </div>
 </div>
 
-<!-- 打开文档 弹窗 -->
+<!-- 打开文档弹窗 -->
 <div id="open-modal-overlay" class="hidden" onclick="App.closeOpenModal()">
   <div class="modal" onclick="event.stopPropagation()">
     <h3>打开文档</h3>
@@ -68,18 +73,22 @@
 <script src="preview.js"></script>
 <script src="app.js"></script>
 
-<!-- CDN：Mermaid + marked（均需联网，离线时降级） -->
+<!-- CDN: Mermaid + marked，联网时加载，离线时降级 -->
 <script type="module">
   try {
     const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs');
     window.mermaidLib = mermaid;
     mermaid.initialize({ startOnLoad: false, theme: 'default' });
-  } catch(e) { console.warn('Mermaid 加载失败'); }
+  } catch (e) {
+    console.warn('Mermaid 加载失败');
+  }
 
   try {
     const { marked } = await import('https://cdn.jsdelivr.net/npm/marked@12/src/marked.js');
     window.markedLib = marked;
-  } catch(e) { console.warn('marked 加载失败'); }
+  } catch (e) {
+    console.warn('marked 加载失败');
+  }
 </script>
 
 </body>
