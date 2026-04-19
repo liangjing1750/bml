@@ -214,7 +214,7 @@ function renderNoDoc() {
   document.getElementById('tab-bar').innerHTML='';
   document.getElementById('tab-content').innerHTML=`
     <div class="empty-state">
-      <h2>BLM业务语言建模</h2>
+      <h2>BLM（Business Language Modeling）业务语言建模</h2>
       <p>结构化记录业务理解，生成可读文档</p>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn btn-primary" onclick="App.cmdNew()">新建文档</button>
