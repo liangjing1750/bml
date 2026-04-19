@@ -172,6 +172,96 @@ function renderPreviewTab() {
   buildHtmlPreview();
 }
 
+function buildPreviewMetaLine(meta) {
+  const parts = [];
+  if (meta?.domain) parts.push(`<strong>业务域</strong>: ${esc(meta.domain)}`);
+  if (meta?.author) parts.push(`<strong>作者</strong>: ${esc(meta.author)}`);
+  if (meta?.date) parts.push(`<strong>日期</strong>: ${esc(meta.date)}`);
+  return parts.length ? `<p class="pv-meta">${parts.join(' | ')}</p>` : '';
+}
+
+function renderPreviewRolesHtml(roles) {
+  if (!roles.length) return '';
+  return `<h2 id="preview-roles">角色</h2>
+    <table><thead><tr><th>角色</th><th>分组</th><th>说明</th><th>所属业务子域</th><th>状态</th></tr></thead><tbody>
+      ${roles.map((role) => `<tr>
+        <td>${esc(getRoleName(role))}</td>
+        <td>${esc(getRoleGroup(role))}</td>
+        <td>${esc(getRoleDesc(role))}</td>
+        <td>${esc(getRoleSubDomains(role))}</td>
+        <td>${esc(getRoleStatusLabel(role))}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+function renderPreviewLanguageHtml(languageItems) {
+  if (!languageItems.length) return '';
+  return `<h2 id="preview-language">统一语言/术语表</h2>
+    <table><thead><tr><th>术语</th><th>定义</th></tr></thead><tbody>
+      ${languageItems.map((item) => `<tr><td>${esc(item.term||'')}</td><td>${esc(item.definition||'')}</td></tr>`).join('')}
+    </tbody></table>`;
+}
+
+function renderPreviewProcessesHtml(processes, entityMap, stepLabels) {
+  if (!processes.length) return '';
+  return `<h2 id="preview-processes">流程建模</h2>
+    ${processes.map((proc) => {
+      const tasks = proc.tasks || [];
+      return `<h3 id="${previewAnchorId('proc', proc.id || proc.name || 'process')}">${esc(proc.id)}: ${esc(proc.name||'')}</h3>
+        ${proc.trigger || proc.outcome ? `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>` : ''}
+        <div id="pv-proc-${proc.id}" class="pv-diag"></div>
+        ${tasks.length ? `<div class="pv-tasks">
+          ${tasks.map((task) => {
+            const roleName = getTaskRoleName(task);
+            const entityOps = task.entity_ops || [];
+            return `<div class="pv-task-detail">
+              <h4>${esc(task.id)}: ${esc(task.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>
+              ${task.repeatable ? '<p class="pv-note">↺ 可重复任务</p>' : ''}
+              ${task.steps?.length ? `<table><thead><tr><th>#</th><th>步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>
+                ${task.steps.map((step, index) => `<tr><td>${index + 1}</td><td>${esc(step.name||'')}</td><td>${esc(stepLabels[step.type]||step.type||'')}</td><td>${esc(step.note||'')}</td></tr>`).join('')}
+              </tbody></table>` : ''}
+              ${entityOps.length ? `<p class="pv-note"><strong>涉及实体</strong>: ${entityOps.map((entityOp) => {
+                const entityName = (entityMap[entityOp.entity_id]?.name) || entityOp.entity_id;
+                return `${esc(entityName)}（${esc((entityOp.ops||[]).join(','))}）`;
+              }).join(', ')}</p>` : ''}
+              ${task.rules_note?.trim() ? `<p class="pv-note"><strong>业务规则</strong>: ${esc(task.rules_note)}</p>` : ''}
+            </div>`;
+          }).join('')}
+        </div>` : ''}`;
+    }).join('')}`;
+}
+
+function renderPreviewEntitiesHtml(entities, fieldLabels) {
+  if (!entities.length) return '';
+  return `<h2 id="preview-entities">数据建模</h2>
+    <div id="pv-entity-diag" class="pv-diag pv-entity-diag"></div>
+    ${entities.map((entity) => `<div class="pv-entity-section">
+      <h3 id="${previewAnchorId('entity', entity.id || entity.name || 'entity')}">实体: ${esc(entity.name||entity.id)}</h3>
+      ${entity.note ? `<p class="pv-note">${esc(entity.note)}</p>` : ''}
+      ${entity.fields?.length ? `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>状态值</th><th>公式/约束</th></tr></thead><tbody>
+        ${entity.fields.map((field) => `<tr>
+          <td>${esc(field.name||'')}</td>
+          <td>${esc(fieldLabels[field.type]||field.type||'')}</td>
+          <td style="text-align:center">${field.is_key?'✓':''}</td>
+          <td style="text-align:center">${field.is_status?'✓':''}</td>
+          <td>${esc(getFieldStateValueText(field) || '')}</td>
+          <td>${esc(field.note||'')}</td>
+        </tr>`).join('')}
+      </tbody></table>` : ''}
+      ${entity.state_transitions?.length ? `<h4>状态流转</h4>
+        ${(() => {
+          const statusField = getEntityStatusField(entity);
+          const statusLine = statusField
+            ? `<p class="pv-note"><strong>主状态字段</strong>: ${esc(statusField.name || '')}（状态值：${esc(getFieldStateValueText(statusField) || '—')}）</p>`
+            : '';
+          return `${statusLine}
+            <table><thead><tr><th>来源状态</th><th>目标状态</th><th>触发动作</th><th>说明</th></tr></thead><tbody>
+              ${entity.state_transitions.map((transition) => `<tr><td>${esc(transition.from || '')}</td><td>${esc(transition.to || '')}</td><td>${esc(transition.action || '')}</td><td>${esc(transition.note || '')}</td></tr>`).join('')}
+            </tbody></table>`;
+        })()}` : ''}
+    </div>`).join('')}`;
+}
+
 function buildHtmlPreview() {
   const container = document.getElementById('preview-rendered');
   if(!container || !S.doc) return;
@@ -179,128 +269,20 @@ function buildHtmlPreview() {
   const m   = doc.meta||{};
   const STEP_LBL  = {Query:'查询',Check:'校验',Fill:'填写',Select:'选择',Compute:'计算',Mutate:'变更'};
   const FIELD_LBL = {string:'字符',number:'数值',decimal:'金额',date:'日期',datetime:'日期时间',boolean:'布尔',enum:'枚举',text:'长文本',id:'标识ID'};
-
-  let h = '';
-
-  /* Title */
-  h += `<h1 id="preview-top">${esc(m.title||m.domain||'未命名')}</h1>`;
-
-  /* Meta line */
-  const metaParts = [];
-  if(m.domain)  metaParts.push(`<strong>业务域</strong>: ${esc(m.domain)}`);
-  if(m.author)  metaParts.push(`<strong>作者</strong>: ${esc(m.author)}`);
-  if(m.date)    metaParts.push(`<strong>日期</strong>: ${esc(m.date)}`);
-  if(metaParts.length) h += `<p class="pv-meta">${metaParts.join(' | ')}</p>`;
-
-  h += '<hr>';
-
-  /* Roles */
   const roles = doc.roles||[];
-  if(roles.length) {
-    h += `<h2 id="preview-roles">角色</h2>`;
-    h += `<table><thead><tr><th>角色</th><th>分组</th><th>说明</th><th>所属业务子域</th><th>状态</th></tr></thead><tbody>`;
-    roles.forEach((role) => {
-      h += `<tr>
-        <td>${esc(getRoleName(role))}</td>
-        <td>${esc(getRoleGroup(role))}</td>
-        <td>${esc(getRoleDesc(role))}</td>
-        <td>${esc(getRoleSubDomains(role))}</td>
-        <td>${esc(getRoleStatusLabel(role))}</td>
-      </tr>`;
-    });
-    h += `</tbody></table>`;
-  }
-
-  /* Language */
   const lang = doc.language||[];
-  if(lang.length) {
-    h += `<h2 id="preview-language">统一语言/术语表</h2>`;
-    h += `<table><thead><tr><th>术语</th><th>定义</th></tr></thead><tbody>`;
-    lang.forEach(t=>{
-      h += `<tr><td>${esc(t.term||'')}</td><td>${esc(t.definition||'')}</td></tr>`;
-    });
-    h += `</tbody></table>`;
-  }
-
-  /* Processes */
   const procs = doc.processes||[];
   const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
-  if(procs.length) {
-    h += `<h2 id="preview-processes">流程建模</h2>`;
-    for(const proc of procs) {
-      h += `<h3 id="${previewAnchorId('proc', proc.id || proc.name || 'process')}">${esc(proc.id)}: ${esc(proc.name||'')}</h3>`;
-      if(proc.trigger||proc.outcome) {
-        h += `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>`;
-      }
-      /* Proc flow diagram placeholder */
-      h += `<div id="pv-proc-${proc.id}" class="pv-diag"></div>`;
-      /* Tasks */
-      const tasks = proc.tasks||[];
-      if(tasks.length) {
-        h += `<div class="pv-tasks">`;
-        for(const t of tasks) {
-          const roleName = getTaskRoleName(t);
-          h += `<div class="pv-task-detail">`;
-          h += `<h4>${esc(t.id)}: ${esc(t.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>`;
-          if(t.repeatable) h += `<p class="pv-note">↺ 可重复任务</p>`;
-          if(t.steps?.length) {
-            h += `<table><thead><tr><th>#</th><th>步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>`;
-            t.steps.forEach((s,i)=>{
-              h += `<tr><td>${i+1}</td><td>${esc(s.name||'')}</td><td>${esc(STEP_LBL[s.type]||s.type||'')}</td><td>${esc(s.note||'')}</td></tr>`;
-            });
-            h += `</tbody></table>`;
-          }
-          const eops = t.entity_ops||[];
-          if(eops.length) {
-            const ep = eops.map(eo=>{
-              const en=(emap[eo.entity_id]?.name)||eo.entity_id;
-              return `${esc(en)}（${esc((eo.ops||[]).join(','))}）`;
-            });
-            h += `<p class="pv-note"><strong>涉及实体</strong>: ${ep.join(', ')}</p>`;
-          }
-          if(t.rules_note?.trim()) h += `<p class="pv-note"><strong>业务规则</strong>: ${esc(t.rules_note)}</p>`;
-          h += `</div>`;
-        }
-        h += `</div>`; /* pv-tasks */
-      }
-    }
-  }
-
-  /* Entities */
   const entities  = doc.entities||[];
-  if(entities.length) {
-    h += `<h2 id="preview-entities">数据建模</h2>`;
-    h += `<div id="pv-entity-diag" class="pv-diag pv-entity-diag"></div>`;
-    for(const e of entities) {
-      h += `<h3 id="${previewAnchorId('entity', e.id || e.name || 'entity')}">实体: ${esc(e.name||e.id)}</h3>`;
-      if(e.note) h += `<p class="pv-note">${esc(e.note)}</p>`;
-      if(e.fields?.length) {
-        h += `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>状态值</th><th>公式/约束</th></tr></thead><tbody>`;
-        const FIELD_LBL2 = FIELD_LBL;
-        e.fields.forEach(f=>{
-          h += `<tr><td>${esc(f.name||'')}</td><td>${esc(FIELD_LBL2[f.type]||f.type||'')}</td>`;
-          h += `<td style="text-align:center">${f.is_key?'✓':''}</td>`;
-          h += `<td style="text-align:center">${f.is_status?'✓':''}</td>`;
-          h += `<td>${esc(getFieldStateValueText(f) || '')}</td>`;
-          h += `<td>${esc(f.note||'')}</td></tr>`;
-        });
-        h += `</tbody></table>`;
-      }
-      if(e.state_transitions?.length) {
-        const statusField = getEntityStatusField(e);
-        h += `<h4>状态流转</h4>`;
-        if(statusField) {
-          h += `<p class="pv-note"><strong>主状态字段</strong>: ${esc(statusField.name || '')}（状态值：${esc(getFieldStateValueText(statusField) || '—')}）</p>`;
-        }
-        h += `<table><thead><tr><th>来源状态</th><th>目标状态</th><th>触发动作</th><th>说明</th></tr></thead><tbody>`;
-        e.state_transitions.forEach((transition) => {
-          h += `<tr><td>${esc(transition.from || '')}</td><td>${esc(transition.to || '')}</td><td>${esc(transition.action || '')}</td><td>${esc(transition.note || '')}</td></tr>`;
-        });
-        h += `</tbody></table>`;
-      }
-    }
-  }
-  container.innerHTML = h;
+  container.innerHTML = [
+    `<h1 id="preview-top">${esc(m.title||m.domain||'未命名')}</h1>`,
+    buildPreviewMetaLine(m),
+    '<hr>',
+    renderPreviewRolesHtml(roles),
+    renderPreviewLanguageHtml(lang),
+    renderPreviewProcessesHtml(procs, emap, STEP_LBL),
+    renderPreviewEntitiesHtml(entities, FIELD_LBL),
+  ].filter(Boolean).join('');
 
   /* Render proc flow diagrams */
   for(const proc of procs) {
@@ -312,6 +294,104 @@ function buildHtmlPreview() {
   /* Render entity flow diagram */
   if(entities.length) {
     renderEntityFlow('pv-entity-diag', doc, null);
+  }
+}
+
+function appendPreviewRolesMd(add, roles) {
+  add('| 角色 | 分组 | 说明 | 所属业务子域 | 状态 |');
+  add('|------|------|------|--------------|------|');
+  roles.forEach((role) => add(`| ${getRoleName(role)} | ${getRoleGroup(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} | ${getRoleStatusLabel(role)} |`));
+  add('');
+}
+
+function appendPreviewLanguageMd(add, languageItems) {
+  add('| 术语 | 定义 |');
+  add('|------|------|');
+  languageItems.forEach((item) => add(`| ${item.term||''} | ${item.definition||''} |`));
+  add('');
+}
+
+function appendPreviewProcessesMd(add, processes, entityMap, stepLabels) {
+  for (const proc of processes) {
+    const tasks = proc.tasks || [];
+    add(`### ${proc.id}: ${proc.name||''}`);
+    add('');
+    if(proc.trigger||proc.outcome){
+      add(`**触发**: ${proc.trigger||'—'}  →  **预期结果**: ${proc.outcome||'—'}`);
+      add('');
+    }
+    if(!tasks.length) continue;
+    const procCode = buildProcMermaid(proc);
+    if(procCode){
+      add('```mermaid');
+      procCode.split('\n').forEach((line) => add(line));
+      add('```');
+      add('');
+    }
+    for (const task of tasks) {
+      add(`#### ${task.id}. ${task.name||''}（角色：${getTaskRoleName(task)}）`);
+      add('');
+      if(task.repeatable) {
+        add('> ↺ 可重复任务');
+        add('');
+      }
+      if(task.steps?.length){
+        add('| # | 步骤 | 类型 | 条件/备注 |');
+        add('|---|------|------|----------|');
+        task.steps.forEach((step, index) => add(`| ${index+1} | ${step.name||''} | ${stepLabels[step.type]||step.type||''} | ${step.note||''} |`));
+        add('');
+      }
+      const entityOps = task.entity_ops || [];
+      if(entityOps.length){
+        add(`**涉及实体**: ${entityOps.map((entityOp) => {
+          const entityName = (entityMap[entityOp.entity_id]?.name) || entityOp.entity_id;
+          return `${entityName}（${(entityOp.ops||[]).join(',')}）`;
+        }).join(', ')}`);
+        add('');
+      }
+      if(task.rules_note?.trim()){
+        add(`**业务规则**: ${task.rules_note}`);
+        add('');
+      }
+      add('');
+    }
+  }
+}
+
+function appendPreviewEntitiesMd(add, doc, entities, fieldLabels) {
+  const entityCode = buildEntityMermaid(doc);
+  if(entityCode){
+    add('```mermaid');
+    entityCode.split('\n').forEach((line) => add(line));
+    add('```');
+    add('');
+  }
+  for(const entity of entities){
+    add(`### 实体：${entity.name||''}`);
+    add('');
+    if(entity.note) {
+      add(entity.note);
+      add('');
+    }
+    if(entity.fields?.length){
+      add('| 字段 | 类型 | 主键 | 状态字段 | 状态值 | 公式/约束 |');
+      add('|------|------|------|---------|--------|---------|');
+      entity.fields.forEach((field) => add(`| ${field.name||''} | ${fieldLabels[field.type]||field.type||''} | ${field.is_key?'✓':''} | ${field.is_status?'✓':''} | ${getFieldStateValueText(field)||''} | ${field.note||''} |`));
+      add('');
+    }
+    if(entity.state_transitions?.length){
+      const statusField = getEntityStatusField(entity);
+      add('#### 状态流转');
+      add('');
+      if(statusField) {
+        add(`**主状态字段**: ${statusField.name||''}（状态值：${getFieldStateValueText(statusField)||'—'}）`);
+        add('');
+      }
+      add('| 来源状态 | 目标状态 | 触发动作 | 说明 |');
+      add('|----------|----------|----------|------|');
+      entity.state_transitions.forEach((transition) => add(`| ${transition.from||''} | ${transition.to||''} | ${transition.action||''} | ${transition.note||''} |`));
+      add('');
+    }
   }
 }
 
@@ -335,86 +415,27 @@ function buildMdFromDoc(doc) {
   const roles = doc.roles||[];
   if(roles.length){
     add(`## ${nums[sn++]}、角色`); add('');
-    add('| 角色 | 分组 | 说明 | 所属业务子域 | 状态 |');
-    add('|------|------|------|--------------|------|');
-    roles.forEach((role)=>add(`| ${getRoleName(role)} | ${getRoleGroup(role)} | ${getRoleDesc(role)} | ${getRoleSubDomains(role)} | ${getRoleStatusLabel(role)} |`));
-    add(''); sep();
+    appendPreviewRolesMd(add, roles);
+    sep();
   }
 
   const lang = doc.language||[];
   if(lang.length){
     add(`## ${nums[sn++]}、统一语言`); add('');
-    add('| 术语 | 定义 |'); add('|------|------|');
-    lang.forEach(t=>add(`| ${t.term||''} | ${t.definition||''} |`));
-    add(''); sep();
+    appendPreviewLanguageMd(add, lang);
+    sep();
   }
 
   const procs = doc.processes||[];
   const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
   add(`## ${nums[sn++]}、流程建模`); add('');
-
-  for(const proc of procs){
-    const tasks = proc.tasks||[];
-    add(`### ${proc.id}: ${proc.name||''}`); add('');
-    if(proc.trigger||proc.outcome){
-      add(`**触发**: ${proc.trigger||'—'}  →  **预期结果**: ${proc.outcome||'—'}`); add('');
-    }
-    if(tasks.length){
-      /* 复用 buildProcMermaid，带颜色 */
-      const procCode = buildProcMermaid(proc);
-      if(procCode){ add('```mermaid'); procCode.split('\n').forEach(l=>add(l)); add('```'); add(''); }
-
-      for(const t of tasks){
-        add(`#### ${t.id}. ${t.name||''}（角色：${getTaskRoleName(t)}）`); add('');
-        if(t.repeatable) { add('> ↺ 可重复任务'); add(''); }
-        if(t.steps?.length){
-          add('| # | 步骤 | 类型 | 条件/备注 |'); add('|---|------|------|----------|');
-          t.steps.forEach((s,i)=>add(`| ${i+1} | ${s.name||''} | ${STEP_LBL[s.type]||s.type||''} | ${s.note||''} |`));
-          add('');
-        }
-        const eops=t.entity_ops||[];
-        if(eops.length){
-          const ep=eops.map(eo=>{
-            const en=(emap[eo.entity_id]?.name)||eo.entity_id;
-            return `${en}（${(eo.ops||[]).join(',')}）`;
-          });
-          add(`**涉及实体**: ${ep.join(', ')}`); add('');
-        }
-        if(t.rules_note?.trim()){ add(`**业务规则**: ${t.rules_note}`); add(''); }
-        add('');
-      }
-    }
-  }
+  appendPreviewProcessesMd(add, procs, emap, STEP_LBL);
   sep();
 
   const entities  = doc.entities||[];
-  const relations = doc.relations||[];
   if(entities.length){
     add(`## ${nums[sn++]}、数据建模`); add('');
-    const entityCode = buildEntityMermaid(doc);
-    if(entityCode){ add('```mermaid'); entityCode.split('\n').forEach(l=>add(l)); add('```'); add(''); }
-    for(const e of entities){
-      add(`### 实体：${e.name||''}`); add('');
-      if(e.note) { add(e.note); add(''); }
-      if(e.fields?.length){
-        add('| 字段 | 类型 | 主键 | 状态字段 | 状态值 | 公式/约束 |');
-        add('|------|------|------|---------|--------|---------|');
-        e.fields.forEach(f=>add(`| ${f.name||''} | ${FIELD_LBL[f.type]||f.type||''} | ${f.is_key?'✓':''} | ${f.is_status?'✓':''} | ${getFieldStateValueText(f)||''} | ${f.note||''} |`));
-        add('');
-      }
-      if(e.state_transitions?.length){
-        const statusField = getEntityStatusField(e);
-        add('#### 状态流转'); add('');
-        if(statusField) {
-          add(`**主状态字段**: ${statusField.name||''}（状态值：${getFieldStateValueText(statusField)||'—'}）`);
-          add('');
-        }
-        add('| 来源状态 | 目标状态 | 触发动作 | 说明 |');
-        add('|----------|----------|----------|------|');
-        e.state_transitions.forEach(t=>add(`| ${t.from||''} | ${t.to||''} | ${t.action||''} | ${t.note||''} |`));
-        add('');
-      }
-    }
+    appendPreviewEntitiesMd(add, doc, entities, FIELD_LBL);
     sep();
   }
 

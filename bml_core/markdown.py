@@ -118,7 +118,6 @@ class MarkdownExporter:
         separator()
 
         roles = doc.get("roles", [])
-        roles_by_id = {role.get("id", ""): role for role in roles if isinstance(role, dict)}
         if roles:
             line(f"## {next_section_number()}、角色")
             line()

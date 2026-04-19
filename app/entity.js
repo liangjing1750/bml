@@ -910,6 +910,121 @@ function setStateTransitionRows(entityId, fieldName) {
   renderDataTab();
 }
 
+function renderStateEntityBrowser(groupedEntities, activeEntity) {
+  if (!groupedEntities.length) {
+    return '<div class="diag-empty" data-testid="entity-state-empty">暂无实体，先新建实体。</div>';
+  }
+  return groupedEntities.map(([groupName, items]) => `
+    <div class="entity-state-group">
+      <div class="entity-state-group-title">${esc(groupName)}</div>
+      <div class="entity-state-group-list">
+        ${items.map((item) => `<button class="entity-state-chip ${activeEntity?.id===item.id?'active':''}" onclick="setStateEntity('${esc(item.id)}')">${esc(item.id)} ${esc(item.name||'未命名')}</button>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderStateDiagramCard(entity, stateField, stateValues) {
+  if (!entity) {
+    return '<div class="diag-empty" data-testid="entity-state-empty">请选择一个实体查看状态图。</div>';
+  }
+  if (!stateField) {
+    return '<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义主状态字段，请先在下方选择一个状态字段，再填写状态值。</div>';
+  }
+  if (!stateValues.length) {
+    return `<div class="diag-empty" data-testid="entity-state-empty">主状态字段“${esc(stateField.name || '')}”尚未填写状态值，请先补充例如：草稿/待审核/已完成。</div>`;
+  }
+  return `<div class="entity-state-card" data-testid="entity-state-diagram">
+    <div class="entity-state-card-head">
+      <div>
+        <div class="entity-state-card-title">${esc(entity.name || entity.id)}</div>
+        <div class="entity-state-card-subtitle">主状态字段：${esc(stateField.name || '')}</div>
+      </div>
+      <div class="entity-state-card-values">${stateValues.map((value) => `<span class="entity-state-value-chip">${esc(value)}</span>`).join('')}</div>
+    </div>
+    ${renderEntityStateGraphMarkup(entity, stateField.name)}
+  </div>`;
+}
+
+function renderStateFieldSelector(entity, statusFields, stateField, stateFieldIndex) {
+  if (!entity) return '';
+  if (statusFields.length > 1) {
+    return `<label class="field-group">
+      <span>状态字段</span>
+      <select data-testid="entity-state-field-select" onchange="setStateFieldView('${esc(entity.id)}', this.value)">
+        ${statusFields.map((field) => `<option value="${esc(field.name)}" ${stateField?.name===field.name?'selected':''}>${esc(field.name || '未命名字段')}</option>`).join('')}
+      </select>
+    </label>`;
+  }
+  return `<label class="field-group">
+    <span>主状态字段</span>
+    <select data-testid="entity-state-field-select" onchange="setEntityPrimaryStatusField('${esc(entity.id)}', this.value)">
+      <option value="">未设置</option>
+      ${entity.fields.map((field, index) => `<option value="${index}" ${stateFieldIndex===index?'selected':''}>${esc(field.name || `字段${index + 1}`)}</option>`).join('')}
+    </select>
+  </label>`;
+}
+
+function renderStateTransitionList(entity, stateField, stateValues, stateTransitionRows) {
+  if (!stateField) {
+    return '<p class="no-refs">先选择一个主状态字段，再维护状态值和流转边。</p>';
+  }
+  if (!stateTransitionRows.length) {
+    return '<p class="no-refs">暂无状态流转，先添加一条边，例如：草稿 → 待审核。</p>';
+  }
+  return `<div class="entity-transition-list">
+    ${stateTransitionRows.map(({ transition, index }) => `<div class="entity-transition-row">
+      <select data-testid="entity-transition-from-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'from',this.value)">
+        ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.from===value?'selected':''}>${esc(value)}</option>`).join('')}
+      </select>
+      <span class="entity-transition-arrow">→</span>
+      <select data-testid="entity-transition-to-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'to',this.value)">
+        ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.to===value?'selected':''}>${esc(value)}</option>`).join('')}
+      </select>
+      <input type="text" data-testid="entity-transition-action-${index}" value="${esc(transition.action||'')}" placeholder="触发动作"
+        oninput="setStateTransition('${esc(entity.id)}',${index},'action',this.value)">
+      <input type="text" data-testid="entity-transition-note-${index}" value="${esc(transition.note||'')}" placeholder="说明"
+        oninput="setStateTransition('${esc(entity.id)}',${index},'note',this.value)">
+      <button class="btn-icon" onclick="removeStateTransition('${esc(entity.id)}',${index})">✕</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+function renderStateEditor(entity, statusFields, stateField, stateFieldIndex, stateValueText, stateValues, stateTransitionRows) {
+  if (!entity) return '';
+  return `<div class="entity-state-editor">
+    <div class="entity-state-editor-head">
+      <div>
+        <h4>状态流转编辑</h4>
+        <p class="entity-state-editor-hint">状态图本质上是“状态节点 + 流转边”。这里用边列表编辑，更稳也更容易维护，不做自由拖线。</p>
+      </div>
+      <button class="btn btn-outline btn-sm" data-testid="entity-transition-add-button" onclick="addStateTransition('${esc(entity.id)}')" ${stateField ? '' : 'disabled'}>＋ 添加流转</button>
+    </div>
+    <div class="entity-state-config-row">
+      ${renderStateFieldSelector(entity, statusFields, stateField, stateFieldIndex)}
+      <label class="field-group entity-state-values-field">
+        <span>状态值 <span class="inline-help" tabindex="0" data-tip="请使用 / 分隔状态值，例如：草稿/待审核/审核通过/已作废。">?</span></span>
+        <input type="text" data-testid="entity-state-values-input" value="${esc(stateValueText)}" placeholder="如：草稿/待审核/审核通过/已作废" ${stateField ? '' : 'disabled'}
+          oninput="setEntityStateValues('${esc(entity.id)}', this.value)">
+      </label>
+    </div>
+    ${statusFields.length > 1 ? '<p class="entity-state-editor-hint">当前实体存在多个状态字段。本版按“一个状态字段一张状态图”处理，先分别维护，不处理字段之间的联动。</p>' : ''}
+    ${renderStateTransitionList(entity, stateField, stateValues, stateTransitionRows)}
+  </div>`;
+}
+
+function renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateFieldIndex, stateTransitionRows) {
+  return `<div class="entity-state-workbench">
+    <div class="entity-state-browser">
+      ${renderStateEntityBrowser(groupedEntities, entity)}
+    </div>
+    <div class="entity-state-stage">
+      ${renderStateDiagramCard(entity, stateField, stateValues)}
+      ${renderStateEditor(entity, statusFields, stateField, stateFieldIndex, stateValueText, stateValues, stateTransitionRows)}
+    </div>
+  </div>`;
+}
+
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Relations
 ═══════════════════════════════════════════════════════════ */
@@ -917,6 +1032,115 @@ function getRelationsForEntity(entityId) {
   return (S.doc.relations||[])
     .map((relation, index) => ({ relation, index }))
     .filter(({ relation }) => relation.from === entityId || relation.to === entityId);
+}
+
+function renderEntityReferenceSection(refs) {
+  if (!refs.length) return '';
+  return `<div class="form-section"><h4>被以下任务引用</h4>
+    <div class="task-ref-list">
+      ${refs.map(({ proc, task }) => `<span class="task-ref"
+        onclick="navigate('process',{procId:'${proc.id}',taskId:'${task.id}'})"
+        title="跳转到任务">${esc(task.id)} ${esc(task.name)}</span>`).join('')}
+    </div>
+  </div>`;
+}
+
+function renderEntityFieldsSection(entity) {
+  return `<div class="form-section">
+    <h4>字段 <button class="btn btn-outline btn-sm" data-testid="entity-field-add-button" onclick="addField('${esc(entity.id)}')">＋</button></h4>
+    ${entity.fields?.length ? `<table class="field-table">
+      <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>公式/约束</th><th></th></tr></thead>
+      <tbody>
+        ${entity.fields.map((field, index) => `<tr>
+          <td class="field-td-name"><input type="text" data-testid="entity-field-name-${index}" value="${esc(field.name||'')}" placeholder="字段名"
+            oninput="setField('${esc(entity.id)}',${index},'name',this.value)"></td>
+          <td class="field-td-type"><select data-testid="entity-field-type-${index}" onchange="setField('${esc(entity.id)}',${index},'type',this.value)">
+            ${FIELD_TYPES.map((type) => `<option value="${type.value}" ${field.type===type.value?'selected':''}>${type.label}</option>`).join('')}
+          </select></td>
+          <td style="text-align:center"><input type="checkbox" ${field.is_key?'checked':''}
+            onchange="setField('${esc(entity.id)}',${index},'is_key',this.checked)"></td>
+          <td style="text-align:center"><input type="checkbox" data-testid="entity-status-toggle-${index}" ${field.is_status?'checked':''}
+            onchange="setField('${esc(entity.id)}',${index},'is_status',this.checked);renderDataTab()"></td>
+          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束"
+            oninput="setField('${esc(entity.id)}',${index},'note',this.value);autoResize(this)"
+            >${esc(field.note||'')}</textarea></td>
+          <td><button class="field-del" onclick="removeField('${esc(entity.id)}',${index})">✕</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '<p class="no-refs">暂无字段</p>'}
+  </div>`;
+}
+
+function renderEntityRelationsSection(entity, entities, scopedRelations) {
+  return `<div class="form-section">
+    <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation('${esc(entity.id)}')">＋</button></h4>
+    <p class="rel-scope-tip">仅显示与当前实体直接相关的关系，减少全局噪音。</p>
+    ${scopedRelations.length ? `<div class="rel-list" data-testid="entity-relation-list">
+      ${scopedRelations.map(({ relation, index }) => `<div class="rel-row">
+        <select onchange="setRelation(${index},'from',this.value)">
+          ${entities.map((item) => `<option value="${item.id}" ${relation.from===item.id?'selected':''}>${item.id} ${esc(item.name)}</option>`).join('')}
+        </select>
+        <select style="width:76px" onchange="setRelation(${index},'type',this.value)">
+          ${['1:1','1:N','N:N'].map((type) => `<option ${relation.type===type?'selected':''}>${type}</option>`).join('')}
+        </select>
+        <select onchange="setRelation(${index},'to',this.value)">
+          ${entities.map((item) => `<option value="${item.id}" ${relation.to===item.id?'selected':''}>${item.id} ${esc(item.name)}</option>`).join('')}
+        </select>
+        <input type="text" value="${esc(relation.label||'')}" placeholder="关系说明"
+          oninput="setRelation(${index},'label',this.value)" style="width:90px">
+        <button class="btn-icon" onclick="removeRelation(${index})">✕</button>
+      </div>`).join('')}
+    </div>` : '<p class="no-refs">当前实体暂无关系</p>'}
+  </div>`;
+}
+
+function renderEntityDrawer(showEntityDrawer, entity, entities, drawerW) {
+  const scopedRelations = entity ? getRelationsForEntity(entity.id) : [];
+  let markup = `<div class="entity-drawer${showEntityDrawer&&entity?' open':''}" style="width:${showEntityDrawer ? `${drawerW}px` : '0px'}">
+    <div class="drawer-resize-handle" data-testid="entity-drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
+
+  if (showEntityDrawer && entity) {
+    const refs = getTasksReferencingEntity(entity.id);
+    markup += `<div class="drawer-head">
+      <div class="drawer-crumb">
+        <span class="detail-id editable-id" onclick="startEditId(this,'entity','${esc(entity.id)}')" title="点击编辑ID">${esc(entity.id)}</span>
+        <span style="font-weight:600">${esc(entity.name||'未命名')}</span>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn btn-danger btn-sm" onclick="removeEntity('${esc(entity.id)}')">删除</button>
+        <button class="drawer-close" onclick="navigate('data',{entityId:null})" title="关闭">✕</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="field-group">
+          <label>实体名称</label>
+          <input type="text" data-testid="entity-name-input" value="${esc(entity.name||'')}"
+            oninput="setEntity('${esc(entity.id)}','name',this.value);renderSidebar();if((S.ui.dataView||'relation')==='relation'){renderEntityDiagramNow();}">
+        </div>
+        <div class="field-group">
+          <label>主题域 <span class="section-hint">（侧边栏分组）</span></label>
+          <input type="text" value="${esc(entity.group||'')}"
+            placeholder="如：交易、履约"
+            oninput="setEntity('${esc(entity.id)}','group',this.value);renderSidebar();if((S.ui.dataView||'relation')==='relation'){renderEntityDiagramNow();}">
+        </div>
+        <div class="field-group" style="grid-column:1/-1">
+          <label>说明</label>
+          <input type="text" value="${esc(entity.note||'')}"
+            placeholder="简要说明"
+            oninput="setEntity('${esc(entity.id)}','note',this.value)">
+        </div>
+      </div>
+      ${renderEntityReferenceSection(refs)}
+      ${renderEntityFieldsSection(entity)}
+      ${renderEntityRelationsSection(entity, entities, scopedRelations)}
+    </div>`;
+  } else if (showEntityDrawer) {
+    markup += '<div class="drawer-empty"><p>点击实体节点打开编辑</p></div>';
+  }
+
+  markup += '</div>';
+  return markup;
 }
 
 function addRelation(entityId) {
@@ -977,207 +1201,11 @@ function renderDataTab() {
     </div>
     ${dataView === 'relation'
       ? `<div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>`
-      : `<div class="entity-state-workbench">
-          <div class="entity-state-browser">
-            ${groupedEntities.length ? groupedEntities.map(([groupName, items]) => `
-              <div class="entity-state-group">
-                <div class="entity-state-group-title">${esc(groupName)}</div>
-                <div class="entity-state-group-list">
-                  ${items.map((item) => `<button class="entity-state-chip ${entity?.id===item.id?'active':''}" onclick="setStateEntity('${esc(item.id)}')">${esc(item.id)} ${esc(item.name||'未命名')}</button>`).join('')}
-                </div>
-              </div>
-            `).join('') : '<div class="diag-empty" data-testid="entity-state-empty">暂无实体，先新建实体。</div>'}
-          </div>
-          <div class="entity-state-stage">
-            ${!entity
-              ? `<div class="diag-empty" data-testid="entity-state-empty">请选择一个实体查看状态图。</div>`
-              : !stateField
-                ? `<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义主状态字段，请先在下方选择一个状态字段，再填写状态值。</div>`
-                : !stateValues.length
-                  ? `<div class="diag-empty" data-testid="entity-state-empty">主状态字段“${esc(stateField.name || '')}”尚未填写状态值，请先补充例如：草稿/待审核/已完成。</div>`
-                  : `<div class="entity-state-card" data-testid="entity-state-diagram">
-                      <div class="entity-state-card-head">
-                        <div>
-                          <div class="entity-state-card-title">${esc(entity.name || entity.id)}</div>
-                          <div class="entity-state-card-subtitle">主状态字段：${esc(stateField.name || '')}</div>
-                        </div>
-                        <div class="entity-state-card-values">${stateValues.map((value) => `<span class="entity-state-value-chip">${esc(value)}</span>`).join('')}</div>
-                      </div>
-                      ${renderEntityStateGraphMarkup(entity, stateField.name)}
-                    </div>`
-            }
-            ${entity ? `<div class="entity-state-editor">
-              <div class="entity-state-editor-head">
-                <div>
-                  <h4>状态流转编辑</h4>
-                  <p class="entity-state-editor-hint">状态图本质上是“状态节点 + 流转边”。这里用边列表编辑，更稳也更容易维护，不做自由拖线。</p>
-                </div>
-                <button class="btn btn-outline btn-sm" data-testid="entity-transition-add-button" onclick="addStateTransition('${esc(entity.id)}')" ${stateField ? '' : 'disabled'}>＋ 添加流转</button>
-              </div>
-              <div class="entity-state-config-row">
-                ${statusFields.length > 1
-                  ? `<label class="field-group">
-                      <span>状态字段</span>
-                      <select data-testid="entity-state-field-select" onchange="setStateFieldView('${esc(entity.id)}', this.value)">
-                        ${statusFields.map((field) => `<option value="${esc(field.name)}" ${stateField?.name===field.name?'selected':''}>${esc(field.name || '未命名字段')}</option>`).join('')}
-                      </select>
-                    </label>`
-                  : `<label class="field-group">
-                      <span>主状态字段</span>
-                      <select data-testid="entity-state-field-select" onchange="setEntityPrimaryStatusField('${esc(entity.id)}', this.value)">
-                        <option value="">未设置</option>
-                        ${entity.fields.map((field, index) => `<option value="${index}" ${stateFieldIndex===index?'selected':''}>${esc(field.name || `字段${index + 1}`)}</option>`).join('')}
-                      </select>
-                    </label>`
-                }
-                <label class="field-group entity-state-values-field">
-                  <span>状态值 <span class="inline-help" tabindex="0" data-tip="请使用 / 分隔状态值，例如：草稿/待审核/审核通过/已作废。">?</span></span>
-                  <input type="text" data-testid="entity-state-values-input" value="${esc(stateValueText)}" placeholder="如：草稿/待审核/审核通过/已作废" ${stateField ? '' : 'disabled'}
-                    oninput="setEntityStateValues('${esc(entity.id)}', this.value)">
-                </label>
-              </div>
-              ${statusFields.length > 1 ? `<p class="entity-state-editor-hint">当前实体存在多个状态字段。本版按“一个状态字段一张状态图”处理，先分别维护，不处理字段之间的联动。</p>` : ''}
-              ${stateField
-                ? (stateTransitionRows.length
-                  ? `<div class="entity-transition-list">
-                      ${stateTransitionRows.map(({ transition, index }) => `<div class="entity-transition-row">
-                        <select data-testid="entity-transition-from-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'from',this.value)">
-                          ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.from===value?'selected':''}>${esc(value)}</option>`).join('')}
-                        </select>
-                        <span class="entity-transition-arrow">→</span>
-                        <select data-testid="entity-transition-to-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'to',this.value)">
-                          ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.to===value?'selected':''}>${esc(value)}</option>`).join('')}
-                        </select>
-                        <input type="text" data-testid="entity-transition-action-${index}" value="${esc(transition.action||'')}" placeholder="触发动作"
-                          oninput="setStateTransition('${esc(entity.id)}',${index},'action',this.value)">
-                        <input type="text" data-testid="entity-transition-note-${index}" value="${esc(transition.note||'')}" placeholder="说明"
-                          oninput="setStateTransition('${esc(entity.id)}',${index},'note',this.value)">
-                        <button class="btn-icon" onclick="removeStateTransition('${esc(entity.id)}',${index})">✕</button>
-                      </div>`).join('')}
-                    </div>`
-                  : '<p class="no-refs">暂无状态流转，先添加一条边，例如：草稿 → 待审核。</p>')
-                : '<p class="no-refs">先选择一个主状态字段，再维护状态值和流转边。</p>'
-              }
-            </div>` : ''}
-          </div>
-        </div>`
+      : renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateFieldIndex, stateTransitionRows)
     }
   </div>`;
 
-  /* 右侧抽屉 */
-  const relations=S.doc.relations||[];
-  const scopedRelations=entity ? getRelationsForEntity(entity.id) : [];
-  h+=`<div class="entity-drawer${showEntityDrawer&&entity?' open':''}" style="width:${showEntityDrawer ? `${drawerW}px` : '0px'}">
-    <div class="drawer-resize-handle" data-testid="entity-drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>`;
-
-  if(showEntityDrawer && entity) {
-    const refs=getTasksReferencingEntity(entity.id);
-
-    h+=`<div class="drawer-head">
-      <div class="drawer-crumb">
-        <span class="detail-id editable-id" onclick="startEditId(this,'entity','${esc(entity.id)}')" title="点击编辑ID">${esc(entity.id)}</span>
-        <span style="font-weight:600">${esc(entity.name||'未命名')}</span>
-      </div>
-      <div class="drawer-actions">
-        <button class="btn btn-danger btn-sm" onclick="removeEntity('${esc(entity.id)}')">删除</button>
-        <button class="drawer-close" onclick="navigate('data',{entityId:null})" title="关闭">✕</button>
-      </div>
-    </div>
-    <div class="drawer-body">`;
-
-    /* 基本信息 */
-    h+=`<div class="form-grid" style="margin-bottom:16px">
-      <div class="field-group">
-        <label>实体名称</label>
-        <input type="text" data-testid="entity-name-input" value="${esc(entity.name||'')}"
-          oninput="setEntity('${esc(entity.id)}','name',this.value);renderSidebar();if((S.ui.dataView||'relation')==='relation'){renderEntityDiagramNow();}">
-      </div>
-      <div class="field-group">
-        <label>主题域 <span class="section-hint">（侧边栏分组）</span></label>
-        <input type="text" value="${esc(entity.group||'')}"
-          placeholder="如：交易、履约"
-          oninput="setEntity('${esc(entity.id)}','group',this.value);renderSidebar();if((S.ui.dataView||'relation')==='relation'){renderEntityDiagramNow();}">
-      </div>
-      <div class="field-group" style="grid-column:1/-1">
-        <label>说明</label>
-        <input type="text" value="${esc(entity.note||'')}"
-          placeholder="简要说明"
-          oninput="setEntity('${esc(entity.id)}','note',this.value)">
-      </div>
-    </div>`;
-
-    /* 被引用 */
-    if(refs.length){
-      h+=`<div class="form-section"><h4>被以下任务引用</h4>
-        <div class="task-ref-list">`;
-      for(const {proc,task} of refs){
-        h+=`<span class="task-ref"
-          onclick="navigate('process',{procId:'${proc.id}',taskId:'${task.id}'})"
-          title="跳转到任务">${esc(task.id)} ${esc(task.name)}</span>`;
-      }
-      h+=`</div></div>`;
-    }
-
-    /* 字段 */
-    h+=`<div class="form-section">
-      <h4>字段 <button class="btn btn-outline btn-sm" data-testid="entity-field-add-button" onclick="addField('${esc(entity.id)}')">＋</button></h4>`;
-    if(entity.fields?.length){
-      h+=`<table class="field-table">
-        <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>公式/约束</th><th></th></tr></thead>
-        <tbody>`;
-      entity.fields.forEach((f,i)=>{
-        h+=`<tr>
-          <td class="field-td-name"><input type="text" data-testid="entity-field-name-${i}" value="${esc(f.name||'')}" placeholder="字段名"
-            oninput="setField('${esc(entity.id)}',${i},'name',this.value)"></td>
-          <td class="field-td-type"><select data-testid="entity-field-type-${i}" onchange="setField('${esc(entity.id)}',${i},'type',this.value)">
-            ${FIELD_TYPES.map(t=>`<option value="${t.value}" ${f.type===t.value?'selected':''}>${t.label}</option>`).join('')}
-          </select></td>
-          <td style="text-align:center"><input type="checkbox" ${f.is_key?'checked':''}
-            onchange="setField('${esc(entity.id)}',${i},'is_key',this.checked)"></td>
-          <td style="text-align:center"><input type="checkbox" data-testid="entity-status-toggle-${i}" ${f.is_status?'checked':''}
-            onchange="setField('${esc(entity.id)}',${i},'is_status',this.checked);renderDataTab()"></td>
-          <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束"
-            oninput="setField('${esc(entity.id)}',${i},'note',this.value);autoResize(this)"
-            >${esc(f.note||'')}</textarea></td>
-          <td><button class="field-del" onclick="removeField('${esc(entity.id)}',${i})">✕</button></td>
-        </tr>`;
-      });
-      h+=`</tbody></table>`;
-    } else { h+=`<p class="no-refs">暂无字段</p>`; }
-    h+=`</div>`;
-
-    /* 实体关系 */
-    h+=`<div class="form-section">
-      <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation('${esc(entity.id)}')">＋</button></h4>
-      <p class="rel-scope-tip">仅显示与当前实体直接相关的关系，减少全局噪音。</p>`;
-    if(scopedRelations.length){
-      h+=`<div class="rel-list" data-testid="entity-relation-list">`;
-      scopedRelations.forEach(({relation:r,index:i})=>{
-        h+=`<div class="rel-row">
-          <select onchange="setRelation(${i},'from',this.value)">
-            ${entities.map(e=>`<option value="${e.id}" ${r.from===e.id?'selected':''}>${e.id} ${esc(e.name)}</option>`).join('')}
-          </select>
-          <select style="width:76px" onchange="setRelation(${i},'type',this.value)">
-            ${['1:1','1:N','N:N'].map(t=>`<option ${r.type===t?'selected':''}>${t}</option>`).join('')}
-          </select>
-          <select onchange="setRelation(${i},'to',this.value)">
-            ${entities.map(e=>`<option value="${e.id}" ${r.to===e.id?'selected':''}>${e.id} ${esc(e.name)}</option>`).join('')}
-          </select>
-          <input type="text" value="${esc(r.label||'')}" placeholder="关系说明"
-            oninput="setRelation(${i},'label',this.value)" style="width:90px">
-          <button class="btn-icon" onclick="removeRelation(${i})">✕</button>
-        </div>`;
-      });
-      h+=`</div>`;
-    } else { h+=`<p class="no-refs">当前实体暂无关系</p>`; }
-    h+=`</div>`;
-
-    h+=`</div>`; /* drawer-body */
-  } else if (showEntityDrawer) {
-    h+=`<div class="drawer-empty"><p>点击实体节点打开编辑</p></div>`;
-  }
-
-  h+=`</div>`; /* entity-drawer */
+  h += renderEntityDrawer(showEntityDrawer, entity, entities, drawerW);
 
   document.getElementById('tab-content').innerHTML=h;
 
