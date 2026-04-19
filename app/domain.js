@@ -58,10 +58,9 @@ function addRole() {
   }
 
   if (!S.doc.roles) S.doc.roles = [];
-  const role = createRoleDraft(roleName, { group: roleGroup, tags: [] });
+  const role = createRoleDraft(roleName, { group: roleGroup });
   role.name = roleName;
   role.group = roleGroup;
-  role.tags = [];
   S.doc.roles.push(role);
 
   if (nameInput) nameInput.value = '';
@@ -222,7 +221,7 @@ function renderDomainTab(options = {}) {
   const domainInfoActions = `
     <div class="domain-info-inline" data-testid="domain-info-inline">
       <label class="domain-info-inline-field">
-        <span>文档名称 <span class="inline-help" title="用于区分这份建模文档的范围与版本，例如：交割智慧监管平台-v2、仓储仓单管理-2026Q2">?</span></span>
+        <span>业务域 <span class="inline-help" tabindex="0" data-tip="这里填写这份建模文档的业务域名称，也可以顺手带上范围或版本，例如：交割智慧监管平台-v2、仓储仓单管理-2026Q2。">?</span></span>
         <input type="text" value="${esc(meta.domain || meta.title || '')}" oninput="setDomain(this.value)" placeholder="如：交割智慧监管平台-v2">
       </label>
       <label class="domain-info-inline-field domain-info-date-field">

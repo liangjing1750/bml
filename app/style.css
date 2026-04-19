@@ -297,9 +297,42 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 .entity-state-card {
   padding: 14px 16px 16px;
+}
+.entity-state-editor {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px 16px 16px;
+}
+.entity-state-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.entity-state-editor-head h4 {
+  margin: 0 0 4px 0;
+}
+.entity-state-editor-hint {
+  color: var(--text-m);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.entity-state-config-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.entity-state-values-field input {
+  width: 100%;
 }
 .entity-state-card-head {
   display: flex;
@@ -341,12 +374,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   border-radius: 10px;
 }
 .entity-state-transition-list {
-  margin-top: 14px;
-}
-.entity-state-transition-list h4 {
-  margin-bottom: 10px;
-}
-.entity-state-transition-table {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1692,7 +1719,6 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 /* ─── 字段表格：列宽控制 ─────────────────────────────────── */
 .field-td-name { width: 120px; }
 .field-td-type { width: 80px; }
-.field-td-state-values { min-width: 180px; }
 .field-td-note { min-width: 160px; }
 .field-td-note textarea {
   width: 100%; box-sizing: border-box;
@@ -1700,14 +1726,11 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   font-size: 12px; padding: 4px 8px; line-height: 1.5;
   border: 1px solid var(--border); border-radius: var(--radius); background: #fafbfc;
 }
-.field-inline-empty {
-  color: var(--text-m);
-  font-size: 12px;
-}
 .inline-help {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   width: 16px;
   height: 16px;
   margin-left: 4px;
@@ -1719,6 +1742,47 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   font-weight: 700;
   cursor: help;
   vertical-align: middle;
+}
+.inline-help::before,
+.inline-help::after {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.inline-help::before {
+  content: '';
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  border-width: 6px 6px 0 6px;
+  border-style: solid;
+  border-color: rgba(15, 23, 42, 0.92) transparent transparent transparent;
+}
+.inline-help::after {
+  content: attr(data-tip);
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+.inline-help:hover::before,
+.inline-help:hover::after,
+.inline-help:focus-visible::before,
+.inline-help:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 .entity-transition-list {
   display: flex;
@@ -1734,6 +1798,15 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 .entity-transition-arrow {
   color: var(--text-m);
   text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .entity-state-workbench {
+    grid-template-columns: 1fr;
+  }
+  .entity-state-config-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ─── 上下文 Tab 卡片（已有，补充 h3 按钮对齐） ─────────── */

@@ -13,17 +13,15 @@ test('数据页支持编辑实体主状态字段并生成状态图', async ({ pa
   await page.getByTestId('entity-field-add-button').click();
   await page.getByTestId('entity-field-name-0').fill('预约状态');
   await page.getByTestId('entity-field-type-0').selectOption('enum');
-  await page.getByTestId('entity-status-toggle-0').check();
-  await page.getByTestId('entity-state-values-0').fill('草稿/待审核/审核通过/已作废');
-
-  await expect(page.getByTestId('entity-state-flow-section')).toBeVisible();
+  await page.getByTestId('data-switch-state').click();
+  await page.getByTestId('entity-state-field-select').selectOption('0');
+  await page.getByTestId('entity-state-values-input').fill('草稿/待审核/审核通过/已作废');
   await page.getByTestId('entity-transition-add-button').click();
   await page.getByTestId('entity-transition-from-0').selectOption('草稿');
   await page.getByTestId('entity-transition-to-0').selectOption('待审核');
   await page.getByTestId('entity-transition-action-0').fill('提交审核');
   await page.getByTestId('entity-transition-note-0').fill('提交后进入审核队列');
 
-  await page.getByTestId('data-switch-state').click();
   await expect(page.getByTestId('entity-state-diagram')).toBeVisible();
   await expect(page.getByTestId('entity-state-diagram')).toContainText('草稿');
   await expect(page.getByTestId('entity-state-diagram')).toContainText('待审核');

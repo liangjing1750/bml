@@ -188,12 +188,10 @@ function createStateTransitionDraft(entity) {
 function isRoleDisabled(role) { return role?.status === 'disabled'; }
 function inferRoleGroup(role) {
   const name = normalizeRoleName(role?.name);
-  const tags = (role?.tags || []).map((tag) => normalizeRoleName(tag));
-  const joined = `${name} ${tags.join(' ')}`;
-  if (/系统/.test(name) || tags.includes('系统') || joined.includes('自动化')) return '系统角色';
-  if (/仓库/.test(name) || tags.includes('仓库') || tags.includes('现场') || joined.includes('作业')) return '仓库作业方';
-  if (/平台管理员|超级账号/.test(name) || tags.includes('平台管理') || tags.includes('账号管理') || joined.includes('运维')) return '平台与运维方';
-  if (/交割部|交易所|品种负责人/.test(name) || tags.includes('监管') || joined.includes('审核')) return '监管与审核方';
+  if (/系统|自动化/.test(name)) return '系统角色';
+  if (/仓库|现场|作业/.test(name)) return '仓库作业方';
+  if (/平台管理员|超级账号|平台管理|账号管理|运维/.test(name)) return '平台与运维方';
+  if (/交割部|交易所|品种负责人|监管|审核/.test(name)) return '监管与审核方';
   if (!name) return '待分类角色';
   return '业务参与方';
 }
@@ -270,7 +268,6 @@ function createRoleDraft(name) {
     status: 'active',
     group: '业务参与方',
     subDomains: [],
-    tags: [],
   };
 }
 function getUniqueRoleName(baseName) {
@@ -314,12 +311,10 @@ const ROLE_GROUP_PRESETS = [
 
 function inferRoleGroup(role) {
   const name = normalizeRoleName(role?.name);
-  const tags = (role?.tags || []).map((tag) => normalizeRoleName(tag));
-  const joined = `${name} ${tags.join(' ')}`;
-  if (/系统/.test(name) || tags.includes('系统') || joined.includes('自动化')) return '系统角色';
-  if (/仓库/.test(name) || tags.includes('仓库') || tags.includes('现场') || joined.includes('作业')) return '仓库作业方';
-  if (/平台管理员|超级账号/.test(name) || tags.includes('平台管理') || tags.includes('账号管理') || joined.includes('运维')) return '平台与运维方';
-  if (/交割部|交易所|品种负责人/.test(name) || tags.includes('监管') || joined.includes('审核')) return '监管与审核方';
+  if (/系统|自动化/.test(name)) return '系统角色';
+  if (/仓库|现场|作业/.test(name)) return '仓库作业方';
+  if (/平台管理员|超级账号|平台管理|账号管理|运维/.test(name)) return '平台与运维方';
+  if (/交割部|交易所|品种负责人|监管|审核/.test(name)) return '监管与审核方';
   if (!name) return '待分类角色';
   return '业务参与方';
 }
@@ -364,7 +359,6 @@ function getGroupedRoles() {
 }
 
 function createRoleDraft(name, options = {}) {
-  const tags = Array.isArray(options.tags) ? options.tags : [];
   return {
     id: nextRoleId(),
     name: normalizeRoleName(name) || '新角色',
@@ -372,7 +366,6 @@ function createRoleDraft(name, options = {}) {
     status: 'active',
     group: normalizeRoleName(options.group) || getDefaultRoleGroup(),
     subDomains: [],
-    tags: Array.from(new Set(tags.map((tag) => normalizeRoleName(tag)).filter(Boolean))),
   };
 }
 

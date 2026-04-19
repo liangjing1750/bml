@@ -83,26 +83,24 @@ def normalize_role_status(role_status: str) -> str:
 
 def infer_role_group(role_name: str, tags: list[str] | None = None) -> str:
     normalized_name = normalize_role_name(role_name)
-    normalized_tags = [normalize_role_name(tag) for tag in tags or []]
-    joined = f"{normalized_name} {' '.join(normalized_tags)}"
-    if "系统" in normalized_name or "系统" in joined or "自动化" in joined:
+    if "系统" in normalized_name or "自动化" in normalized_name:
         return "系统角色"
-    if "仓库" in normalized_name or "仓库" in joined or "现场" in joined or "作业" in joined:
+    if "仓库" in normalized_name or "现场" in normalized_name or "作业" in normalized_name:
         return "仓库作业方"
     if (
         "平台管理员" in normalized_name
         or "超级账号" in normalized_name
-        or "平台管理" in joined
-        or "账号管理" in joined
-        or "运维" in joined
+        or "平台管理" in normalized_name
+        or "账号管理" in normalized_name
+        or "运维" in normalized_name
     ):
         return "平台与运维方"
     if (
         "交割部" in normalized_name
         or "交易所" in normalized_name
         or "品种负责人" in normalized_name
-        or "监管" in joined
-        or "审核" in joined
+        or "监管" in normalized_name
+        or "审核" in normalized_name
     ):
         return "监管与审核方"
     if not normalized_name:
@@ -147,7 +145,6 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
                 role_name, raw_role.get("tags", [])
             ),
             "subDomains": _normalize_text_list(raw_role.get("subDomains", [])),
-            "tags": _normalize_text_list(raw_role.get("tags", [])),
         }
 
     role_name = normalize_role_name(raw_role)
@@ -160,7 +157,6 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
         "status": "active",
         "group": infer_role_group(role_name, []),
         "subDomains": [],
-        "tags": [],
     }
 
 
@@ -172,7 +168,6 @@ def _merge_role(target: dict, source: dict) -> dict:
     if source.get("status") == "disabled":
         target["status"] = "disabled"
     target["subDomains"] = _normalize_text_list([*target.get("subDomains", []), *source.get("subDomains", [])])
-    target["tags"] = _normalize_text_list([*target.get("tags", []), *source.get("tags", [])])
     return target
 
 

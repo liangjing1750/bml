@@ -18,7 +18,6 @@ function buildRoleDoc(documentName) {
         status: 'active',
         group: '仓库作业方',
         subDomains: ['仓储仓单管理'],
-        tags: ['现场', '办理'],
       },
       {
         id: 'R2',
@@ -27,7 +26,6 @@ function buildRoleDoc(documentName) {
         status: 'active',
         group: '仓库作业方',
         subDomains: ['仓储仓单管理'],
-        tags: ['现场'],
       },
       {
         id: 'R3',
@@ -36,7 +34,6 @@ function buildRoleDoc(documentName) {
         status: 'active',
         group: '业务参与方',
         subDomains: ['仓储仓单管理'],
-        tags: ['外部'],
       },
     ],
     language: [
@@ -255,7 +252,6 @@ test('统一语言术语表展开后保留业务域页滚动位置', async ({ pa
       status: 'active',
       group: index % 2 === 0 ? '业务参与方' : '平台与运维方',
       subDomains: ['仓储仓单管理'],
-      tags: [],
     });
   }
 

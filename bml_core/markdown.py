@@ -58,12 +58,6 @@ def get_role_subdomains(role) -> str:
     return ""
 
 
-def get_role_tags(role) -> str:
-    if isinstance(role, dict):
-      return "、".join([str(value).strip() for value in role.get("tags", []) if str(value).strip()])
-    return ""
-
-
 def get_role_status(role) -> str:
     if isinstance(role, dict):
         return "已停用" if role.get("status") == "disabled" else "启用"
@@ -119,11 +113,11 @@ class MarkdownExporter:
         if roles:
             line(f"## {next_section_number()}、角色")
             line()
-            line("| 角色 | 分组 | 说明 | 所属业务子域 | 标签 | 状态 |")
-            line("|------|------|------|--------------|------|------|")
+            line("| 角色 | 分组 | 说明 | 所属业务子域 | 状态 |")
+            line("|------|------|------|--------------|------|")
             for role in roles:
                 line(
-                    f"| {get_role_name(role)} | {get_role_group(role)} | {get_role_desc(role)} | {get_role_subdomains(role)} | {get_role_tags(role)} | {get_role_status(role)} |"
+                    f"| {get_role_name(role)} | {get_role_group(role)} | {get_role_desc(role)} | {get_role_subdomains(role)} | {get_role_status(role)} |"
                 )
             line()
             separator()
