@@ -126,6 +126,7 @@ function createDocUiState(doc) {
     taskId: null,
     entityId: null,
     dataView: 'relation',
+    stateFieldName: '',
     roleId: firstRoleId,
     roleQuery: '',
     sbCollapse: _defaultSbCollapse(doc),

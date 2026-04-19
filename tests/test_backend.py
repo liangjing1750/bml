@@ -142,6 +142,7 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(transition["action"], "提交")
         self.assertEqual(transition["role_id"], "")
         self.assertEqual(transition["note"], "")
+        self.assertEqual(transition["field_name"], "预约状态")
 
 
 class MarkdownExporterTests(unittest.TestCase):

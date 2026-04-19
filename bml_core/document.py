@@ -315,6 +315,8 @@ def migrate_document(document: dict | None) -> dict:
             field.setdefault("state_values", "")
 
         normalized_transitions = []
+        status_fields = [field.get("name", "") for field in entity["fields"] if field.get("is_status")]
+        default_field_name = status_fields[0] if len(status_fields) == 1 else ""
         for transition in entity["state_transitions"]:
             normalized_transitions.append(
                 {
@@ -323,6 +325,7 @@ def migrate_document(document: dict | None) -> dict:
                     "action": str(transition.get("action", "")).strip(),
                     "role_id": str(transition.get("role_id", "")).strip(),
                     "note": str(transition.get("note", "")).strip(),
+                    "field_name": str(transition.get("field_name", default_field_name)).strip(),
                 }
             )
         entity["state_transitions"] = normalized_transitions

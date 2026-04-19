@@ -663,8 +663,13 @@ function setDataView(view) {
     const entities = S.doc?.entities || [];
     if (!entities.length) {
       S.ui.entityId = null;
+      S.ui.stateFieldName = '';
     } else if (!currentEntity()) {
-      S.ui.entityId = (entities.find(getEntityStatusField) || entities[0]).id;
+      const nextEntity = entities.find((item) => getEntityStatusField(item)) || entities[0];
+      S.ui.entityId = nextEntity.id;
+      S.ui.stateFieldName = getEntityStatusField(nextEntity)?.name || '';
+    } else {
+      S.ui.stateFieldName = getEntityStatusField(currentEntity(), S.ui.stateFieldName)?.name || '';
     }
   }
   renderDataTab();
@@ -672,6 +677,14 @@ function setDataView(view) {
 
 function setStateEntity(entityId) {
   S.ui.entityId = entityId;
+  S.ui.stateFieldName = getEntityStatusField(currentEntity(), '')?.name || '';
+  renderDataTab();
+}
+
+function setStateFieldView(entityId, fieldName) {
+  const entity = S.doc.entities.find((item) => item.id === entityId);
+  if (!entity) return;
+  S.ui.stateFieldName = getEntityStatusField(entity, fieldName)?.name || '';
   renderDataTab();
 }
 
@@ -683,6 +696,7 @@ function setEntityPrimaryStatusField(entityId, fieldIndex) {
   entity.fields.forEach((field, index) => {
     field.is_status = index === nextIndex;
   });
+  S.ui.stateFieldName = entity.fields[nextIndex]?.name || '';
   markModified();
   renderDataTab();
 }
@@ -691,22 +705,29 @@ function setEntityStateValues(entityId, value) {
   const entity = S.doc.entities.find((item) => item.id === entityId);
   if (!entity) return;
   ensureEntityStateShape(entity);
-  const statusField = getEntityStatusField(entity);
+  const statusField = getEntityStatusField(entity, S.ui.stateFieldName);
   if (!statusField) return;
+  const previousText = getFieldStateValueText(statusField);
   statusField.state_values = value;
+  const noteText = String(statusField.note || '').trim();
+  if (!noteText || noteText === previousText || inferStateValuesFromNote(noteText).join('/') === previousText) {
+    statusField.note = value;
+  }
   markModified();
 }
 
-function buildEntityStateMermaid(entity) {
-  const states = getEntityStatusValues(entity);
+function buildEntityStateMermaid(entity, fieldName = '') {
+  const states = getEntityStatusValues(entity, fieldName);
   if (!states.length) return null;
   const aliases = new Map(states.map((state, index) => [state, `S${index + 1}`]));
   const lines = ['stateDiagram-v2', '  direction LR'];
   states.forEach((state) => {
     lines.push(`  state "${String(state).replace(/"/g, "'")}" as ${aliases.get(state)}`);
   });
-  const transitions = (entity?.state_transitions || []).filter((transition) => transition.from && transition.to);
-  transitions.forEach((transition) => {
+  getEntityStateTransitions(entity, fieldName)
+    .map(({ transition }) => transition)
+    .filter((transition) => transition.from && transition.to)
+    .forEach((transition) => {
     const fromAlias = aliases.get(transition.from);
     const toAlias = aliases.get(transition.to);
     if (!fromAlias || !toAlias) return;
@@ -837,11 +858,12 @@ function addStateTransition(entityId) {
   const entity = S.doc.entities.find((item) => item.id === entityId);
   if (!entity) return;
   ensureEntityStateShape(entity);
-  if (!getEntityStatusValues(entity).length) {
+  const fieldName = getEntityStatusField(entity, S.ui.stateFieldName)?.name || '';
+  if (!getEntityStatusValues(entity, fieldName).length) {
     alert('请先为主状态字段填写状态值，再配置状态流转。');
     return;
   }
-  entity.state_transitions.push(createStateTransitionDraft(entity));
+  entity.state_transitions.push(createStateTransitionDraft(entity, fieldName));
   markModified();
   renderDataTab();
 }
@@ -903,9 +925,12 @@ function renderDataTab() {
       return map;
     }, new Map())
   );
-  const stateField = entity ? getEntityStatusField(entity) : null;
-  const stateValues = entity ? getEntityStatusValues(entity) : [];
+  const statusFields = entity ? getEntityStatusFields(entity) : [];
+  const stateField = entity ? getEntityStatusField(entity, S.ui.stateFieldName) : null;
+  const stateValueText = stateField ? getFieldStateValueText(stateField) : '';
+  const stateValues = stateField ? getFieldStateValues(stateField) : [];
   const stateFieldIndex = entity ? entity.fields.findIndex((field) => field?.is_status) : -1;
+  const stateTransitionRows = entity ? getEntityStateTransitions(entity, stateField?.name || '') : [];
   const showEntityDrawer = dataView === 'relation';
 
   let h='';
@@ -966,23 +991,32 @@ function renderDataTab() {
                 <button class="btn btn-outline btn-sm" data-testid="entity-transition-add-button" onclick="addStateTransition('${esc(entity.id)}')" ${stateField ? '' : 'disabled'}>＋ 添加流转</button>
               </div>
               <div class="entity-state-config-row">
-                <label class="field-group">
-                  <span>主状态字段</span>
-                  <select data-testid="entity-state-field-select" onchange="setEntityPrimaryStatusField('${esc(entity.id)}', this.value)">
-                    <option value="">未设置</option>
-                    ${entity.fields.map((field, index) => `<option value="${index}" ${stateFieldIndex===index?'selected':''}>${esc(field.name || `字段${index + 1}`)}</option>`).join('')}
-                  </select>
-                </label>
+                ${statusFields.length > 1
+                  ? `<label class="field-group">
+                      <span>状态字段</span>
+                      <select data-testid="entity-state-field-select" onchange="setStateFieldView('${esc(entity.id)}', this.value)">
+                        ${statusFields.map((field) => `<option value="${esc(field.name)}" ${stateField?.name===field.name?'selected':''}>${esc(field.name || '未命名字段')}</option>`).join('')}
+                      </select>
+                    </label>`
+                  : `<label class="field-group">
+                      <span>主状态字段</span>
+                      <select data-testid="entity-state-field-select" onchange="setEntityPrimaryStatusField('${esc(entity.id)}', this.value)">
+                        <option value="">未设置</option>
+                        ${entity.fields.map((field, index) => `<option value="${index}" ${stateFieldIndex===index?'selected':''}>${esc(field.name || `字段${index + 1}`)}</option>`).join('')}
+                      </select>
+                    </label>`
+                }
                 <label class="field-group entity-state-values-field">
                   <span>状态值 <span class="inline-help" tabindex="0" data-tip="请使用 / 分隔状态值，例如：草稿/待审核/审核通过/已作废。">?</span></span>
-                  <input type="text" data-testid="entity-state-values-input" value="${esc(stateField?.state_values || '')}" placeholder="如：草稿/待审核/审核通过/已作废" ${stateField ? '' : 'disabled'}
+                  <input type="text" data-testid="entity-state-values-input" value="${esc(stateValueText)}" placeholder="如：草稿/待审核/审核通过/已作废" ${stateField ? '' : 'disabled'}
                     oninput="setEntityStateValues('${esc(entity.id)}', this.value)">
                 </label>
               </div>
+              ${statusFields.length > 1 ? `<p class="entity-state-editor-hint">当前实体存在多个状态字段。本版按“一个状态字段一张状态图”处理，先分别维护，不处理字段之间的联动。</p>` : ''}
               ${stateField
-                ? ((entity.state_transitions || []).length
+                ? (stateTransitionRows.length
                   ? `<div class="entity-transition-list">
-                      ${(entity.state_transitions || []).map((transition, index) => `<div class="entity-transition-row">
+                      ${stateTransitionRows.map(({ transition, index }) => `<div class="entity-transition-row">
                         <select data-testid="entity-transition-from-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'from',this.value)">
                           ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.from===value?'selected':''}>${esc(value)}</option>`).join('')}
                         </select>
@@ -1133,7 +1167,7 @@ function renderDataTab() {
       clickMap[e.id]=()=>navigate('data',{entityId:e.id});
     renderEntityFlow('entity-diagram', S.doc, clickMap);
   } else if (entity && stateField && stateValues.length) {
-    renderDiagram('entity-state-diagram-canvas', buildEntityStateMermaid(entity), null);
+    renderDiagram('entity-state-diagram-canvas', buildEntityStateMermaid(entity, stateField.name), null);
   }
 }
 

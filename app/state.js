@@ -15,6 +15,7 @@ const S = {
     procId: null, taskId: null,
     entityId: null,
     dataView: 'relation',
+    stateFieldName: '',
     roleId: null,
     roleQuery: '',
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
@@ -151,11 +152,41 @@ function normalizeSlashList(value) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
-function getEntityStatusField(entity) {
-  return (entity?.fields || []).find((field) => field?.is_status) || null;
+function inferStateValuesFromNote(note) {
+  const values = normalizeSlashList(note);
+  if (!values.length) return [];
+  const isCompact = values.every((item) => item.length <= 16 && !/[；;,，。]/.test(item));
+  return isCompact ? values : [];
 }
-function getEntityStatusValues(entity) {
-  return normalizeSlashList(getEntityStatusField(entity)?.state_values || '');
+function getFieldStateValueText(field) {
+  const explicit = String(field?.state_values || '').trim();
+  if (explicit) return explicit;
+  const inferred = inferStateValuesFromNote(field?.note || '');
+  return inferred.join('/');
+}
+function getFieldStateValues(field) {
+  return normalizeSlashList(getFieldStateValueText(field));
+}
+function getEntityStatusFields(entity) {
+  return (entity?.fields || []).filter((field) => field?.is_status);
+}
+function getEntityStatusField(entity, preferredFieldName = '') {
+  const statusFields = getEntityStatusFields(entity);
+  if (!statusFields.length) return null;
+  const preferred = String(preferredFieldName || '').trim();
+  return statusFields.find((field) => field.name === preferred) || statusFields[0];
+}
+function getEntityStatusValues(entity, preferredFieldName = '') {
+  return getFieldStateValues(getEntityStatusField(entity, preferredFieldName));
+}
+function getEntityStateTransitions(entity, preferredFieldName = '') {
+  const fieldName = getEntityStatusField(entity, preferredFieldName)?.name || '';
+  return (entity?.state_transitions || [])
+    .map((transition, index) => ({ transition, index }))
+    .filter(({ transition }) => {
+      if (!fieldName) return false;
+      return !transition.field_name || transition.field_name === fieldName;
+    });
 }
 function ensureEntityStateShape(entity) {
   if (!entity) return entity;
@@ -172,17 +203,20 @@ function ensureEntityStateShape(entity) {
     action: String(transition?.action || ''),
     role_id: String(transition?.role_id || ''),
     note: String(transition?.note || ''),
+    field_name: String(transition?.field_name || ''),
   }));
   return entity;
 }
-function createStateTransitionDraft(entity) {
-  const values = getEntityStatusValues(entity);
+function createStateTransitionDraft(entity, preferredFieldName = '') {
+  const field = getEntityStatusField(entity, preferredFieldName);
+  const values = getFieldStateValues(field);
   return {
     from: values[0] || '',
     to: values[1] || values[0] || '',
     action: '',
     role_id: '',
     note: '',
+    field_name: field?.name || '',
   };
 }
 function isRoleDisabled(role) { return role?.status === 'disabled'; }
