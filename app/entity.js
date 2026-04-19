@@ -657,11 +657,53 @@ function buildEntityMermaid(doc) {
 }
 
 
-function addEntity(group) {
-  const id=nextId('E',S.doc.entities);
-  S.doc.entities.push({id, name:'新实体', group:group||'', fields:[]});
-  markModified(); navigate('data',{entityId:id});
+function setDataView(view) {
+  S.ui.dataView = view;
+  if (view === 'state') {
+    const entities = S.doc?.entities || [];
+    if (!entities.length) {
+      S.ui.entityId = null;
+    } else if (!currentEntity()) {
+      S.ui.entityId = (entities.find(getEntityStatusField) || entities[0]).id;
+    }
+  }
+  renderDataTab();
 }
+
+function setStateEntity(entityId) {
+  S.ui.entityId = entityId;
+  renderDataTab();
+}
+
+function buildEntityStateMermaid(entity) {
+  const states = getEntityStatusValues(entity);
+  if (!states.length) return null;
+  const aliases = new Map(states.map((state, index) => [state, `S${index + 1}`]));
+  const lines = ['stateDiagram-v2', '  direction LR'];
+  states.forEach((state) => {
+    lines.push(`  state "${String(state).replace(/"/g, "'")}" as ${aliases.get(state)}`);
+  });
+  const transitions = (entity?.state_transitions || []).filter((transition) => transition.from && transition.to);
+  transitions.forEach((transition) => {
+    const fromAlias = aliases.get(transition.from);
+    const toAlias = aliases.get(transition.to);
+    if (!fromAlias || !toAlias) return;
+    const labelParts = [];
+    if (transition.action) labelParts.push(transition.action);
+    const roleName = getRoleName(transition.role_id || '');
+    if (roleName) labelParts.push(`角色：${roleName}`);
+    lines.push(`  ${fromAlias} --> ${toAlias}${labelParts.length ? ` : ${labelParts.join(' / ').replace(/"/g, "'")}` : ''}`);
+  });
+  return lines.join('\n');
+}
+
+function addEntity(group) {
+  const id = nextId('E', S.doc.entities);
+  S.doc.entities.push({ id, name: '新实体', group: group || '', fields: [], state_transitions: [] });
+  markModified();
+  navigate('data', { entityId: id });
+}
+
 function removeEntity(id) {
   if(!confirm('确认删除此实体？')) return;
   S.doc.entities=S.doc.entities.filter(e=>e.id!==id);
@@ -672,9 +714,14 @@ function removeEntity(id) {
   if(S.ui.entityId===id) S.ui.entityId=null;
   markModified(); render();
 }
+
 function setEntity(id,key,val) {
   const e=S.doc.entities.find(e=>e.id===id);
-  if(e){e[key]=val; markModified();}
+  if(e){
+    ensureEntityStateShape(e);
+    e[key]=val;
+    markModified();
+  }
 }
 
 /* ── ID 重命名 ──────────────────────────────────────────── */
@@ -742,7 +789,8 @@ function startEditId(spanEl, type, ...args) {
 ═══════════════════════════════════════════════════════════ */
 function addField(entityId) {
   const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
-  e.fields.push({name:'',type:'string',is_key:false,is_status:false,note:''});
+  ensureEntityStateShape(e);
+  e.fields.push({name:'',type:'string',is_key:false,is_status:false,state_values:'',note:''});
   markModified(); render();
 }
 function removeField(entityId,idx) {
@@ -751,7 +799,47 @@ function removeField(entityId,idx) {
 }
 function setField(entityId,idx,key,val) {
   const e=S.doc.entities.find(e=>e.id===entityId);
-  if(e?.fields[idx]!==undefined){e.fields[idx][key]=val; markModified();}
+  if(e?.fields[idx]===undefined) return;
+  ensureEntityStateShape(e);
+  if(key === 'is_status') {
+    e.fields.forEach((field, fieldIndex) => {
+      field.is_status = fieldIndex === idx ? !!val : false;
+    });
+  } else {
+    e.fields[idx][key]=val;
+  }
+  markModified();
+}
+
+function addStateTransition(entityId) {
+  const entity = S.doc.entities.find((item) => item.id === entityId);
+  if (!entity) return;
+  ensureEntityStateShape(entity);
+  if (!getEntityStatusValues(entity).length) {
+    alert('请先为主状态字段填写状态值，再配置状态流转。');
+    return;
+  }
+  entity.state_transitions.push(createStateTransitionDraft(entity));
+  markModified();
+  renderDataTab();
+}
+
+function removeStateTransition(entityId, idx) {
+  const entity = S.doc.entities.find((item) => item.id === entityId);
+  if (!entity) return;
+  ensureEntityStateShape(entity);
+  entity.state_transitions.splice(idx, 1);
+  markModified();
+  renderDataTab();
+}
+
+function setStateTransition(entityId, idx, key, val) {
+  const entity = S.doc.entities.find((item) => item.id === entityId);
+  if (!entity) return;
+  ensureEntityStateShape(entity);
+  if (!entity.state_transitions[idx]) return;
+  entity.state_transitions[idx][key] = val;
+  markModified();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -778,19 +866,90 @@ function setRelation(idx,key,val){if(S.doc.relations[idx]){S.doc.relations[idx][
 
 function renderDataTab() {
   const entities=S.doc.entities||[];
-  const entity=entities.find(e=>e.id===S.ui.entityId)||null;
+  const dataView = S.ui.dataView || 'relation';
+  let entity=entities.find(e=>e.id===S.ui.entityId)||null;
+  if (!entity && entities.length && dataView === 'state') {
+    entity = entities.find(getEntityStatusField) || entities[0];
+    S.ui.entityId = entity?.id || null;
+  }
   const drawerW = getDrawerWidth('entity');
+  const groupedEntities = Array.from(
+    entities.reduce((map, item) => {
+      const groupName = item.group || '未分组';
+      if (!map.has(groupName)) map.set(groupName, []);
+      map.get(groupName).push(item);
+      return map;
+    }, new Map())
+  );
+  const stateField = entity ? getEntityStatusField(entity) : null;
+  const stateValues = entity ? getEntityStatusValues(entity) : [];
 
   let h='';
-
-  /* 实体关系图（全高） */
   h+=`<div class="live-diagram-wrap entity-diag-full" id="diagram-wrap">
-    <div class="live-diagram-toolbar">
-      <span class="live-diagram-hint">拖拽节点 · Ctrl+滚轮缩放 · 点击节点进入编辑</span>
-      <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
-      <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复分组布局">重置布局</button>
+    <div class="live-diagram-toolbar data-toolbar">
+      <div class="data-view-switch" role="tablist" aria-label="数据视图切换">
+        <button class="seg-btn ${dataView==='relation'?'active':''}" data-testid="data-switch-relation" onclick="setDataView('relation')">关系图</button>
+        <button class="seg-btn ${dataView==='state'?'active':''}" data-testid="data-switch-state" onclick="setDataView('state')">状态图</button>
+      </div>
+      <span class="live-diagram-hint">${dataView==='state' ? '查看单个实体的生命周期推进，状态值请在右侧实体字段中维护。' : '拖拽节点 · Ctrl+滚轮缩放 · 点击节点进入编辑'}</span>
+      <button class="btn btn-outline btn-sm" data-testid="data-add-entity" onclick="addEntity()">＋ 新建实体</button>
+      ${dataView==='relation'
+        ? `<button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复分组布局">重置布局</button>`
+        : `<label class="data-state-select-inline">查看实体
+            <select data-testid="data-state-entity-select" onchange="setStateEntity(this.value)">
+              ${entities.map((item) => `<option value="${item.id}" ${entity?.id===item.id?'selected':''}>${esc(item.id)} ${esc(item.name||'未命名')}</option>`).join('')}
+            </select>
+          </label>`
+      }
     </div>
-    <div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>
+    ${dataView === 'relation'
+      ? `<div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>`
+      : `<div class="entity-state-workbench">
+          <div class="entity-state-browser">
+            ${groupedEntities.length ? groupedEntities.map(([groupName, items]) => `
+              <div class="entity-state-group">
+                <div class="entity-state-group-title">${esc(groupName)}</div>
+                <div class="entity-state-group-list">
+                  ${items.map((item) => `<button class="entity-state-chip ${entity?.id===item.id?'active':''}" onclick="setStateEntity('${esc(item.id)}')">${esc(item.id)} ${esc(item.name||'未命名')}</button>`).join('')}
+                </div>
+              </div>
+            `).join('') : '<div class="diag-empty" data-testid="entity-state-empty">暂无实体，先新建实体。</div>'}
+          </div>
+          <div class="entity-state-stage">
+            ${!entity
+              ? `<div class="diag-empty" data-testid="entity-state-empty">请选择一个实体查看状态图。</div>`
+              : !stateField
+                ? `<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义主状态字段，请先在右侧字段中勾选“状态”，并使用 / 录入状态值。</div>`
+                : !stateValues.length
+                  ? `<div class="diag-empty" data-testid="entity-state-empty">主状态字段“${esc(stateField.name || '')}”尚未填写状态值，请先补充例如：草稿/待审核/已完成。</div>`
+                  : `<div class="entity-state-card" data-testid="entity-state-diagram">
+                      <div class="entity-state-card-head">
+                        <div>
+                          <div class="entity-state-card-title">${esc(entity.name || entity.id)}</div>
+                          <div class="entity-state-card-subtitle">主状态字段：${esc(stateField.name || '')}</div>
+                        </div>
+                        <div class="entity-state-card-values">${stateValues.map((value) => `<span class="entity-state-value-chip">${esc(value)}</span>`).join('')}</div>
+                      </div>
+                      <div id="entity-state-diagram-canvas" class="live-diagram entity-state-diagram-canvas"></div>
+                      <div class="entity-state-transition-list">
+                        <h4>状态流转</h4>
+                        ${(entity.state_transitions || []).length
+                          ? `<div class="entity-state-transition-table">
+                              ${(entity.state_transitions || []).map((transition) => `<div class="entity-state-transition-row">
+                                <span>${esc(transition.from || '—')}</span>
+                                <span>→</span>
+                                <span>${esc(transition.to || '—')}</span>
+                                <span>${esc(transition.action || '未命名动作')}</span>
+                              </div>`).join('')}
+                            </div>`
+                          : '<p class="no-refs">暂无状态流转，先在右侧添加。</p>'
+                        }
+                      </div>
+                    </div>`
+            }
+          </div>
+        </div>`
+    }
   </div>`;
 
   /* 右侧抽屉 */
@@ -818,14 +977,14 @@ function renderDataTab() {
     h+=`<div class="form-grid" style="margin-bottom:16px">
       <div class="field-group">
         <label>实体名称</label>
-        <input type="text" value="${esc(entity.name||'')}"
-          oninput="setEntity('${esc(entity.id)}','name',this.value);renderSidebar();renderEntityDiagramNow()">
+        <input type="text" data-testid="entity-name-input" value="${esc(entity.name||'')}"
+          oninput="setEntity('${esc(entity.id)}','name',this.value);renderSidebar();if((S.ui.dataView||'relation')==='relation'){renderEntityDiagramNow();}">
       </div>
       <div class="field-group">
         <label>主题域 <span class="section-hint">（侧边栏分组）</span></label>
         <input type="text" value="${esc(entity.group||'')}"
           placeholder="如：交易、履约"
-          oninput="setEntity('${esc(entity.id)}','group',this.value);renderSidebar()">
+          oninput="setEntity('${esc(entity.id)}','group',this.value);renderSidebar();if((S.ui.dataView||'relation')==='relation'){renderEntityDiagramNow();}">
       </div>
       <div class="field-group" style="grid-column:1/-1">
         <label>说明</label>
@@ -849,22 +1008,26 @@ function renderDataTab() {
 
     /* 字段 */
     h+=`<div class="form-section">
-      <h4>字段 <button class="btn btn-outline btn-sm" onclick="addField('${esc(entity.id)}')">＋</button></h4>`;
+      <h4>字段 <button class="btn btn-outline btn-sm" data-testid="entity-field-add-button" onclick="addField('${esc(entity.id)}')">＋</button></h4>`;
     if(entity.fields?.length){
       h+=`<table class="field-table">
-        <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="状态字段">状态</th><th>公式/约束</th><th></th></tr></thead>
+        <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>状态值 <span class="inline-help" title="主状态字段的状态值请使用 / 分隔，例如：草稿/待审核/已完成。">?</span></th><th>公式/约束</th><th></th></tr></thead>
         <tbody>`;
       entity.fields.forEach((f,i)=>{
         h+=`<tr>
-          <td class="field-td-name"><input type="text" value="${esc(f.name||'')}" placeholder="字段名"
+          <td class="field-td-name"><input type="text" data-testid="entity-field-name-${i}" value="${esc(f.name||'')}" placeholder="字段名"
             oninput="setField('${esc(entity.id)}',${i},'name',this.value)"></td>
-          <td class="field-td-type"><select onchange="setField('${esc(entity.id)}',${i},'type',this.value)">
+          <td class="field-td-type"><select data-testid="entity-field-type-${i}" onchange="setField('${esc(entity.id)}',${i},'type',this.value)">
             ${FIELD_TYPES.map(t=>`<option value="${t.value}" ${f.type===t.value?'selected':''}>${t.label}</option>`).join('')}
           </select></td>
           <td style="text-align:center"><input type="checkbox" ${f.is_key?'checked':''}
             onchange="setField('${esc(entity.id)}',${i},'is_key',this.checked)"></td>
-          <td style="text-align:center"><input type="checkbox" ${f.is_status?'checked':''}
-            onchange="setField('${esc(entity.id)}',${i},'is_status',this.checked)"></td>
+          <td style="text-align:center"><input type="checkbox" data-testid="entity-status-toggle-${i}" ${f.is_status?'checked':''}
+            onchange="setField('${esc(entity.id)}',${i},'is_status',this.checked);renderDataTab()"></td>
+          <td class="field-td-state-values">${f.is_status
+            ? `<input type="text" data-testid="entity-state-values-${i}" value="${esc(f.state_values||'')}" placeholder="如：草稿/待审核/已完成"
+                oninput="setField('${esc(entity.id)}',${i},'state_values',this.value)">`
+            : `<span class="field-inline-empty">—</span>`}</td>
           <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="公式 / 约束"
             oninput="setField('${esc(entity.id)}',${i},'note',this.value);autoResize(this)"
             >${esc(f.note||'')}</textarea></td>
@@ -873,6 +1036,43 @@ function renderDataTab() {
       });
       h+=`</tbody></table>`;
     } else { h+=`<p class="no-refs">暂无字段</p>`; }
+    h+=`</div>`;
+
+    h+=`<div class="form-section" data-testid="entity-state-flow-section">
+      <h4>状态流转 <span class="section-hint">（用于实体状态图）</span>
+        <button class="btn btn-outline btn-sm" data-testid="entity-transition-add-button" onclick="addStateTransition('${esc(entity.id)}')" ${stateField ? '' : 'disabled'}>＋</button>
+      </h4>`;
+    if(stateField){
+      h+=`<p class="rel-scope-tip">主状态字段：<strong>${esc(stateField.name||'')}</strong>。状态值请使用 <code>/</code> 分隔；流转在这里单独配置。</p>`;
+      if((entity.state_transitions||[]).length){
+        h+=`<div class="entity-transition-list">`;
+        entity.state_transitions.forEach((transition, index) => {
+          h+=`<div class="entity-transition-row">
+            <select data-testid="entity-transition-from-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'from',this.value)">
+              ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.from===value?'selected':''}>${esc(value)}</option>`).join('')}
+            </select>
+            <span class="entity-transition-arrow">→</span>
+            <select data-testid="entity-transition-to-${index}" onchange="setStateTransition('${esc(entity.id)}',${index},'to',this.value)">
+              ${stateValues.map((value) => `<option value="${esc(value)}" ${transition.to===value?'selected':''}>${esc(value)}</option>`).join('')}
+            </select>
+            <input type="text" data-testid="entity-transition-action-${index}" value="${esc(transition.action||'')}" placeholder="触发动作"
+              oninput="setStateTransition('${esc(entity.id)}',${index},'action',this.value)">
+            <select onchange="setStateTransition('${esc(entity.id)}',${index},'role_id',this.value)">
+              <option value="">责任角色（可选）</option>
+              ${getRoles().map((role) => `<option value="${role.id}" ${transition.role_id===role.id?'selected':''}>${esc(role.name)}</option>`).join('')}
+            </select>
+            <input type="text" data-testid="entity-transition-note-${index}" value="${esc(transition.note||'')}" placeholder="说明"
+              oninput="setStateTransition('${esc(entity.id)}',${index},'note',this.value)">
+            <button class="btn-icon" onclick="removeStateTransition('${esc(entity.id)}',${index})">✕</button>
+          </div>`;
+        });
+        h+=`</div>`;
+      } else {
+        h+=`<p class="no-refs">暂无状态流转，先添加一条从当前状态到目标状态的推进规则。</p>`;
+      }
+    } else {
+      h+=`<p class="no-refs">请先在字段中勾选一个“状态”字段，并填写状态值。</p>`;
+    }
     h+=`</div>`;
 
     /* 实体关系 */
@@ -910,11 +1110,14 @@ function renderDataTab() {
 
   document.getElementById('tab-content').innerHTML=h;
 
-  /* 渲染实体图 */
-  const clickMap={};
-  for(const e of entities)
-    clickMap[e.id]=()=>navigate('data',{entityId:e.id});
-  renderEntityFlow('entity-diagram', S.doc, clickMap);
+  if (dataView === 'relation') {
+    const clickMap={};
+    for(const e of entities)
+      clickMap[e.id]=()=>navigate('data',{entityId:e.id});
+    renderEntityFlow('entity-diagram', S.doc, clickMap);
+  } else if (entity && stateField && stateValues.length) {
+    renderDiagram('entity-state-diagram-canvas', buildEntityStateMermaid(entity), null);
+  }
 }
 
 function renderEntityDiagramNow() {

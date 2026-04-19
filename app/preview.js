@@ -223,13 +223,26 @@ function buildHtmlPreview() {
       h += `<h3>实体: ${esc(e.name||e.id)}</h3>`;
       if(e.note) h += `<p class="pv-note">${esc(e.note)}</p>`;
       if(e.fields?.length) {
-        h += `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>公式/约束</th></tr></thead><tbody>`;
+        h += `<table><thead><tr><th>字段</th><th>类型</th><th>主键</th><th>状态字段</th><th>状态值</th><th>公式/约束</th></tr></thead><tbody>`;
         const FIELD_LBL2 = FIELD_LBL;
         e.fields.forEach(f=>{
           h += `<tr><td>${esc(f.name||'')}</td><td>${esc(FIELD_LBL2[f.type]||f.type||'')}</td>`;
           h += `<td style="text-align:center">${f.is_key?'✓':''}</td>`;
           h += `<td style="text-align:center">${f.is_status?'✓':''}</td>`;
+          h += `<td>${esc(f.state_values||'')}</td>`;
           h += `<td>${esc(f.note||'')}</td></tr>`;
+        });
+        h += `</tbody></table>`;
+      }
+      if(e.state_transitions?.length) {
+        const statusField = getEntityStatusField(e);
+        h += `<h4>状态流转</h4>`;
+        if(statusField) {
+          h += `<p class="pv-note"><strong>主状态字段</strong>: ${esc(statusField.name || '')}（状态值：${esc(statusField.state_values || '—')}）</p>`;
+        }
+        h += `<table><thead><tr><th>来源状态</th><th>目标状态</th><th>触发动作</th><th>责任角色</th><th>说明</th></tr></thead><tbody>`;
+        e.state_transitions.forEach((transition) => {
+          h += `<tr><td>${esc(transition.from || '')}</td><td>${esc(transition.to || '')}</td><td>${esc(transition.action || '')}</td><td>${esc(getRoleName(transition.role_id || ''))}</td><td>${esc(transition.note || '')}</td></tr>`;
         });
         h += `</tbody></table>`;
       }
@@ -333,9 +346,21 @@ function buildMdFromDoc(doc) {
       add(`### 实体：${e.name||''}`); add('');
       if(e.note) { add(e.note); add(''); }
       if(e.fields?.length){
-        add('| 字段 | 类型 | 主键 | 状态字段 | 公式/约束 |');
-        add('|------|------|------|---------|---------|');
-        e.fields.forEach(f=>add(`| ${f.name||''} | ${FIELD_LBL[f.type]||f.type||''} | ${f.is_key?'✓':''} | ${f.is_status?'✓':''} | ${f.note||''} |`));
+        add('| 字段 | 类型 | 主键 | 状态字段 | 状态值 | 公式/约束 |');
+        add('|------|------|------|---------|--------|---------|');
+        e.fields.forEach(f=>add(`| ${f.name||''} | ${FIELD_LBL[f.type]||f.type||''} | ${f.is_key?'✓':''} | ${f.is_status?'✓':''} | ${f.state_values||''} | ${f.note||''} |`));
+        add('');
+      }
+      if(e.state_transitions?.length){
+        const statusField = getEntityStatusField(e);
+        add('#### 状态流转'); add('');
+        if(statusField) {
+          add(`**主状态字段**: ${statusField.name||''}（状态值：${statusField.state_values||'—'}）`);
+          add('');
+        }
+        add('| 来源状态 | 目标状态 | 触发动作 | 责任角色 | 说明 |');
+        add('|----------|----------|----------|----------|------|');
+        e.state_transitions.forEach(t=>add(`| ${t.from||''} | ${t.to||''} | ${t.action||''} | ${getRoleName(t.role_id||'')} | ${t.note||''} |`));
         add('');
       }
     }

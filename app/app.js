@@ -125,6 +125,7 @@ function createDocUiState(doc) {
     procId: doc.processes?.[0]?.id || null,
     taskId: null,
     entityId: null,
+    dataView: 'relation',
     roleId: firstRoleId,
     roleQuery: '',
     sbCollapse: _defaultSbCollapse(doc),

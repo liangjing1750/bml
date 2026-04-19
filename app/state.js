@@ -14,6 +14,7 @@ const S = {
     tab: 'domain',
     procId: null, taskId: null,
     entityId: null,
+    dataView: 'relation',
     roleId: null,
     roleQuery: '',
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
@@ -142,7 +143,48 @@ function markModified() {
 function getEntityName(id) { return S.doc?.entities?.find(e=>e.id===id)?.name||id; }
 function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.procId)||null; }
 function currentTask()  { return currentProc()?.tasks?.find(t=>t.id===S.ui.taskId)||null; }
+function currentEntity() { return (S.doc?.entities||[]).find(e=>e.id===S.ui.entityId)||null; }
 function normalizeRoleName(name) { return String(name || '').trim(); }
+function normalizeSlashList(value) {
+  return String(value || '')
+    .split('/')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+function getEntityStatusField(entity) {
+  return (entity?.fields || []).find((field) => field?.is_status) || null;
+}
+function getEntityStatusValues(entity) {
+  return normalizeSlashList(getEntityStatusField(entity)?.state_values || '');
+}
+function ensureEntityStateShape(entity) {
+  if (!entity) return entity;
+  if (!Array.isArray(entity.fields)) entity.fields = [];
+  if (!Array.isArray(entity.state_transitions)) entity.state_transitions = [];
+  entity.fields.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(field, 'state_values')) {
+      field.state_values = '';
+    }
+  });
+  entity.state_transitions = entity.state_transitions.map((transition) => ({
+    from: String(transition?.from || ''),
+    to: String(transition?.to || ''),
+    action: String(transition?.action || ''),
+    role_id: String(transition?.role_id || ''),
+    note: String(transition?.note || ''),
+  }));
+  return entity;
+}
+function createStateTransitionDraft(entity) {
+  const values = getEntityStatusValues(entity);
+  return {
+    from: values[0] || '',
+    to: values[1] || values[0] || '',
+    action: '',
+    role_id: '',
+    note: '',
+  };
+}
 function isRoleDisabled(role) { return role?.status === 'disabled'; }
 function inferRoleGroup(role) {
   const name = normalizeRoleName(role?.name);

@@ -105,6 +105,44 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(migrated["processes"][0]["tasks"][1]["role"], "监管员")
         self.assertEqual(migrated["processes"][0]["tasks"][1]["role_id"], "R9")
 
+    def test_migrate_document_adds_state_flow_defaults_for_entities(self):
+        document = {
+            "meta": {"title": "状态流转"},
+            "roles": [{"id": "R1", "name": "审核员"}],
+            "processes": [],
+            "entities": [
+                {
+                    "id": "E1",
+                    "name": "预约单",
+                    "fields": [
+                        {"name": "预约状态", "type": "enum", "is_status": True},
+                        {"name": "备注", "type": "text"},
+                    ],
+                    "state_transitions": [
+                        {"from": "草稿", "to": "待审核", "action": "提交"}
+                    ],
+                }
+            ],
+            "relations": [],
+            "rules": [],
+            "language": [],
+        }
+
+        migrated = migrate_document(document)
+
+        status_field = migrated["entities"][0]["fields"][0]
+        note_field = migrated["entities"][0]["fields"][1]
+        transition = migrated["entities"][0]["state_transitions"][0]
+
+        self.assertEqual(status_field["state_values"], "")
+        self.assertTrue(status_field["is_status"])
+        self.assertEqual(note_field["state_values"], "")
+        self.assertEqual(transition["from"], "草稿")
+        self.assertEqual(transition["to"], "待审核")
+        self.assertEqual(transition["action"], "提交")
+        self.assertEqual(transition["role_id"], "")
+        self.assertEqual(transition["note"], "")
+
 
 class MarkdownExporterTests(unittest.TestCase):
     def test_export_includes_process_mermaid_and_entity_tables(self):
@@ -146,7 +184,25 @@ class MarkdownExporterTests(unittest.TestCase):
                             "type": "id",
                             "is_key": True,
                             "is_status": False,
+                            "state_values": "",
                             "note": "",
+                        },
+                        {
+                            "name": "reader_status",
+                            "type": "enum",
+                            "is_key": False,
+                            "is_status": True,
+                            "state_values": "Draft/Active/Archived",
+                            "note": "主状态字段",
+                        },
+                    ],
+                    "state_transitions": [
+                        {
+                            "from": "Draft",
+                            "to": "Active",
+                            "action": "Activate",
+                            "role_id": "R1",
+                            "note": "Reader must be approved",
                         }
                     ],
                 }
@@ -164,6 +220,10 @@ class MarkdownExporterTests(unittest.TestCase):
         self.assertIn("Reader", markdown)
         self.assertIn("业务参与方", markdown)
         self.assertIn("reader_id", markdown)
+        self.assertIn("reader_status", markdown)
+        self.assertIn("Draft/Active/Archived", markdown)
+        self.assertIn("状态流转", markdown)
+        self.assertIn("Activate", markdown)
 
 
 class WorkspaceStorageTests(unittest.TestCase):

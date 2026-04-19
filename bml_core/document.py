@@ -307,6 +307,7 @@ def migrate_document(document: dict | None) -> dict:
         entity.setdefault("group", "")
         entity.setdefault("note", "")
         entity.setdefault("fields", [])
+        entity.setdefault("state_transitions", [])
 
         for field in entity["fields"]:
             is_key = bool(field.pop("pk", field.get("is_key", False)))
@@ -316,6 +317,20 @@ def migrate_document(document: dict | None) -> dict:
             field["type"] = normalize_field_type(field.get("type", "string"))
             field["is_key"] = is_key
             field["is_status"] = is_status
+            field.setdefault("state_values", "")
+
+        normalized_transitions = []
+        for transition in entity["state_transitions"]:
+            normalized_transitions.append(
+                {
+                    "from": str(transition.get("from", "")).strip(),
+                    "to": str(transition.get("to", "")).strip(),
+                    "action": str(transition.get("action", "")).strip(),
+                    "role_id": str(transition.get("role_id", "")).strip(),
+                    "note": str(transition.get("note", "")).strip(),
+                }
+            )
+        entity["state_transitions"] = normalized_transitions
 
     for relation in doc["relations"]:
         relation.setdefault("from", "")

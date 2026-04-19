@@ -70,6 +70,15 @@ def get_role_status(role) -> str:
     return "启用"
 
 
+def get_entity_status_field(entity: dict) -> dict | None:
+    return next((field for field in entity.get("fields", []) if field.get("is_status")), None)
+
+
+def get_entity_state_values(entity: dict) -> str:
+    field = get_entity_status_field(entity)
+    return str(field.get("state_values", "")).strip() if field else ""
+
+
 class MarkdownExporter:
     def export(self, document: dict) -> str:
         doc = migrate_document(document)
@@ -106,6 +115,7 @@ class MarkdownExporter:
         separator()
 
         roles = doc.get("roles", [])
+        roles_by_id = {role.get("id", ""): role for role in roles if isinstance(role, dict)}
         if roles:
             line(f"## {next_section_number()}、角色")
             line()
@@ -149,14 +159,32 @@ class MarkdownExporter:
                 line()
                 fields = entity.get("fields", [])
                 if fields:
-                    line("| 字段 | 类型 | 主键 | 状态字段 | 公式/约束 |")
-                    line("|------|------|------|---------|---------|")
+                    line("| 字段 | 类型 | 主键 | 状态字段 | 状态值 | 公式/约束 |")
+                    line("|------|------|------|---------|--------|---------|")
                     for field in fields:
                         field_type = FIELD_LABELS.get(field.get("type", ""), field.get("type", ""))
                         is_key = "✓" if field.get("is_key") else ""
                         is_status = "✓" if field.get("is_status") else ""
                         line(
-                            f"| {field.get('name', '')} | {field_type} | {is_key} | {is_status} | {field.get('note', '')} |"
+                            f"| {field.get('name', '')} | {field_type} | {is_key} | {is_status} | {field.get('state_values', '')} | {field.get('note', '')} |"
+                        )
+                    line()
+                state_transitions = entity.get("state_transitions", [])
+                if state_transitions:
+                    status_field = get_entity_status_field(entity)
+                    line("#### 状态流转")
+                    line()
+                    if status_field:
+                        line(
+                            f"**主状态字段**: {status_field.get('name', '')}（状态值：{get_entity_state_values(entity) or '—'}）"
+                        )
+                        line()
+                    line("| 来源状态 | 目标状态 | 触发动作 | 责任角色 | 说明 |")
+                    line("|----------|----------|----------|----------|------|")
+                    for transition in state_transitions:
+                        transition_role = roles_by_id.get(transition.get("role_id", ""), transition.get("role_id", ""))
+                        line(
+                            f"| {transition.get('from', '')} | {transition.get('to', '')} | {transition.get('action', '')} | {get_role_name(transition_role)} | {transition.get('note', '')} |"
                         )
                     line()
             separator()
