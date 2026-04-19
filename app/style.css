@@ -87,15 +87,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .sb-toggle { font-size: 10px; }
 .sb-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 5px 12px 5px 26px; cursor: pointer;
+  padding: 5px 42px 5px 26px; cursor: pointer;
   border-left: 2px solid transparent; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; font-size: 13px;
   color: var(--text);
+  min-width: 0; position: relative;
 }
 .sb-item:hover  { background: var(--hover); }
 .sb-item.active { background: var(--active-bg); border-left-color: var(--active-bd);
                   color: var(--accent); font-weight: 500; }
-.sb-id   { font-size: 11px; color: var(--text-m); min-width: 22px; }
+.sb-id   { font-size: 11px; color: var(--text-m); min-width: 22px; flex-shrink: 0; }
 /* 可编辑 ID 标签 */
 .editable-id {
   cursor: text; border-radius: 3px; padding: 0 3px;
@@ -109,7 +110,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   border-radius: 3px; outline: none; color: var(--accent);
   background: #eff6ff;
 }
-.sb-name { overflow: hidden; text-overflow: ellipsis; }
+.sb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-empty { padding: 5px 12px 5px 26px; font-size: 12px; color: var(--text-m); font-style: italic; }
 
 /* ─── 主内容区 ───────────────────────────────────────────── */
@@ -821,10 +822,11 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 /* 流程标题行 */
 .sb-proc-head {
   display: flex; align-items: center; gap: 4px;
-  padding: 6px 10px; cursor: pointer;
+  padding: 6px 42px 6px 10px; cursor: pointer;
   font-weight: 600; font-size: 12px; color: var(--text);
   border-left: 3px solid transparent;
   background: var(--bg); border-top: 1px solid var(--border);
+  min-width: 0; position: relative; white-space: nowrap;
 }
 .sb-proc-head:hover { background: #e8edf2; }
 .sb-proc-head.active { background: var(--active-bg); border-left-color: var(--active-bd); color: var(--accent); }
@@ -835,6 +837,7 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   padding: 4px 10px 4px 28px; cursor: pointer;
   font-size: 12px; color: var(--text-m);
   border-left: 3px solid transparent;
+  min-width: 0; white-space: nowrap;
 }
 .sb-task-item:hover  { background: var(--hover); }
 .sb-task-item.active { background: var(--active-bg); border-left-color: var(--active-bd); color: var(--accent); font-weight: 500; }
@@ -843,12 +846,14 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 /* 主题域 / 业务子域 分组头 */
 .sb-grp-head {
   display: flex; align-items: center; gap: 4px;
-  padding: 5px 10px; cursor: pointer;
+  padding: 5px 44px 5px 10px; cursor: pointer;
   font-size: 11px; font-weight: 600; color: var(--text-m);
   text-transform: uppercase; letter-spacing: 0.5px;
   background: #f8fafc; border-top: 1px solid var(--border);
+  min-width: 0; position: relative; white-space: nowrap;
 }
 .sb-grp-head:hover { color: var(--text); }
+.sb-grp-head .sb-add-btn { margin-left: auto; flex-shrink: 0; }
 
 /* 流程区内的业务子域分组头（稍偏暖色调与实体主题域区分） */
 .sb-section:first-child .sb-grp-head {
@@ -859,21 +864,25 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 /* 实体条目（主题域下缩进） */
 .sb-entity-item {
   display: flex; align-items: center; gap: 4px;
-  padding: 4px 10px 4px 28px; cursor: pointer;
+  padding: 4px 42px 4px 28px; cursor: pointer;
   font-size: 12px; color: var(--text-m);
   border-left: 3px solid transparent;
+  min-width: 0; position: relative; white-space: nowrap;
 }
 .sb-entity-item:hover  { background: var(--hover); }
 .sb-entity-item.active { background: var(--active-bg); border-left-color: var(--active-bd); color: var(--accent); }
 
 /* ─── 侧边栏移动按钮（hover 时浮现） ─── */
 .sb-move-btns {
-  display: none; align-items: center; gap: 1px; margin-left: auto; flex-shrink: 0;
+  display: flex; align-items: center; gap: 1px;
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .15s ease;
 }
 .sb-proc-head:hover .sb-move-btns,
 .sb-grp-head:hover  .sb-move-btns,
 .sb-entity-item:hover .sb-move-btns,
-.sb-item:hover .sb-move-btns { display: flex; }
+.sb-item:hover .sb-move-btns { opacity: 1; visibility: visible; pointer-events: auto; }
 .sb-move-btn {
   padding: 0 3px; line-height: 14px; font-size: 11px;
   color: var(--text-m); background: none;

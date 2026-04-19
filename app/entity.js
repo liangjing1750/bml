@@ -64,30 +64,66 @@ const EF_PAD    = 20;    // 边距
 const EF_GROUP_HEADER_H = 28;
 const EF_GROUP_PAD_X = 22;
 const EF_GROUP_PAD_Y = 18;
-const EF_GROUP_GAP_X = 72;
+const EF_GROUP_GAP_X = 56;
+const EF_GROUP_GAP_Y = 56;
+
+function _efGetGroupColumnCount(entityCount) {
+  if(entityCount >= 12) return 3;
+  if(entityCount >= 7) return 2;
+  return 1;
+}
+
+function _efMeasureGroupBlock(groupBlock) {
+  const groupEntities = groupBlock.entities || [];
+  const colCount = _efGetGroupColumnCount(groupEntities.length);
+  const rowCount = Math.max(1, Math.ceil(groupEntities.length / colCount));
+  const contentWidth = colCount * EF_NODE_W + Math.max(0, colCount - 1) * EF_GAP_X;
+  const contentHeight = rowCount * EF_NODE_H + Math.max(0, rowCount - 1) * EF_GAP_Y;
+  return {
+    colCount,
+    rowCount,
+    width: contentWidth + EF_GROUP_PAD_X * 2,
+    height: contentHeight + EF_GROUP_HEADER_H + EF_GROUP_PAD_Y * 2,
+  };
+}
+
+function _efGetGroupGridColumns(groupCount) {
+  if(groupCount <= 1) return 1;
+  if(groupCount <= 4) return 2;
+  if(groupCount <= 9) return 3;
+  return 4;
+}
 
 function _efComputeDefaultPos(entities, relations) {
   if(!entities.length) return {};
   const posMap = {};
-  const sortedGroups = _efSortLayout(entities, relations);
-  let baseX = EF_PAD;
+  const sortedGroups = _efSortLayout(entities, relations)
+    .map(groupBlock => ({ ...groupBlock, layout: _efMeasureGroupBlock(groupBlock) }));
+  const gridCols = _efGetGroupGridColumns(sortedGroups.length);
+  const cellWidth = Math.max(...sortedGroups.map(groupBlock => groupBlock.layout.width), EF_NODE_W + EF_GROUP_PAD_X * 2);
+  const cellHeight = Math.max(...sortedGroups.map(groupBlock => groupBlock.layout.height), EF_NODE_H + EF_GROUP_HEADER_H + EF_GROUP_PAD_Y * 2);
 
-  for(const groupBlock of sortedGroups) {
+  sortedGroups.forEach((groupBlock, index) => {
     const groupEntities = groupBlock.entities || [];
-    const colCount = groupEntities.length >= 8 ? 2 : 1;
+    const colCount = groupBlock.layout.colCount;
     const rowGap = EF_NODE_H + EF_GAP_Y;
     const colGap = EF_NODE_W + EF_GAP_X;
+    const rawRow = Math.floor(index / gridCols);
+    const rawCol = index % gridCols;
+    const itemsInRow = Math.min(gridCols, sortedGroups.length - rawRow * gridCols);
+    const layoutCol = rawRow % 2 === 0 ? rawCol : (itemsInRow - 1 - rawCol);
+    const baseX = EF_PAD + layoutCol * (cellWidth + EF_GROUP_GAP_X);
+    const baseY = EF_PAD + rawRow * (cellHeight + EF_GROUP_GAP_Y);
+
     groupEntities.forEach((entity, index) => {
       const col = index % colCount;
       const row = Math.floor(index / colCount);
       posMap[entity.id] = {
         x: baseX + EF_GROUP_PAD_X + col * colGap,
-        y: EF_PAD + EF_GROUP_HEADER_H + EF_GROUP_PAD_Y + row * rowGap,
+        y: baseY + EF_GROUP_HEADER_H + EF_GROUP_PAD_Y + row * rowGap,
       };
     });
-    const groupWidth = Math.max(1, colCount) * colGap - EF_GAP_X + EF_GROUP_PAD_X * 2;
-    baseX += groupWidth + EF_GROUP_GAP_X;
-  }
+  });
   return posMap;
 }
 
@@ -739,7 +775,7 @@ function renderDataTab() {
     <div class="live-diagram-toolbar">
       <span class="live-diagram-hint">拖拽节点 · Ctrl+滚轮缩放 · 点击节点进入编辑</span>
       <button class="btn btn-outline btn-sm" onclick="addEntity()">＋ 新建实体</button>
-      <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复辐射排列">重置布局</button>
+      <button class="btn btn-ghost-sm" onclick="resetEfLayout()" title="清除手动布局，恢复分组布局">重置布局</button>
       <div class="zoom-controls">
         <button class="zoom-btn" onclick="zoomBy('entity-diagram',0.2)" title="放大">＋</button>
         <button class="zoom-btn" onclick="resetZoom('entity-diagram')" title="重置">⊙</button>

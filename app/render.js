@@ -154,6 +154,10 @@ function setProcView(v) {
 
 function _defaultSbCollapse(doc) {
   const c = { lang: true }; /* 统一语言默认折叠 */
+  [...new Set((doc.processes||[]).map(p => p.subDomain || '').filter(Boolean))]
+    .forEach((sd) => { c[`sd-${sd}`] = true; });
+  [...new Set((doc.entities||[]).map(e => e.group || '').filter(Boolean))]
+    .forEach((grp) => { c[`grp-${grp}`] = true; });
   (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
   return c;
 }
@@ -198,7 +202,7 @@ function _renderSbProc(p) {
   const procKey=`proc-${p.id}`;
   const collapsed=S.ui.sbCollapse[procKey];
   const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
-  let h=`<div class="sb-proc-head ${procActive?'active':''}"
+  let h=`<div class="sb-proc-head ${procActive?'active':''}" data-process-id="${esc(p.id)}"
     onclick="navigate('process',{procId:'${p.id}',taskId:null})">
     <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
     <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'proc','${p.id}')" title="点击编辑ID">${esc(p.id)}</span>
@@ -260,7 +264,7 @@ function renderSidebar() {
       if(sd) {
         const sdKey=`sd-${sd}`;
         const collapsed=S.ui.sbCollapse[sdKey];
-        h+=`<div class="sb-grp-head" onclick="toggleCollapse('${sdKey}')">
+        h+=`<div class="sb-grp-head" data-subdomain="${esc(sd)}" onclick="toggleCollapse('${sdKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
           <span class="sb-name">${esc(sd)}</span>
           <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
@@ -301,7 +305,7 @@ function renderSidebar() {
       if(grp) {
         const grpKey=`grp-${grp}`;
         const collapsed=S.ui.sbCollapse[grpKey];
-        h+=`<div class="sb-grp-head" onclick="toggleCollapse('${grpKey}')">
+        h+=`<div class="sb-grp-head" data-group="${esc(grp)}" onclick="toggleCollapse('${grpKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
           <span class="sb-name">${esc(grp)}</span>
           <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>
@@ -313,7 +317,7 @@ function renderSidebar() {
         if(!collapsed) {
           for(const e of grpEntities) {
             const active=S.ui.tab==='data'&&S.ui.entityId===e.id;
-            h+=`<div class="sb-entity-item ${active?'active':''}"
+            h+=`<div class="sb-entity-item ${active?'active':''}" data-entity-id="${esc(e.id)}"
               onclick="navigate('data',{entityId:'${e.id}'})">
               <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'entity','${e.id}')" title="点击编辑ID">${esc(e.id)}</span>
               <span class="sb-name">${esc(e.name||'未命名')}</span>
