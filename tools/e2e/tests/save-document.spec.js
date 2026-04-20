@@ -14,10 +14,12 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
   await page.getByTestId('new-doc-confirm-button').click();
 
   await page.getByTestId('domain-date-input').fill('2026-04');
-  await expect(page.locator('#modified-dot')).not.toHaveClass(/hidden/);
+  await expect(page.getByTestId('modified-badge')).toBeVisible();
+  await expect(page.getByTestId('save-alert')).toBeVisible();
 
-  await page.locator('#btn-save').click();
-  await expect(page.locator('#modified-dot')).toHaveClass(/hidden/);
+  await page.keyboard.press('Control+S');
+  await expect(page.getByTestId('modified-badge')).toBeHidden();
+  await expect(page.getByTestId('save-alert')).toBeHidden();
 
   await expect
     .poll(() => {

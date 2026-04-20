@@ -130,7 +130,7 @@ function initAutoResize() {
 function markModified() {
   if (!S.modified) {
     S.modified = true;
-    document.getElementById('modified-dot')?.classList.remove('hidden');
+    if (typeof renderToolbar === 'function') renderToolbar();
   }
 }
 function getEntityName(id) { return S.doc?.entities?.find(e=>e.id===id)?.name||id; }

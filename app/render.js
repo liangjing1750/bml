@@ -206,7 +206,8 @@ function render() {
 function renderToolbar() {
   const name = S.doc?.meta?.domain || S.currentFile || '—';
   document.getElementById('file-name').textContent = name;
-  document.getElementById('modified-dot')?.classList.toggle('hidden',!S.modified);
+  document.getElementById('modified-badge')?.classList.toggle('hidden', !S.modified);
+  document.getElementById('save-alert')?.classList.toggle('hidden', !S.modified);
 }
 
 function renderNoDoc() {

@@ -12,15 +12,20 @@
   <div class="toolbar-left">
     <span class="logo">BLM</span>
     <span id="file-name" class="file-name" data-testid="current-file-name">—</span>
-    <span id="modified-dot" class="modified-dot hidden">●</span>
+    <span id="modified-badge" class="modified-badge hidden" data-testid="modified-badge">未保存</span>
   </div>
   <div class="toolbar-right">
     <button onclick="App.cmdNew()" class="btn btn-ghost" data-testid="toolbar-new-button">新建</button>
     <button onclick="App.cmdOpen()" class="btn btn-ghost" data-testid="toolbar-open-button">打开</button>
-    <button onclick="App.cmdSave()" class="btn btn-primary" id="btn-save">保存</button>
+    <button onclick="App.cmdSave()" class="btn btn-primary" id="btn-save" title="保存（Ctrl+S）">保存</button>
     <button onclick="App.cmdSaveAs()" class="btn btn-ghost" data-testid="toolbar-save-as-button">另存</button>
     <button onclick="App.cmdExport()" class="btn btn-ghost" data-testid="toolbar-export-button">导出</button>
   </div>
+</div>
+
+<div id="save-alert" class="save-alert hidden" data-testid="save-alert">
+  <strong>当前有未保存修改</strong>
+  <span>按 Ctrl+S 或点击“保存”即可落盘。</span>
 </div>
 
 <div id="layout">

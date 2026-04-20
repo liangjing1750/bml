@@ -97,7 +97,6 @@ const App = {
     await api.save(S.currentFile, S.doc);
 
     S.modified = false;
-    document.getElementById('modified-dot')?.classList.add('hidden');
     renderToolbar();
     if (S.ui.tab === 'domain') renderDomainTab();
   },
@@ -114,7 +113,6 @@ const App = {
     await api.save(name, S.doc);
 
     S.modified = false;
-    document.getElementById('modified-dot')?.classList.add('hidden');
     App.closeSaveAsModal();
     renderToolbar();
     if (S.ui.tab === 'domain') renderDomainTab();
@@ -159,7 +157,8 @@ function createDocUiState(doc) {
 }
 
 document.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+  const key = String(event.key || '').toLowerCase();
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 's') {
     event.preventDefault();
     App.cmdSave();
   }
