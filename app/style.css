@@ -1936,23 +1936,25 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-.inline-help-below::before {
-  top: calc(100% + 2px);
-  bottom: auto;
-  transform: translateX(-50%) translateY(-4px);
-  border-width: 0 6px 6px 6px;
-  border-color: transparent transparent rgba(15, 23, 42, 0.92) transparent;
+.inline-help-left::before {
+  left: auto;
+  right: calc(100% + 2px);
+  bottom: 50%;
+  transform: translateX(4px) translateY(50%);
+  border-width: 6px 0 6px 6px;
+  border-color: transparent transparent transparent rgba(15, 23, 42, 0.92);
 }
-.inline-help-below::after {
-  top: calc(100% + 8px);
-  bottom: auto;
-  transform: translateX(-50%) translateY(-4px);
+.inline-help-left::after {
+  left: auto;
+  right: calc(100% + 8px);
+  bottom: 50%;
+  transform: translateX(4px) translateY(50%);
 }
-.inline-help-below:hover::before,
-.inline-help-below:hover::after,
-.inline-help-below:focus-visible::before,
-.inline-help-below:focus-visible::after {
-  transform: translateX(-50%) translateY(0);
+.inline-help-left:hover::before,
+.inline-help-left:hover::after,
+.inline-help-left:focus-visible::before,
+.inline-help-left:focus-visible::after {
+  transform: translateX(0) translateY(50%);
 }
 @media (max-width: 1180px) {
   .entity-state-workbench {

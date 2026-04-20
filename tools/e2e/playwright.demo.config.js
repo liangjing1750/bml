@@ -7,7 +7,7 @@ const workspaceDir = path.join(toolDir, '.tmp', 'playwright-demo-workspace');
 
 fs.rmSync(workspaceDir, { recursive: true, force: true });
 fs.mkdirSync(workspaceDir, { recursive: true });
-process.env.BML_E2E_WORKSPACE_DIR = workspaceDir;
+process.env.BLM_E2E_WORKSPACE_DIR = workspaceDir;
 
 module.exports = {
   ...baseConfig,
@@ -26,8 +26,8 @@ module.exports = {
     url: 'http://127.0.0.1:8900',
     env: {
       ...baseConfig.webServer.env,
-      BML_PORT: '8900',
-      BML_WORKSPACE_DIR: workspaceDir,
+      BLM_PORT: '8900',
+      BLM_WORKSPACE_DIR: workspaceDir,
     },
   },
 };

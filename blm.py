@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 BLM - Business Language Modeling Tool
-用法: python bml.py
+用法: python blm.py
 """
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from bml_core.server import run_server
+from blm_core.server import run_server
 
 
 PORT = 8888
@@ -40,15 +40,15 @@ def _resolve_path(root: Path, value: str | None, fallback: Path) -> Path:
 
 
 def build_runtime_config() -> RuntimeConfig:
-    port_text = (os.getenv("BML_PORT") or str(PORT)).strip()
+    port_text = (os.getenv("BLM_PORT") or str(PORT)).strip()
     try:
         port = int(port_text)
     except ValueError as exc:
-        raise ValueError("BML_PORT 必须是整数") from exc
+        raise ValueError("BLM_PORT 必须是整数") from exc
 
-    app_dir = _resolve_path(ROOT, os.getenv("BML_APP_DIR"), ROOT / "app")
-    workspace_dir = _resolve_path(ROOT, os.getenv("BML_WORKSPACE_DIR"), ROOT / "workspace")
-    open_browser = not _read_bool_env("BML_NO_BROWSER", False)
+    app_dir = _resolve_path(ROOT, os.getenv("BLM_APP_DIR"), ROOT / "app")
+    workspace_dir = _resolve_path(ROOT, os.getenv("BLM_WORKSPACE_DIR"), ROOT / "workspace")
+    open_browser = not _read_bool_env("BLM_NO_BROWSER", False)
     return RuntimeConfig(
         port=port,
         app_dir=app_dir,

@@ -26,17 +26,11 @@ const S = {
 };
 
 const UI_PREFS_KEY = 'blm-ui-prefs';
-const LEGACY_UI_PREFS_KEY = 'bml-ui-prefs';
 
 function loadUiPrefs() {
   try {
     const raw = window.localStorage?.getItem(UI_PREFS_KEY);
-    if (!raw) {
-      const legacyRaw = window.localStorage?.getItem(LEGACY_UI_PREFS_KEY);
-      if (!legacyRaw) return {};
-      const legacyParsed = JSON.parse(legacyRaw);
-      return legacyParsed && typeof legacyParsed === 'object' ? legacyParsed : {};
-    }
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch (_) {

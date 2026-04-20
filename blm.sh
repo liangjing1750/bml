@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # 配置区域
-SCRIPT_NAME="bml.py"
-LOG_FILE="bml.log"
-PID_FILE="bml.pid"
+SCRIPT_NAME="blm.py"
+LOG_FILE="blm.log"
+PID_FILE="blm.pid"
 PYTHON_CMD="python3" # 建议指定 python3，如果环境只有 python 请改为 python
 
 # 获取脚本当前所在目录，确保路径正确

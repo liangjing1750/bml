@@ -7,7 +7,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from bml_core.storage import InvalidDocumentNameError, WorkspaceStorage
+from blm_core.storage import InvalidDocumentNameError, WorkspaceStorage
 
 
 def create_handler(app_dir: Path, storage: WorkspaceStorage):

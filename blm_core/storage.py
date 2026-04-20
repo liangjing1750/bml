@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bml_core.document import create_empty_document, migrate_document
-from bml_core.markdown import MarkdownExporter
+from blm_core.document import create_empty_document, migrate_document
+from blm_core.markdown import MarkdownExporter
 
 
 class InvalidDocumentNameError(ValueError):
@@ -65,4 +65,3 @@ class WorkspaceStorage:
         if normalized in {".", ".."}:
             raise InvalidDocumentNameError("名称不合法")
         return normalized
-

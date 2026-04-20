@@ -7,7 +7,7 @@ const workspaceDir = path.join(toolDir, '.tmp', 'playwright-workspace');
 
 fs.rmSync(workspaceDir, { recursive: true, force: true });
 fs.mkdirSync(workspaceDir, { recursive: true });
-process.env.BML_E2E_WORKSPACE_DIR = workspaceDir;
+process.env.BLM_E2E_WORKSPACE_DIR = workspaceDir;
 
 module.exports = {
   testDir: path.join(toolDir, 'tests'),
@@ -19,16 +19,16 @@ module.exports = {
     headless: true,
   },
   webServer: {
-    command: 'python bml.py',
+    command: 'python blm.py',
     url: 'http://127.0.0.1:8899',
     reuseExistingServer: false,
     timeout: 30_000,
     cwd: repoRoot,
     env: {
       ...process.env,
-      BML_PORT: '8899',
-      BML_NO_BROWSER: '1',
-      BML_WORKSPACE_DIR: workspaceDir,
+      BLM_PORT: '8899',
+      BLM_NO_BROWSER: '1',
+      BLM_WORKSPACE_DIR: workspaceDir,
     },
   },
 };

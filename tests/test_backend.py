@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bml_core.document import create_empty_document, migrate_document
-from bml_core.markdown import MarkdownExporter
-from bml_core.storage import InvalidDocumentNameError, WorkspaceStorage
+from blm_core.document import create_empty_document, migrate_document
+from blm_core.markdown import MarkdownExporter
+from blm_core.storage import InvalidDocumentNameError, WorkspaceStorage
 
 
 class CreateEmptyDocumentTests(unittest.TestCase):

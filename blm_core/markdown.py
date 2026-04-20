@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from bml_core.document import migrate_document
+from blm_core.document import migrate_document
 
 
 STEP_LABELS = {
