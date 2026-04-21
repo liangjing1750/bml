@@ -28,6 +28,8 @@
 - `app/`
   浏览器前端。`state.js` 管状态，`render.js/domain.js/process.js/entity.js/preview.js` 负责界面与建模编辑，`app.js` 负责工作流编排。
 
+![工作区编辑主界面](screenshots/06_workspace_editor.png)
+
 ### 3.2 数据流
 
 1. 用户在浏览器打开 BLM。
@@ -45,6 +47,8 @@
   - 工作区文档
   - 回收站
 - 工作区列表支持直接打开、查看历史、删除文档。
+
+![打开文档弹窗](screenshots/05_open_dialog.png)
 
 ### 4.2 保存与复制
 
@@ -81,6 +85,8 @@
    - 若有冲突，则要求完成裁决；
    - 若无冲突，则直接生成合并结果。
 
+![合并文档弹窗](screenshots/07_merge_dialog.png)
+
 ### 5.3 后端规则
 
 - 使用 `blm_core.merge` 进行双文档合并。
@@ -94,6 +100,8 @@
   - 保留右侧
   - 两者都保留
 - 合并完成后统一重整显示 ID，并进行一致性校验。
+
+![合并结果示意](screenshots/08_merge_result.png)
 
 ## 6. 文档兼容与存储策略
 
@@ -136,3 +144,14 @@
   当界面文案、操作步骤、按钮行为变化时同步更新。
 
 当前仓库已用测试约束这些文档必须存在，并覆盖核心功能关键词，避免后续完全失联。
+
+## 9. 截图更新方式
+
+当前项目已提供自动截图脚本，用于在界面调整后更新文档插图：
+
+```bash
+cd tools/e2e
+npm run capture:docs
+```
+
+脚本会自动启动本地 BLM、构造示例工作区文档，并更新 `docs/screenshots/` 下的文档截图。
