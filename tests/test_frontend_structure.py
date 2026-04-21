@@ -57,7 +57,10 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertIn('id="save-as-modal-title">复制文档</h3>', html)
         self.assertIn('id="save-as-confirm-label">确认复制</button>', html)
         self.assertIn('data-testid="toolbar-manual-button"', html)
-        self.assertLess(html.find('data-testid="toolbar-export-button"'), html.find('data-testid="toolbar-manual-button"'))
+        self.assertLess(
+            html.find('data-testid="toolbar-export-button"'),
+            html.find('data-testid="toolbar-manual-button"'),
+        )
         self.assertIn('<script src="vendor/mermaid.min.js"></script>', html)
         self.assertIn('<script src="vendor/marked.umd.js"></script>', html)
         self.assertIn('<script src="manual.js"></script>', html)
@@ -82,6 +85,8 @@ class FrontendStructureTests(unittest.TestCase):
         app_js = (APP_DIR / "app.js").read_text("utf-8")
         state_js = (APP_DIR / "state.js").read_text("utf-8")
         render_js = (APP_DIR / "render.js").read_text("utf-8")
+        manual_js = (APP_DIR / "manual.js").read_text("utf-8")
+        style_css = (APP_DIR / "style.css").read_text("utf-8")
 
         self.assertNotIn("S.merge.paths", app_js)
         self.assertNotIn("getPathBasename", app_js)
@@ -89,6 +94,10 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertNotIn("paths:", state_js)
         self.assertNotIn("{id:'manual', label:'使用手册'}", render_js)
         self.assertIn("toolbar-manual-button", render_js)
+        self.assertIn("document.getElementById('tab-bar').innerHTML = '';", render_js)
+        self.assertIn("manual-reader-head", manual_js)
+        self.assertNotIn("manual-image-card", manual_js)
+        self.assertIn(".manual-shell #tab-bar", style_css)
 
 
 if __name__ == "__main__":

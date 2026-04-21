@@ -191,14 +191,15 @@ function _defaultSbCollapse(doc) {
 
 function render() {
   renderToolbar();
-  renderTabBar();
   const manualMode = S.ui.tab === 'manual';
   document.body.classList.toggle('manual-shell', manualMode);
   if (manualMode) {
+    document.getElementById('tab-bar').innerHTML = '';
     if (typeof renderManualTab === 'function') renderManualTab();
     if (typeof bootManualTab === 'function') void bootManualTab();
     return;
   }
+  renderTabBar();
   if(!S.doc){renderNoDoc();return;}
   renderSidebar();
   const t=S.ui.tab;

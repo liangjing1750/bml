@@ -154,7 +154,7 @@ function renderManualDocList() {
 
 function renderManualOutlineList() {
   if (S.manual.loading) {
-    return '<div class="manual-empty-hint">正在生成目录…</div>';
+    return '<div class="manual-empty-hint">正在生成目录...</div>';
   }
   const outline = S.manual.outline || [];
   if (!outline.length) {
@@ -168,59 +168,33 @@ function renderManualOutlineList() {
     >${esc(item.label)}</button>`).join('');
 }
 
-function renderManualImageRail() {
-  if (S.manual.loading) {
-    return '<div class="manual-empty-hint">正在加载图示…</div>';
-  }
-  const images = S.manual.images || [];
-  if (!images.length) {
-    return '<div class="manual-empty-hint">当前文档没有截图。</div>';
-  }
-  return images.map((image) => `
-    <button type="button" class="manual-image-card" onclick="manualJumpTo('${esc(image.id)}')">
-      <img src="${esc(image.src)}" alt="${esc(image.label)}">
-      <span>${esc(image.label)}</span>
-    </button>`).join('');
-}
-
 function renderManualTab() {
   const container = document.getElementById('tab-content');
   if (!container) return;
   const title = S.manual.activeTitle || '使用手册';
-  const summary = S.manual.activeSummary || '在这里可以查看设计文档、测试用例和用户手册。';
   const contentHtml = S.manual.loading
-    ? '<div class="manual-loading">正在加载文档内容…</div>'
-    : (S.manual.html || '<div class="manual-loading">正在准备文档内容…</div>');
+    ? '<div class="manual-loading">正在加载文档内容...</div>'
+    : (S.manual.html || '<div class="manual-loading">正在准备文档内容...</div>');
 
   container.innerHTML = `
     <div class="manual-wrap" data-testid="manual-tab">
-      <div class="manual-header">
-        <div>
-          <div class="manual-eyebrow">使用手册</div>
-          <h2 id="manual-current-title" data-testid="manual-title">${esc(title)}</h2>
-          <p>${esc(summary)}</p>
-        </div>
-      </div>
       <div class="manual-body">
         <aside class="manual-nav">
           <section class="manual-panel">
-            <div class="manual-panel-title">文档列表</div>
+            <div class="manual-panel-title">文档</div>
             <div class="manual-doc-list">${renderManualDocList()}</div>
           </section>
           <section class="manual-panel">
-            <div class="manual-panel-title">目录大纲</div>
+            <div class="manual-panel-title">目录</div>
             <div class="manual-outline-list">${renderManualOutlineList()}</div>
           </section>
         </aside>
         <section class="manual-reader">
+          <div class="manual-reader-head">
+            <h2 id="manual-current-title" data-testid="manual-title">${esc(title)}</h2>
+          </div>
           <article id="manual-content" class="manual-article">${contentHtml}</article>
         </section>
-        <aside class="manual-rail">
-          <section class="manual-panel manual-panel-sticky">
-            <div class="manual-panel-title">图示速览</div>
-            <div class="manual-image-list">${renderManualImageRail()}</div>
-          </section>
-        </aside>
       </div>
     </div>`;
 

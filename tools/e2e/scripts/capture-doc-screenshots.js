@@ -219,15 +219,21 @@ async function captureScreenshots() {
       fullPage: true,
     });
 
+    await page.goto(baseUrl);
     await page.getByTestId('toolbar-manual-button').click();
     await page.getByTestId('manual-doc-user-manual').click();
-    await page.getByTestId('manual-tab').screenshot({
+    await page.getByTestId('manual-title').waitFor();
+    await page.locator('#tab-content').screenshot({
       path: path.join(screenshotDir, '09_manual_tab.png'),
     });
 
     await browser.close();
   } finally {
     serverProcess.kill();
+    await Promise.race([
+      new Promise((resolve) => serverProcess.once('exit', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ]);
   }
 }
 
