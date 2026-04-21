@@ -459,22 +459,21 @@ function renderNodePerspectiveSwitch() {
       class="node-perspective-btn ${perspective === 'user' ? 'active' : ''}"
       data-testid="node-perspective-user"
       onclick="setNodePerspective('user')"
-    >用户视角</button>
+    >用户步骤视图</button>
     <button
       type="button"
       class="node-perspective-btn ${perspective === 'engineering' ? 'active' : ''}"
       data-testid="node-perspective-engineering"
       onclick="setNodePerspective('engineering')"
-    >研发视角</button>
+    >任务级视图</button>
   </div>`;
 }
 
 function renderUserStepsSection(proc, task) {
   const userSteps = getNodeUserSteps(task);
-  const perspective = S.ui.nodePerspective || 'user';
-  return `<div class="form-section node-perspective-panel ${perspective === 'user' ? 'active' : ''}" data-testid="user-steps-section">
+  return `<div class="form-section node-perspective-panel active" data-testid="user-steps-section">
     <div class="section-toolbar">
-      <h4>用户操作步骤 <span class="section-count">${userSteps.length} 项</span></h4>
+      <h4>用户步骤视图 <span class="section-count">${userSteps.length} 项</span></h4>
       <button class="btn btn-outline btn-sm" type="button" onclick="addStep('${esc(proc.id)}','${esc(task.id)}')">＋添加步骤</button>
     </div>
     <p class="section-hint">面向产品视角，描述页面上的查看、点击、填写、提交等用户动作。</p>
@@ -505,10 +504,9 @@ function renderUserStepsSection(proc, task) {
 
 function renderOrchestrationSection(proc, task) {
   const orchestrationTasks = getNodeOrchestrationTasks(task);
-  const perspective = S.ui.nodePerspective || 'user';
-  return `<div class="form-section node-perspective-panel ${perspective === 'engineering' ? 'active' : ''}" data-testid="orchestration-section">
+  return `<div class="form-section node-perspective-panel active" data-testid="orchestration-section">
     <div class="section-toolbar">
-      <h4>编排任务 <span class="section-count">${orchestrationTasks.length} 项</span></h4>
+      <h4>任务级视图 <span class="section-count">${orchestrationTasks.length} 项</span></h4>
       <button class="btn btn-outline btn-sm" type="button" onclick="addOrchestrationTask('${esc(proc.id)}','${esc(task.id)}')">＋添加任务</button>
     </div>
     <p class="section-hint">面向研发视角，描述查询、校验、计算、服务编排等实现任务。</p>
@@ -955,7 +953,11 @@ function renderProcessTab() {
 
       /* 步骤 */
       h+=renderNodePerspectiveSwitch();
-      h+=renderUserStepsSection(proc, task);
+      if ((S.ui.nodePerspective || 'user') === 'engineering') {
+        h+=renderOrchestrationSection(proc, task);
+      } else {
+        h+=renderUserStepsSection(proc, task);
+      }
 
       /* 涉及实体 */
       const eops=task.entity_ops||[];
@@ -999,8 +1001,6 @@ function renderProcessTab() {
           oninput="setTask('${esc(proc.id)}','${esc(task.id)}','rules_note',this.value)"
           >${esc(task.rules_note||'')}</textarea>
       </div>`;
-
-      h+=renderOrchestrationSection(proc, task);
 
     } else {
       /* ── 流程信息 ── */

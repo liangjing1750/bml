@@ -61,8 +61,9 @@ test('节点在当前编辑区内展示编排任务与任务级流程图', async
   await openTaskEditor(page, documentName);
   await expect(page.getByTestId('node-perspective-switch')).toBeVisible();
   await page.getByTestId('node-perspective-engineering').click();
-  await expect(page.locator('.node-perspective-btn.active')).toContainText('研发视角');
+  await expect(page.locator('.node-perspective-btn.active')).toContainText('任务级视图');
   await expect(page.getByTestId('orchestration-section')).toBeVisible();
+  await expect(page.getByTestId('user-steps-section')).toHaveCount(0);
   await expect(page.getByTestId('orchestration-flow')).toBeVisible();
   await expect(page.locator('.proc-subdrawer')).toHaveCount(0);
   await expect(page.locator('.orch-card .orch-name').first()).toHaveValue('校验账号状态');
