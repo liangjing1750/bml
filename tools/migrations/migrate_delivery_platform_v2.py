@@ -370,6 +370,13 @@ def _build_rules(source: dict, kept_old_ids: set[str]) -> list[dict]:
                 "仓单注册前必须先确认候选现货仓单与 SPC_ID 的映射关系，映射未确认不得生成仓库期货仓单。",
             ),
             rule(
+                "注册后现货仓单禁止货转和直接出库",
+                "DataRule",
+                "E22",
+                "现货仓单一旦处于已注册期货仓单的有效映射状态，只允许移垛，不允许直接货转或出库，后续需先完成注销回流。",
+                "存在有效期现关联 -> 允许移垛；禁止货转/直接出库",
+            ),
+            rule(
                 "仓单注销完成后才能出库",
                 "StepRule",
                 "P-CANCEL",
@@ -664,6 +671,97 @@ def _maintenance_query_process(
     )
 
 
+def _standard_maintenance_suite(
+    *,
+    process_id_prefix: str,
+    subject: str,
+    sub_domain: str,
+    flow_group: str,
+    actor: str,
+    reviewer: str,
+    primary_entity_id: str,
+    reference_entity_ids: list[str] | None = None,
+    query_actor: str | None = None,
+    query_entity_ids: list[str] | None = None,
+    extra_rule: str = "",
+    create_name: str | None = None,
+    update_name: str | None = None,
+    toggle_name: str | None = None,
+    query_name: str | None = None,
+    create_trigger: str | None = None,
+    create_outcome: str | None = None,
+    update_trigger: str | None = None,
+    update_outcome: str | None = None,
+    toggle_trigger: str | None = None,
+    toggle_outcome: str | None = None,
+    query_trigger: str | None = None,
+    query_outcome: str | None = None,
+) -> list[dict]:
+    suite: list[dict] = []
+    refs = reference_entity_ids or []
+    query_ids = query_entity_ids or [primary_entity_id, *refs]
+
+    suite.append(
+        _maintenance_create_process(
+            process_id=f"{process_id_prefix}-CREATE",
+            name=create_name or f"新增{subject}",
+            subject=subject,
+            sub_domain=sub_domain,
+            flow_group=flow_group,
+            actor=actor,
+            reviewer=reviewer,
+            primary_entity_id=primary_entity_id,
+            reference_entity_ids=refs,
+            trigger=create_trigger or f"需要新增新的{subject}",
+            outcome=create_outcome or f"形成可用的{subject}档案",
+            extra_rule=extra_rule or f"{subject}关键字段必须完整、唯一且可追溯。",
+        )
+    )
+    suite.append(
+        _maintenance_update_process(
+            process_id=f"{process_id_prefix}-UPDATE",
+            name=update_name or f"修改{subject}",
+            subject=subject,
+            sub_domain=sub_domain,
+            flow_group=flow_group,
+            actor=actor,
+            reviewer=reviewer,
+            primary_entity_id=primary_entity_id,
+            reference_entity_ids=refs,
+            trigger=update_trigger or f"已有{subject}档案需要调整",
+            outcome=update_outcome or f"{subject}最新版本生效",
+        )
+    )
+    suite.append(
+        _maintenance_toggle_process(
+            process_id=f"{process_id_prefix}-TOGGLE",
+            name=toggle_name or f"启停{subject}",
+            subject=subject,
+            sub_domain=sub_domain,
+            flow_group=flow_group,
+            actor=actor,
+            reviewer=reviewer,
+            primary_entity_id=primary_entity_id,
+            trigger=toggle_trigger or f"{subject}需要启用、停用或恢复",
+            outcome=toggle_outcome or f"{subject}状态切换完成",
+        )
+    )
+    suite.append(
+        _maintenance_query_process(
+            process_id=f"{process_id_prefix}-QUERY",
+            name=query_name or f"查询{subject}",
+            subject=subject,
+            sub_domain=sub_domain,
+            flow_group=flow_group,
+            actor=query_actor or reviewer,
+            entity_ids=query_ids,
+            trigger=query_trigger or f"需要查看{subject}档案、状态和关联信息",
+            outcome=query_outcome or f"返回{subject}查询结果",
+        )
+    )
+    return suite
+
+
 def _build_processes(source: dict) -> list[dict]:
     source_by_name = {item["name"]: item for item in source.get("processes", [])}
     role_map = {"读者": "货权人"}
@@ -671,29 +769,131 @@ def _build_processes(source: dict) -> list[dict]:
 
     # 用户管理
     processes.append(_clone_process(source_by_name, "统一登录", flow_group="认证与登录", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "账号与角色管理", new_name="账号维护", flow_group="账号与权限", role_map=role_map))
-    processes.append(
-        _maintenance_update_process(
-            process_id="P-ROLE-MAINTAIN",
-            name="角色维护",
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-ACCOUNT",
+            subject="账号",
+            sub_domain="用户管理",
+            flow_group="账号与权限",
+            actor="平台管理员",
+            reviewer="交割部超级账号",
+            primary_entity_id="E1",
+            reference_entity_ids=["E2"],
+            query_actor="平台管理员",
+            extra_rule="账号登录名、所属机构和权限边界必须明确，停用前需确认无关键待办挂起。",
+            create_outcome="形成可登录、可授权的新账号",
+            query_outcome="返回账号、角色与状态查询结果",
+        )
+    )
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-ROLE",
             subject="角色",
             sub_domain="用户管理",
             flow_group="账号与权限",
             actor="平台管理员",
             reviewer="交割部超级账号",
             primary_entity_id="E2",
-            trigger="平台需要新增或调整角色能力边界",
-            outcome="形成可生效的角色配置",
+            query_actor="平台管理员",
+            extra_rule="角色能力边界必须清晰，并与菜单授权配置保持一致。",
+            create_outcome="形成可授权的新角色配置",
+            query_outcome="返回角色能力边界与授权结果",
         )
     )
-    processes.append(_clone_process(source_by_name, "菜单鉴权", flow_group="账号与权限", role_map=role_map))
+    processes.append(
+        _maintenance_update_process(
+            process_id="P-MENU-AUTH-CONFIG",
+            name="配置菜单鉴权",
+            subject="菜单鉴权",
+            sub_domain="用户管理",
+            flow_group="账号与权限",
+            actor="平台管理员",
+            reviewer="交割部超级账号",
+            primary_entity_id="E2",
+            reference_entity_ids=["E1"],
+            trigger="角色或菜单能力边界需要调整",
+            outcome="菜单鉴权配置最新版本生效",
+        )
+    )
+    processes.append(
+        _maintenance_query_process(
+            process_id="P-MENU-AUTH-QUERY",
+            name="查询菜单鉴权",
+            subject="菜单鉴权",
+            sub_domain="用户管理",
+            flow_group="账号与权限",
+            actor="平台管理员",
+            entity_ids=["E1", "E2"],
+            trigger="需要查询账号、角色和菜单授权关系",
+            outcome="返回菜单鉴权配置与角色授权视图",
+        )
+    )
     processes.append(_clone_process(source_by_name, "通知待办中心", flow_group="平台协同", role_map=role_map))
 
     # 基础数据管理
-    processes.append(_clone_process(source_by_name, "基础信息管理", flow_group="基础档案", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "参数配置管理", flow_group="参数规则", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "数据字典管理", flow_group="数据字典", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "商品主数据管理", flow_group="商品主数据", role_map=role_map))
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-BASE-INFO",
+            subject="基础信息项",
+            sub_domain="基础数据管理",
+            flow_group="基础档案",
+            actor="平台管理员",
+            reviewer="交割部人员",
+            primary_entity_id="E5",
+            extra_rule="基础信息项必须明确适用业务、展示口径和是否参与流程校验。",
+        )
+    )
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-PARAM",
+            subject="参数配置",
+            sub_domain="基础数据管理",
+            flow_group="参数规则",
+            actor="平台管理员",
+            reviewer="交割部人员",
+            primary_entity_id="E6",
+            extra_rule="参数配置必须明确生效范围、生效时间和默认值策略。",
+        )
+    )
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-DICT",
+            subject="字典项",
+            sub_domain="基础数据管理",
+            flow_group="数据字典",
+            actor="平台管理员",
+            reviewer="交割部人员",
+            primary_entity_id="E7",
+            query_name="查询字典项",
+            extra_rule="字典编码和值域必须稳定，避免影响既有流程实例。",
+            query_outcome="返回字典项、取值和启停状态",
+        )
+    )
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-BRAND",
+            subject="商品品牌",
+            sub_domain="基础数据管理",
+            flow_group="商品主数据",
+            actor="平台管理员",
+            reviewer="交割部人员",
+            primary_entity_id="E8",
+            extra_rule="商品品牌必须绑定品种分类，并保持编码唯一。",
+        )
+    )
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-GRADE",
+            subject="商品等级规格",
+            sub_domain="基础数据管理",
+            flow_group="商品主数据",
+            actor="平台管理员",
+            reviewer="交割部人员",
+            primary_entity_id="E9",
+            reference_entity_ids=["E8"],
+            extra_rule="等级规格必须与品牌、品种及质检口径保持一致。",
+        )
+    )
 
     # 交割服务机构管理
     processes.extend(
@@ -835,6 +1035,17 @@ def _build_processes(source: dict) -> list[dict]:
                 trigger="仓房需要启停切换",
                 outcome="仓房状态更新",
             ),
+            _maintenance_query_process(
+                process_id="P-ROOM-QUERY",
+                name="查询仓房",
+                subject="仓房",
+                sub_domain="交割服务机构管理",
+                flow_group="仓房维护",
+                actor="交割部人员",
+                entity_ids=["E11", "E10"],
+                trigger="需要查看仓房档案、状态与归属仓库",
+                outcome="返回仓房查询结果",
+            ),
             _maintenance_create_process(
                 process_id="P-PILE-CREATE",
                 name="新增垛位",
@@ -873,6 +1084,17 @@ def _build_processes(source: dict) -> list[dict]:
                 primary_entity_id="E12",
                 trigger="垛位需要启停切换",
                 outcome="垛位状态更新",
+            ),
+            _maintenance_query_process(
+                process_id="P-PILE-QUERY",
+                name="查询垛位",
+                subject="垛位",
+                sub_domain="交割服务机构管理",
+                flow_group="垛位维护",
+                actor="交割部人员",
+                entity_ids=["E12", "E11", "E10"],
+                trigger="需要查看垛位档案、容量与归属位置",
+                outcome="返回垛位查询结果",
             ),
             _maintenance_create_process(
                 process_id="P-PICKUP-CREATE",
@@ -976,35 +1198,35 @@ def _build_processes(source: dict) -> list[dict]:
         [
             _clone_process(source_by_name, "入库预约管理", new_name="入库预约申请", flow_group="入库管理", keep_node_indexes=[0, 1], role_map=role_map),
             process(
-                "入库预约变更撤销",
+                "入库预约变更",
                 "仓储仓单管理",
                 "入库管理",
-                "已提交的入库预约需要调整时段、数量或撤销",
-                "形成新的预约版本或撤销结果",
+                "已提交的入库预约需要调整时段、数量或仓库响应信息",
+                "形成新的入库预约版本并保留变更链路",
                 [
                     node(
-                        "查看当前预约结果",
+                        "发起入库预约变更",
                         "货权人",
                         user_steps=[
                             user_step("查询当前预约状态", "Query", "查看仓库回复结果和当前可变更状态。"),
-                            user_step("填写变更或撤销内容", "Fill", "调整预约数量、时段或提交撤销原因。"),
-                            user_step("提交变更或撤销申请", "Mutate", "进入仓库审核流程。"),
+                            user_step("填写变更内容", "Fill", "调整预约数量、时段、货物信息或备注。"),
+                            user_step("提交变更申请", "Mutate", "进入仓库审核流程。"),
                         ],
                         orchestration_tasks=[
                             orchestration_task("读取预约快照", "Query", "预约查询服务", "加载当前预约版本。", query_source_kind="QueryService"),
-                            orchestration_task("保存变更申请", "Mutate", "预约领域服务", "生成新的预约变更申请。"),
+                            orchestration_task("保存变更申请", "Mutate", "预约领域服务", "生成新的预约变更版本。"),
                         ],
                         entity_ops=[entity_op("E20", "R", "U")],
-                        rules_note="只有未完成、未作废的预约才能变更或撤销。",
-                        node_id="P-INBOUND-CHANGE-T1",
+                        rules_note="只有未完成、未作废且未开始入场的预约才能发起变更。",
+                        node_id="P-INBOUND-UPDATE-T1",
                     ),
                     node(
-                        "审核预约变更结果",
+                        "审核入库预约变更",
                         "仓库业务员",
                         user_steps=[
                             user_step("查看变更申请", "Query", "核对当前预约、现场能力和变更原因。"),
                             user_step("确认变更是否可执行", "Check", "校验时段、数量和仓容约束。"),
-                            user_step("回复变更结果", "Mutate", "确认变更通过、驳回或撤销成功。"),
+                            user_step("回复变更结果", "Mutate", "确认变更通过、驳回或退回补充。"),
                         ],
                         orchestration_tasks=[
                             orchestration_task("校验仓容与时段", "Check", "预约领域服务", "校验调整后是否仍可执行。"),
@@ -1012,10 +1234,52 @@ def _build_processes(source: dict) -> list[dict]:
                         ],
                         entity_ops=[entity_op("E20", "R", "U")],
                         rules_note="变更后的预约必须保留完整版本链。",
-                        node_id="P-INBOUND-CHANGE-T2",
+                        node_id="P-INBOUND-UPDATE-T2",
                     ),
                 ],
-                process_id="P-INBOUND-CHANGE",
+                process_id="P-INBOUND-UPDATE",
+            ),
+            process(
+                "入库预约撤销",
+                "仓储仓单管理",
+                "入库管理",
+                "已提交的入库预约不再执行，需要在办理前撤销",
+                "形成已撤销的预约结果并保留撤销原因",
+                [
+                    node(
+                        "发起入库预约撤销",
+                        "货权人",
+                        user_steps=[
+                            user_step("查询当前预约状态", "Query", "查看当前预约是否允许撤销。"),
+                            user_step("填写撤销原因", "Fill", "说明撤销原因和影响范围。"),
+                            user_step("提交撤销申请", "Mutate", "进入仓库确认流程。"),
+                        ],
+                        orchestration_tasks=[
+                            orchestration_task("读取预约快照", "Query", "预约查询服务", "加载当前预约版本。", query_source_kind="QueryService"),
+                            orchestration_task("登记撤销申请", "Mutate", "预约领域服务", "保存撤销原因并冻结当前预约。"),
+                        ],
+                        entity_ops=[entity_op("E20", "R", "U")],
+                        rules_note="已开始办理或已完成入库的预约不得直接撤销。",
+                        node_id="P-INBOUND-CANCEL-T1",
+                    ),
+                    node(
+                        "确认入库预约撤销",
+                        "仓库业务员",
+                        user_steps=[
+                            user_step("查看撤销申请", "Query", "确认预约当前状态和现场准备情况。"),
+                            user_step("确认是否允许撤销", "Check", "校验是否已占用仓容、排班或现场资源。"),
+                            user_step("提交撤销结论", "Mutate", "确认撤销成功或驳回撤销。"),
+                        ],
+                        orchestration_tasks=[
+                            orchestration_task("校验撤销约束", "Check", "预约领域服务", "核验现场准备和占用状态。"),
+                            orchestration_task("更新预约状态", "Mutate", "预约领域服务", "回写撤销结果并通知申请方。"),
+                        ],
+                        entity_ops=[entity_op("E20", "R", "U")],
+                        rules_note="撤销成功后应释放对应时段和仓容占用。",
+                        node_id="P-INBOUND-CANCEL-T2",
+                    ),
+                ],
+                process_id="P-INBOUND-CANCEL",
             ),
             _clone_process(source_by_name, "入库办理", flow_group="入库管理", role_map=role_map),
             _clone_process(source_by_name, "入库盘点与信息比对", flow_group="入库管理", role_map=role_map),
@@ -1179,40 +1443,40 @@ def _build_processes(source: dict) -> list[dict]:
                 process_id="P-TRANSFER",
             ),
             _clone_process(source_by_name, "现货货转管理", new_name="现货货转", flow_group="仓单作业", role_map=role_map),
-            _clone_process(source_by_name, "移垛管理", new_name="移垛作业", flow_group="仓单作业", role_map=role_map),
+            _clone_process(source_by_name, "移垛管理", new_name="现货移垛", flow_group="仓单作业", role_map=role_map),
             _clone_process(source_by_name, "盘库管理", new_name="盘库任务", flow_group="仓单作业", role_map=role_map),
             _clone_process(source_by_name, "货权人查库管理", new_name="货权人查库申请", flow_group="查询与追溯", role_map=role_map),
             _clone_process(source_by_name, "出库预约管理", new_name="出库预约申请", flow_group="出库管理", keep_node_indexes=[0, 1], role_map=role_map),
             process(
-                "出库预约变更撤销",
+                "出库预约变更",
                 "仓储仓单管理",
                 "出库管理",
-                "已提交的出库预约需要调整时段、数量或撤销",
-                "形成新的出库预约版本或撤销结果",
+                "已提交的出库预约需要调整提货时段、数量或提货地点",
+                "形成新的出库预约版本并保留变更链路",
                 [
                     node(
-                        "查看当前出库预约",
+                        "发起出库预约变更",
                         "货权人",
                         user_steps=[
                             user_step("查询当前预约状态", "Query", "查看仓库回复结果和当前可变更状态。"),
-                            user_step("填写变更或撤销内容", "Fill", "调整预约数量、提货时间或提交撤销原因。"),
-                            user_step("提交变更或撤销申请", "Mutate", "进入仓库审核流程。"),
+                            user_step("填写变更内容", "Fill", "调整预约数量、提货时间、提货地点或备注。"),
+                            user_step("提交变更申请", "Mutate", "进入仓库审核流程。"),
                         ],
                         orchestration_tasks=[
                             orchestration_task("读取预约快照", "Query", "出库预约查询服务", "加载当前预约版本。", query_source_kind="QueryService"),
-                            orchestration_task("保存变更申请", "Mutate", "出库预约领域服务", "生成新的出库预约变更申请。"),
+                            orchestration_task("保存变更申请", "Mutate", "出库预约领域服务", "生成新的出库预约变更版本。"),
                         ],
                         entity_ops=[entity_op("E29", "R", "U"), entity_op("E22", "R")],
-                        rules_note="只有未完成、未作废的出库预约才能变更或撤销。",
-                        node_id="P-OUTBOUND-CHANGE-T1",
+                        rules_note="只有未完成、未作废且未开始提货的出库预约才能发起变更。",
+                        node_id="P-OUTBOUND-UPDATE-T1",
                     ),
                     node(
-                        "审核出库预约变更结果",
+                        "审核出库预约变更",
                         "仓库业务员",
                         user_steps=[
                             user_step("查看变更申请", "Query", "核对提货地点、时段、数量和现场能力。"),
                             user_step("确认变更是否可执行", "Check", "校验提货条件、预约冲突和注销前置要求。"),
-                            user_step("回复变更结果", "Mutate", "确认变更通过、驳回或撤销成功。"),
+                            user_step("回复变更结果", "Mutate", "确认变更通过、驳回或退回补充。"),
                         ],
                         orchestration_tasks=[
                             orchestration_task("校验提货条件", "Check", "出库预约领域服务", "检查时段、数量和仓单状态约束。"),
@@ -1220,10 +1484,52 @@ def _build_processes(source: dict) -> list[dict]:
                         ],
                         entity_ops=[entity_op("E29", "R", "U"), entity_op("E22", "R"), entity_op("E13", "R")],
                         rules_note="涉及期货仓单的出库仍需满足先注销后出库原则。",
-                        node_id="P-OUTBOUND-CHANGE-T2",
+                        node_id="P-OUTBOUND-UPDATE-T2",
                     ),
                 ],
-                process_id="P-OUTBOUND-CHANGE",
+                process_id="P-OUTBOUND-UPDATE",
+            ),
+            process(
+                "出库预约撤销",
+                "仓储仓单管理",
+                "出库管理",
+                "已提交的出库预约不再执行，需要在提货办理前撤销",
+                "形成已撤销的出库预约结果并释放提货资源",
+                [
+                    node(
+                        "发起出库预约撤销",
+                        "货权人",
+                        user_steps=[
+                            user_step("查询当前预约状态", "Query", "确认预约是否仍可撤销。"),
+                            user_step("填写撤销原因", "Fill", "说明撤销原因和影响范围。"),
+                            user_step("提交撤销申请", "Mutate", "进入仓库确认流程。"),
+                        ],
+                        orchestration_tasks=[
+                            orchestration_task("读取预约快照", "Query", "出库预约查询服务", "加载当前预约版本。", query_source_kind="QueryService"),
+                            orchestration_task("登记撤销申请", "Mutate", "出库预约领域服务", "保存撤销原因并冻结当前预约。"),
+                        ],
+                        entity_ops=[entity_op("E29", "R", "U"), entity_op("E22", "R")],
+                        rules_note="已开始提货或已完成出库的预约不得直接撤销。",
+                        node_id="P-OUTBOUND-CANCEL-T1",
+                    ),
+                    node(
+                        "确认出库预约撤销",
+                        "仓库业务员",
+                        user_steps=[
+                            user_step("查看撤销申请", "Query", "确认预约当前状态、备货和场地占用情况。"),
+                            user_step("确认是否允许撤销", "Check", "校验是否已开始提货、过磅或出门。"),
+                            user_step("提交撤销结论", "Mutate", "确认撤销成功或驳回撤销。"),
+                        ],
+                        orchestration_tasks=[
+                            orchestration_task("校验撤销约束", "Check", "出库预约领域服务", "核验备货、过磅和场地占用状态。"),
+                            orchestration_task("更新预约状态", "Mutate", "出库预约领域服务", "回写撤销结果并释放提货资源。"),
+                        ],
+                        entity_ops=[entity_op("E29", "R", "U"), entity_op("E22", "R"), entity_op("E13", "R")],
+                        rules_note="撤销成功后应释放提货地点、时段和现场作业资源。",
+                        node_id="P-OUTBOUND-CANCEL-T2",
+                    ),
+                ],
+                process_id="P-OUTBOUND-CANCEL",
             ),
             _clone_process(source_by_name, "出库办理", flow_group="出库管理", role_map=role_map),
             process(
@@ -1333,18 +1639,236 @@ def _build_processes(source: dict) -> list[dict]:
     )
 
     # 厂库库存管理
-    processes.append(_clone_process(source_by_name, "厂库出库预约管理", new_name="厂库出库预约", flow_group="厂库出库", role_map=role_map))
+    processes.append(_clone_process(source_by_name, "厂库出库预约管理", new_name="厂库出库预约申请", flow_group="厂库出库", keep_node_indexes=[0, 1], role_map=role_map))
+    processes.append(
+        process(
+            "厂库出库预约变更",
+            "厂库库存管理",
+            "厂库出库",
+            "已提交的厂库出库预约需要调整提货时间、数量或提货地点",
+            "形成新的厂库出库预约版本并保留变更链路",
+            [
+                node(
+                    "发起厂库出库预约变更",
+                    "货权人",
+                    user_steps=[
+                        user_step("查询当前预约状态", "Query", "查看厂库回复结果和当前可变更状态。"),
+                        user_step("填写变更内容", "Fill", "调整提货时间、数量、提货地点或备注。"),
+                        user_step("提交变更申请", "Mutate", "进入厂库审核流程。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("读取预约快照", "Query", "厂库出库预约查询服务", "加载当前预约版本。", query_source_kind="QueryService"),
+                        orchestration_task("保存变更申请", "Mutate", "厂库出库预约领域服务", "生成新的厂库出库预约变更版本。"),
+                    ],
+                    entity_ops=[entity_op("E32", "R", "U"), entity_op("E31", "R"), entity_op("E13", "R")],
+                    rules_note="只有未完成、未作废且未开始交付的厂库出库预约才能发起变更。",
+                    node_id="P-FACTORY-OUTBOUND-UPDATE-T1",
+                ),
+                node(
+                    "审核厂库出库预约变更",
+                    "厂库业务员",
+                    user_steps=[
+                        user_step("查看变更申请", "Query", "核对提货地点、时段、数量和当前可提数量。"),
+                        user_step("确认变更是否可执行", "Check", "校验交付能力、提货条件和预约冲突。"),
+                        user_step("回复变更结果", "Mutate", "确认变更通过、驳回或退回补充。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("校验交付能力", "Check", "厂库出库预约领域服务", "检查时段、数量和当前可提数量。"),
+                        orchestration_task("更新预约版本", "Mutate", "厂库出库预约领域服务", "回写变更结果并通知申请方。"),
+                    ],
+                    entity_ops=[entity_op("E32", "R", "U"), entity_op("E31", "R"), entity_op("E13", "R")],
+                    rules_note="厂库变更后的预约仍需满足当前可提数量和交付节奏约束。",
+                    node_id="P-FACTORY-OUTBOUND-UPDATE-T2",
+                ),
+            ],
+            process_id="P-FACTORY-OUTBOUND-UPDATE",
+        )
+    )
+    processes.append(
+        process(
+            "厂库出库预约撤销",
+            "厂库库存管理",
+            "厂库出库",
+            "已提交的厂库出库预约不再执行，需要在交付办理前撤销",
+            "形成已撤销的厂库出库预约结果并释放交付资源",
+            [
+                node(
+                    "发起厂库出库预约撤销",
+                    "货权人",
+                    user_steps=[
+                        user_step("查询当前预约状态", "Query", "确认厂库出库预约是否仍可撤销。"),
+                        user_step("填写撤销原因", "Fill", "说明撤销原因和影响范围。"),
+                        user_step("提交撤销申请", "Mutate", "进入厂库确认流程。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("读取预约快照", "Query", "厂库出库预约查询服务", "加载当前预约版本。", query_source_kind="QueryService"),
+                        orchestration_task("登记撤销申请", "Mutate", "厂库出库预约领域服务", "保存撤销原因并冻结当前预约。"),
+                    ],
+                    entity_ops=[entity_op("E32", "R", "U"), entity_op("E31", "R")],
+                    rules_note="已开始交付或已完成出库的厂库预约不得直接撤销。",
+                    node_id="P-FACTORY-OUTBOUND-CANCEL-T1",
+                ),
+                node(
+                    "确认厂库出库预约撤销",
+                    "厂库业务员",
+                    user_steps=[
+                        user_step("查看撤销申请", "Query", "确认厂库备货、提货和交付准备情况。"),
+                        user_step("确认是否允许撤销", "Check", "校验是否已开始交付、装车或出门。"),
+                        user_step("提交撤销结论", "Mutate", "确认撤销成功或驳回撤销。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("校验撤销约束", "Check", "厂库出库预约领域服务", "核验备货和交付状态。"),
+                        orchestration_task("更新预约状态", "Mutate", "厂库出库预约领域服务", "回写撤销结果并释放资源。"),
+                    ],
+                    entity_ops=[entity_op("E32", "R", "U"), entity_op("E31", "R")],
+                    rules_note="撤销成功后应释放提货地点、交付时段和备货资源。",
+                    node_id="P-FACTORY-OUTBOUND-CANCEL-T2",
+                ),
+            ],
+            process_id="P-FACTORY-OUTBOUND-CANCEL",
+        )
+    )
     processes.append(_clone_process(source_by_name, "厂库出库办理", new_name="厂库出库办理", flow_group="厂库出库", role_map=role_map))
     processes.append(_clone_process(source_by_name, "厂库复检与留样管理", new_name="厂库复检与留样", flow_group="厂库质检", role_map=role_map))
     processes.append(_clone_process(source_by_name, "厂库库存查询", new_name="厂库库存查询", flow_group="厂库查询", role_map=role_map))
+    processes.append(
+        _maintenance_query_process(
+            process_id="P-FACTORY-OUTBOUND-QUERY",
+            name="厂库出库进度查询",
+            subject="厂库出库进度",
+            sub_domain="厂库库存管理",
+            flow_group="厂库查询",
+            actor="交割部人员",
+            entity_ids=["E31", "E32", "E33"],
+            trigger="需要查询厂库仓单当前交付进度、预约状态和出库结果",
+            outcome="返回厂库出库进度查询结果",
+        )
+    )
 
     # 车船板交割管理
-    processes.append(_clone_process(source_by_name, "车船板预报与配对接入", flow_group="预报与配对", role_map=role_map))
+    processes.append(_clone_process(source_by_name, "车船板预报与配对接入", new_name="车船板预报接入", flow_group="预报与配对", keep_node_indexes=[0, 1], role_map=role_map))
+    processes.append(
+        process(
+            "交割配对确认",
+            "车船板交割管理",
+            "预报与配对",
+            "车船板预报已接入，需要形成正式交割配对关系",
+            "形成可执行的车船板交割配对结果",
+            [
+                node(
+                    "选择待配对预报",
+                    "交割部人员",
+                    user_steps=[
+                        user_step("查询待配对预报", "Query", "查看待处理的车船板预报和可选交割资源。"),
+                        user_step("填写配对方案", "Fill", "选择会员、仓库、时段和拟交割数量。"),
+                        user_step("提交配对确认", "Mutate", "进入系统落库和通知环节。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("加载预报候选", "Query", "车船板交割服务", "读取预报、库存和排班候选。", query_source_kind="QueryService"),
+                        orchestration_task("保存配对方案", "Mutate", "车船板交割服务", "生成待生效的交割配对方案。"),
+                    ],
+                    entity_ops=[entity_op("E35", "R"), entity_op("E36", "C")],
+                    rules_note="配对结果必须满足资源可用、时段不冲突和会员资格约束。",
+                    node_id="P-BOARD-MATCH-T1",
+                ),
+                node(
+                    "发布交割配对结果",
+                    "系统",
+                    user_steps=[user_step("查看配对结果", "Query", "展示最新配对结果和后续排班入口。")],
+                    orchestration_tasks=[
+                        orchestration_task("发布配对结果", "Service", "通知待办服务", "同步发布配对结果并通知相关参与方。"),
+                    ],
+                    entity_ops=[entity_op("E36", "R", "U")],
+                    rules_note="配对结果一旦生效，应驱动后续排班通知和现场作业。",
+                    node_id="P-BOARD-MATCH-T2",
+                ),
+            ],
+            process_id="P-BOARD-MATCH",
+        )
+    )
     processes.append(_clone_process(source_by_name, "交割排班通知", flow_group="排班与备案", role_map=role_map))
     processes.append(_clone_process(source_by_name, "协议与代理人备案", flow_group="排班与备案", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "现场签到与摇号抽样", flow_group="现场作业", role_map=role_map))
+    processes.append(_clone_process(source_by_name, "现场签到与摇号抽样", new_name="现场签到", flow_group="现场作业", keep_node_indexes=[0, 1], role_map=role_map))
+    processes.append(
+        process(
+            "摇号抽样",
+            "车船板交割管理",
+            "现场作业",
+            "车船板现场签到完成后，需要执行摇号抽样",
+            "形成可追溯的摇号抽样结果",
+            [
+                node(
+                    "发起摇号抽样",
+                    "交割部人员",
+                    user_steps=[
+                        user_step("选择待抽样现场批次", "Query", "查看已签到且待抽样的交割批次。"),
+                        user_step("确认抽样参数", "Fill", "设置抽样数量、范围和随机规则。"),
+                        user_step("执行摇号抽样", "Mutate", "生成抽样结果。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("读取待抽样批次", "Query", "车船板交割服务", "查询已签到的交割现场批次。", query_source_kind="QueryService"),
+                        orchestration_task("执行随机抽样", "Compute", "车船板交割服务", "按抽样规则生成抽样结果。"),
+                    ],
+                    entity_ops=[entity_op("E37", "C"), entity_op("E35", "R")],
+                    rules_note="摇号抽样规则必须留痕，并支持事后审计复核。",
+                    node_id="P-BOARD-LOTTERY-T1",
+                ),
+                node(
+                    "确认抽样结果",
+                    "交割部人员",
+                    user_steps=[user_step("查看抽样结果", "Query", "展示抽样样本、批次和留痕结果。")],
+                    orchestration_tasks=[
+                        orchestration_task("发布抽样结果", "Service", "车船板交割服务", "回写抽样结果并通知现场角色。"),
+                    ],
+                    entity_ops=[entity_op("E37", "R", "U")],
+                    rules_note="抽样结果需要支撑后续初检和复检流程。",
+                    node_id="P-BOARD-LOTTERY-T2",
+                ),
+            ],
+            process_id="P-BOARD-LOTTERY",
+        )
+    )
     processes.append(_clone_process(source_by_name, "初检结果确认", flow_group="现场作业", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "复检申请与押金处理", flow_group="现场作业", role_map=role_map))
+    processes.append(_clone_process(source_by_name, "复检申请与押金处理", new_name="复检申请", flow_group="现场作业", keep_node_indexes=[0, 1], role_map=role_map))
+    processes.append(
+        process(
+            "押金处理",
+            "车船板交割管理",
+            "现场作业",
+            "复检结果触发押金扣划、退回或补缴处理",
+            "形成押金处理结果并回写现场状态",
+            [
+                node(
+                    "确认押金处理方案",
+                    "交割部人员",
+                    user_steps=[
+                        user_step("查看复检与押金上下文", "Query", "核对复检结论、金额和责任主体。"),
+                        user_step("填写押金处理方案", "Fill", "确定扣划、退回或补缴情形。"),
+                        user_step("提交押金处理", "Mutate", "进入结算处理和通知流程。"),
+                    ],
+                    orchestration_tasks=[
+                        orchestration_task("读取复检结果", "Query", "车船板交割服务", "加载复检结论和押金上下文。", query_source_kind="QueryService"),
+                        orchestration_task("保存押金处理方案", "Mutate", "车船板交割服务", "记录押金处理方案。"),
+                    ],
+                    entity_ops=[entity_op("E38", "R", "U")],
+                    rules_note="押金处理必须与复检结论、责任判定和金额口径保持一致。",
+                    node_id="P-BOARD-DEPOSIT-T1",
+                ),
+                node(
+                    "发布押金处理结果",
+                    "系统",
+                    user_steps=[user_step("查看押金处理结果", "Query", "展示押金处理结果和后续状态。")],
+                    orchestration_tasks=[
+                        orchestration_task("发布押金处理结果", "Service", "通知待办服务", "同步发布押金处理结果并通知相关方。"),
+                    ],
+                    entity_ops=[entity_op("E38", "R", "U")],
+                    rules_note="押金处理结果应与现场作业状态和后续追责保持一致。",
+                    node_id="P-BOARD-DEPOSIT-T2",
+                ),
+            ],
+            process_id="P-BOARD-DEPOSIT",
+        )
+    )
     processes.append(_clone_process(source_by_name, "车船板统计查询", flow_group="查询统计", role_map=role_map))
 
     # 电子仓单同步数据管理
@@ -1381,8 +1905,33 @@ def _build_processes(source: dict) -> list[dict]:
     processes.append(_clone_process(source_by_name, "视频调阅播放", flow_group="视频查询调阅", role_map=role_map))
 
     # 物联网设备管理
-    processes.append(_clone_process(source_by_name, "物联网设备维护", flow_group="设备配置", role_map=role_map))
-    processes.append(_clone_process(source_by_name, "摄像头能力标签维护", flow_group="设备配置", role_map=role_map))
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-IOT-DEVICE",
+            subject="物联网设备",
+            sub_domain="物联网设备管理",
+            flow_group="设备配置",
+            actor="平台管理员",
+            reviewer="仓库管理员",
+            primary_entity_id="E44",
+            extra_rule="设备必须绑定仓库、点位和采集能力，停用前需确认不影响现有采集任务。",
+        )
+    )
+    processes.extend(
+        _standard_maintenance_suite(
+            process_id_prefix="P-CAMERA-CAP",
+            subject="摄像头能力标签",
+            sub_domain="物联网设备管理",
+            flow_group="设备配置",
+            actor="平台管理员",
+            reviewer="仓库管理员",
+            primary_entity_id="E44",
+            query_name="查询摄像头能力标签",
+            extra_rule="能力标签必须服务于视频点位配置和监管筛选口径。",
+            create_outcome="形成新的摄像头能力标签配置",
+            update_outcome="摄像头能力标签最新版本生效",
+        )
+    )
     processes.append(_clone_process(source_by_name, "环境数据采集与告警", flow_group="采集告警", role_map=role_map))
     processes.append(_clone_process(source_by_name, "环境数据与告警查询", flow_group="查询分析", role_map=role_map))
 

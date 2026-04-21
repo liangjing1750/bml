@@ -63,17 +63,82 @@ class DeliveryPlatformMigrationTests(unittest.TestCase):
         process_names = {item.get("name", "") for item in result["processes"]}
 
         for expected_name in [
+            "新增账号",
+            "修改账号",
+            "启停账号",
+            "查询账号",
+            "新增角色",
+            "修改角色",
+            "启停角色",
+            "查询角色",
+            "新增基础信息项",
+            "查询字典项",
+            "新增商品品牌",
+            "查询商品等级规格",
             "新增仓库主体",
             "修改仓库主体",
             "启停仓库主体",
             "查询仓库主体",
+            "查询仓房",
+            "查询垛位",
+            "入库预约变更",
+            "入库预约撤销",
             "仓单注册",
             "仓单注销",
             "仓单过户",
+            "出库预约变更",
+            "出库预约撤销",
+            "厂库出库预约申请",
+            "厂库出库预约变更",
+            "厂库出库预约撤销",
+            "厂库出库进度查询",
+            "车船板预报接入",
+            "交割配对确认",
+            "现场签到",
+            "摇号抽样",
+            "复检申请",
+            "押金处理",
             "仓单链查询",
             "期现差异查询",
+            "新增物联网设备",
+            "查询物联网设备",
+            "新增摄像头能力标签",
+            "查询摄像头能力标签",
         ]:
             self.assertIn(expected_name, process_names)
+
+        for removed_name in [
+            "账号维护",
+            "角色维护",
+            "基础信息管理",
+            "参数配置管理",
+            "数据字典管理",
+            "商品主数据管理",
+            "入库预约变更撤销",
+            "出库预约变更撤销",
+            "厂库出库预约",
+            "车船板预报与配对接入",
+            "现场签到与摇号抽样",
+            "复检申请与押金处理",
+            "物联网设备维护",
+            "摄像头能力标签维护",
+        ]:
+            self.assertNotIn(removed_name, process_names)
+
+    def test_build_v2_document_uses_atomic_flow_groups_for_key_subdomains(self):
+        module = load_migration_module()
+        source = module._load_source_document(ROOT / "workspace" / module.SOURCE_NAME)
+        result = module.build_delivery_platform_v2(source)
+
+        by_name = {item.get("name", ""): item for item in result["processes"]}
+        self.assertEqual(by_name["新增账号"]["flowGroup"], "账号与权限")
+        self.assertEqual(by_name["查询仓房"]["flowGroup"], "仓房维护")
+        self.assertEqual(by_name["入库预约撤销"]["flowGroup"], "入库管理")
+        self.assertEqual(by_name["出库预约变更"]["flowGroup"], "出库管理")
+        self.assertEqual(by_name["厂库出库预约撤销"]["flowGroup"], "厂库出库")
+        self.assertEqual(by_name["交割配对确认"]["flowGroup"], "预报与配对")
+        self.assertEqual(by_name["摇号抽样"]["flowGroup"], "现场作业")
+        self.assertEqual(by_name["新增物联网设备"]["flowGroup"], "设备配置")
 
     def test_build_v2_document_contains_core_warrant_entities(self):
         module = load_migration_module()
@@ -114,6 +179,8 @@ class DeliveryPlatformMigrationTests(unittest.TestCase):
             self.assertIn("交割智慧监管平台-v2", content)
             self.assertIn("仓单注册", content)
             self.assertIn("仓单链查询", content)
+            self.assertIn("入库预约撤销", content)
+            self.assertIn("交割配对确认", content)
 
 
 if __name__ == "__main__":
