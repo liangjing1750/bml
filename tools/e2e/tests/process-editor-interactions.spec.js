@@ -33,6 +33,18 @@ function buildProcessEditorDoc(name) {
             ],
             orchestrationTasks: [
               { name: '校验账号状态', type: 'Check', querySourceKind: '', target: '认证服务', note: '冻结账号不可继续' },
+              { name: '生成登录会话', type: 'Service', querySourceKind: '', target: '会话服务', note: '写入登录态' },
+            ],
+          },
+          {
+            id: 'T2',
+            name: '生成首页上下文',
+            role_id: 'R1',
+            steps: [
+              { name: '查看工作台', type: 'View', note: '进入首页后展示默认工作台' },
+            ],
+            orchestrationTasks: [
+              { name: '加载首页菜单', type: 'Query', querySourceKind: 'QueryService', target: '门户服务', note: '返回角色菜单和快捷入口' },
             ],
           },
         ],
@@ -64,10 +76,33 @@ test('节点在当前编辑区内展示编排任务与任务级流程图', async
   await expect(page.locator('.node-perspective-btn.active')).toContainText('任务级视图');
   await expect(page.getByTestId('orchestration-section')).toBeVisible();
   await expect(page.getByTestId('user-steps-section')).toHaveCount(0);
+   await expect(page.getByTestId('global-orchestration-flow')).toBeVisible();
   await expect(page.getByTestId('orchestration-flow')).toBeVisible();
   await expect(page.locator('.proc-subdrawer')).toHaveCount(0);
   await expect(page.locator('.orch-card .orch-name').first()).toHaveValue('校验账号状态');
   await expect(page.locator('.orch-card input[type="text"]').nth(1)).toHaveValue('认证服务');
+  await expect(page.locator('.ptf-node-frame')).toHaveCount(2);
+  await expect(page.locator('.ptf-node-frame').first()).toContainText('登录校验');
+  await expect(page.locator('.ptf-node-frame').nth(1)).toContainText('生成首页上下文');
+});
+
+test('任务级视图切回用户步骤视图后步骤区不重复插入操作按钮', async ({ page, request }) => {
+  const documentName = `process-toggle-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openTaskEditor(page, documentName);
+  await page.getByTestId('node-perspective-engineering').click();
+  await page.getByTestId('node-perspective-user').click();
+
+  const stepRows = page.locator('.step-row');
+  await expect(stepRows).toHaveCount(2);
+  await expect(page.getByTestId('user-steps-section')).toBeVisible();
+  await expect(page.locator('.step-row .step-actions')).toHaveCount(2);
+
+  const actionsPerRow = await page.locator('.step-row').evaluateAll((rows) =>
+    rows.map((row) => row.querySelectorAll('.step-actions').length),
+  );
+  expect(actionsPerRow).toEqual([1, 1]);
 });
 
 test('用户操作步骤支持行内插入并可上下调整顺序', async ({ page, request }) => {

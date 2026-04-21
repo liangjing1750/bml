@@ -398,6 +398,9 @@ function setOrchestrationTask(procId, taskId, idx, key, val) {
   if (key === 'type' && val !== 'Query') item.querySourceKind = '';
   if (key === 'type' && val === 'Query' && !item.querySourceKind) item.querySourceKind = 'Dictionary';
   markModified();
+  if ((S.ui.nodePerspective || 'user') === 'engineering') {
+    renderProcDiagramNow();
+  }
 }
 function moveOrchestrationTask(procId, taskId, idx, dir) {
   const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
@@ -449,6 +452,71 @@ function buildOrchestrationFlowHtml(task) {
         </div>`).join('')}
     </div>
   </div>`;
+}
+
+function renderProcTaskFlow(containerId, proc, activeTaskId, onClickMap) {
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const nodes = getProcNodes(proc);
+  if(!nodes.length) {
+    el.innerHTML = `<div class="diag-empty">暂无节点，先补充流程节点。</div>`;
+    initZoom(containerId);
+    return;
+  }
+
+  let html = `<div class="ptf-wrap" data-testid="global-orchestration-flow">
+    <div class="ptf-se">开始</div>`;
+  for(const node of nodes) {
+    const orchestrationTasks = getNodeOrchestrationTasks(node);
+    html += `<div class="ptf-outer-arrow">→</div>
+      <div class="ptf-node-frame ${node.id === activeTaskId ? 'active' : ''}" data-id="${esc(node.id)}">
+        <div class="ptf-node-head">
+          <span class="ptf-node-id">${esc(node.id)}</span>
+          <span class="ptf-node-name">${esc(node.name || '未命名节点')}</span>
+        </div>
+        <div class="ptf-node-track">`;
+    if(orchestrationTasks.length) {
+      orchestrationTasks.forEach((item, index) => {
+        html += `<div class="ptf-task-item tone-${String(item.type || 'Custom').toLowerCase()}">
+            <span class="ptf-task-index">${index + 1}</span>
+            <div class="ptf-task-text">
+              <strong>${esc(item.name || `任务 ${index + 1}`)}</strong>
+              <span>${esc(item.target || '待补充目标')}</span>
+            </div>
+          </div>`;
+        if(index < orchestrationTasks.length - 1) {
+          html += `<div class="ptf-inner-arrow">→</div>`;
+        }
+      });
+    } else {
+      html += `<div class="ptf-empty">暂无编排任务</div>`;
+    }
+    html += `</div></div>`;
+  }
+  html += `<div class="ptf-outer-arrow">→</div>
+    <div class="ptf-se">结束</div>
+  </div>`;
+
+  el.innerHTML = html;
+
+  if(onClickMap) {
+    for(const [nodeId, handler] of Object.entries(onClickMap)) {
+      const nodeEl = el.querySelector(`.ptf-node-frame[data-id="${nodeId}"]`);
+      if(nodeEl) {
+        nodeEl.style.cursor = 'pointer';
+        nodeEl.addEventListener('click', handler);
+      }
+    }
+  }
+
+  el.addEventListener('mousedown', (ev) => {
+    if(ev.target.closest('.ptf-node-frame,.ptf-task-item,.ptf-se')) return;
+    ev.preventDefault();
+    startEfPan(el, ev);
+  });
+
+  initZoom(containerId);
+  if(ZOOM[containerId] && ZOOM[containerId] !== 1) applyZoom(containerId);
 }
 
 function renderNodePerspectiveSwitch() {
@@ -898,9 +966,13 @@ function renderProcessTab() {
     </div>`;
 
     /* 流程图（小图） */
-    h+=`<div class="drawer-diag">
+    const diagMode = task && (S.ui.nodePerspective || 'user') === 'engineering' ? ' taskflow-mode' : '';
+    const diagHint = task && (S.ui.nodePerspective || 'user') === 'engineering'
+      ? '\u5c55\u793a\u6574\u4e2a\u6d41\u7a0b\u7684\u4efb\u52a1\u7ea7\u94fe\u8def\uff0c\u70b9\u51fb\u8282\u70b9\u53ef\u76f4\u63a5\u5207\u6362\u7f16\u8f91'
+      : '\u70b9\u51fb\u8282\u70b9\u8fdb\u5165\u7f16\u8f91';
+    h+=`<div class="drawer-diag${diagMode}">
       <div class="drawer-diag-bar">
-        <span class="live-diagram-hint">\u70b9\u51fb\u8282\u70b9\u8fdb\u5165\u7f16\u8f91</span>
+        <span class="live-diagram-hint">${diagHint}</span>
         <div class="zoom-controls">
           <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)">＋</button>
           <button class="zoom-btn" onclick="resetZoom('proc-diagram')">⊙</button>
@@ -1049,37 +1121,16 @@ function renderProcessTab() {
   const tabContent = document.getElementById('tab-content');
   tabContent.innerHTML = h;
 
-  if(proc && task) {
-    tabContent.querySelectorAll('.step-row').forEach((row, index) => {
-      row.dataset.stepIndex = String(index);
-      const top = row.querySelector('.step-row-top');
-      if (!top || top.querySelector('.step-actions')) return;
-      const delButton = top.querySelector('.step-del');
-      const actions = document.createElement('div');
-      actions.className = 'step-actions';
-      actions.innerHTML = `
-        <button class="step-action step-add-after" type="button" title="在下方插入步骤" onclick="addStep('${esc(proc.id)}','${esc(task.id)}',${index})">+</button>
-        <button class="step-action step-move-up" type="button" title="上移" ${index===0?'disabled':''} onclick="moveStep('${esc(proc.id)}','${esc(task.id)}',${index},-1)">↑</button>
-        <button class="step-action step-move-down" type="button" title="下移" ${index===getNodeUserSteps(task).length-1?'disabled':''} onclick="moveStep('${esc(proc.id)}','${esc(task.id)}',${index},1)">↓</button>
-      `;
-      if (delButton) {
-        delButton.type = 'button';
-        actions.appendChild(delButton);
-      }
-      top.appendChild(actions);
-    });
-
-    tabContent.querySelectorAll('.step-list button, .orch-list button, .node-perspective-switch button').forEach((button) => {
-      button.type = 'button';
-    });
-  }
-
   /* 渲染流程图 */
   if(proc) {
     const clickMap={};
     for(const t of getProcNodes(proc))
       clickMap[t.id]=()=>navigate('process',{procId:proc.id,taskId:t.id});
-    renderProcFlow('proc-diagram', proc, clickMap);
+    if(task && (S.ui.nodePerspective || 'user') === 'engineering') {
+      renderProcTaskFlow('proc-diagram', proc, task.id, clickMap);
+    } else {
+      renderProcFlow('proc-diagram', proc, clickMap);
+    }
   }
 }
 
@@ -1089,7 +1140,11 @@ function renderProcDiagramNow() {
   const clickMap={};
   for(const t of getProcNodes(proc))
     clickMap[t.id]=()=>navigate('process',{procId:proc.id,taskId:t.id});
-  renderProcFlow('proc-diagram', proc, clickMap);
+  if(S.ui.taskId && (S.ui.nodePerspective || 'user') === 'engineering') {
+    renderProcTaskFlow('proc-diagram', proc, S.ui.taskId, clickMap);
+  } else {
+    renderProcFlow('proc-diagram', proc, clickMap);
+  }
 }
 
 function onRoleChange(sel, procId, taskId) {
