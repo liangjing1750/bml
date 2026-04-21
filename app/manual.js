@@ -1,5 +1,7 @@
 'use strict';
 
+const MANUAL_RUNTIME_ERROR = '\u5f53\u524d\u670d\u52a1\u7248\u672c\u8fc7\u65e7\uff0c\u8bf7\u91cd\u542f BLM \u670d\u52a1\u540e\u518d\u6253\u5f00\u4f7f\u7528\u624b\u518c\u3002';
+
 function buildDocsAssetUrl(relativePath) {
   return `/api/docs/assets/${String(relativePath || '')
     .split('/')
@@ -136,6 +138,9 @@ function manualJumpTo(anchorId) {
 }
 
 function renderManualDocList() {
+  if (S.manual.error) {
+    return `<div class="manual-empty-hint manual-error-hint">${esc(S.manual.error)}</div>`;
+  }
   const docs = S.manual.docs || [];
   if (!docs.length) {
     return '<div class="manual-empty-hint">还没有可展示的文档。</div>';
@@ -153,6 +158,9 @@ function renderManualDocList() {
 }
 
 function renderManualOutlineList() {
+  if (S.manual.error) {
+    return `<div class="manual-empty-hint manual-error-hint">${esc(S.manual.error)}</div>`;
+  }
   if (S.manual.loading) {
     return '<div class="manual-empty-hint">正在生成目录...</div>';
   }
@@ -208,15 +216,32 @@ function renderManualTab() {
 
 async function ensureManualDocsLoaded() {
   if ((S.manual.docs || []).length) return S.manual.docs;
+  if (S.runtime.checked && !S.runtime.supportsDocs) {
+    S.manual.error = MANUAL_RUNTIME_ERROR;
+    return [];
+  }
   S.manual.loading = true;
   if (S.ui.tab === 'manual') renderManualTab();
+  if (!S.runtime.checked) {
+    const runtime = await api.runtime();
+    S.runtime.checked = true;
+    S.runtime.apiVersion = Number(runtime?.api_version || 0);
+    S.runtime.supportsDocs = !!runtime?.supports_docs;
+    if (!S.runtime.supportsDocs) {
+      S.manual.loading = false;
+      S.manual.error = MANUAL_RUNTIME_ERROR;
+      if (S.ui.tab === 'manual') renderManualTab();
+      return [];
+    }
+  }
   const docs = await api.docs();
   if (docs.error) {
     S.manual.loading = false;
+    S.manual.error = docs.error === 'not found' ? MANUAL_RUNTIME_ERROR : docs.error;
     if (S.ui.tab === 'manual') renderManualTab();
-    alert(docs.error);
     return [];
   }
+  S.manual.error = '';
   S.manual.docs = Array.isArray(docs) ? docs : [];
   if (!S.manual.activeDocId && S.manual.docs.length) {
     S.manual.activeDocId = S.manual.docs[0].id;
@@ -233,8 +258,9 @@ async function openManualDoc(docId) {
   const result = await api.doc(normalizedId);
   if (result.error) {
     S.manual.loading = false;
+    S.manual.error = result.error === 'not found' ? MANUAL_RUNTIME_ERROR : result.error;
     if (S.ui.tab === 'manual') renderManualTab();
-    return alert(result.error);
+    return;
   }
 
   const rendered = buildManualRenderedState(normalizedId, result.content || '');
@@ -245,6 +271,7 @@ async function openManualDoc(docId) {
   S.manual.outline = rendered.outline;
   S.manual.images = rendered.images;
   S.manual.loading = false;
+  S.manual.error = '';
   if (S.ui.tab === 'manual') renderManualTab();
 }
 

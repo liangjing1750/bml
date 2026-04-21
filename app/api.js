@@ -9,6 +9,9 @@ async function postJson(url, payload) {
 }
 
 const api = {
+  async runtime() {
+    return fetch('/api/runtime').then((response) => response.json());
+  },
   async files() {
     return fetch('/api/files').then((response) => response.json());
   },

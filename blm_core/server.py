@@ -37,6 +37,7 @@ DOCS_MANIFEST = [
     },
 ]
 DOCS_INDEX = {item["id"]: item for item in DOCS_MANIFEST}
+API_VERSION = 2
 
 
 def create_handler(app_dir: Path, storage: WorkspaceStorage):
@@ -57,9 +58,11 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
             if path == "/api/runtime":
                 return self._json(
                     {
+                        "api_version": API_VERSION,
                         "mode": "browser",
                         "supports_workspace": True,
                         "supports_merge": True,
+                        "supports_docs": True,
                     }
                 )
             if path == "/api/files":

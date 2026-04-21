@@ -28,12 +28,23 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
     "meta": {"scalars": ["title", "domain", "author", "date"], "lists": {}},
     "role": {"scalars": ["id", "name", "desc", "group"], "set_lists": ["subDomains"], "lists": {}},
     "language": {"scalars": ["term", "definition"], "lists": {}},
-    "process": {"scalars": ["id", "name", "subDomain", "trigger", "outcome", "pos"], "lists": {"tasks": "task"}},
-    "task": {
-        "scalars": ["id", "name", "role_id", "role", "repeatable", "rules_note"],
-        "lists": {"steps": "step", "entity_ops": "entity_op"},
+    "process": {
+        "scalars": ["id", "name", "subDomain", "flowGroup", "trigger", "outcome", "pos"],
+        "lists": {"nodes": "node"},
     },
-    "step": {"scalars": ["name", "type", "note"], "lists": {}},
+    "node": {
+        "scalars": ["id", "name", "role_id", "role", "repeatable", "rules_note"],
+        "lists": {
+            "userSteps": "user_step",
+            "entity_ops": "entity_op",
+            "orchestrationTasks": "orchestration_task",
+        },
+    },
+    "user_step": {"scalars": ["name", "type", "note"], "lists": {}},
+    "orchestration_task": {
+        "scalars": ["name", "type", "querySourceKind", "target", "note"],
+        "lists": {},
+    },
     "entity_op": {"scalars": ["entity_id"], "set_lists": ["ops"], "lists": {}},
     "entity": {"scalars": ["id", "name", "group", "note", "pos"], "lists": {"fields": "field", "state_transitions": "transition"}},
     "field": {"scalars": ["name", "type", "is_key", "is_status", "state_values", "note"], "lists": {}},
@@ -70,8 +81,9 @@ def _collection_label(item_type: str) -> str:
         "role": "角色",
         "language": "术语",
         "process": "流程",
-        "task": "任务",
-        "step": "步骤",
+        "node": "\u8282\u70b9",
+        "user_step": "\u7528\u6237\u64cd\u4f5c\u6b65\u9aa4",
+        "orchestration_task": "\u7f16\u6392\u4efb\u52a1",
         "entity": "实体",
         "field": "字段",
         "transition": "状态流转",
@@ -88,10 +100,12 @@ def _name_key(item_type: str, item: dict) -> str:
         primary = item.get("term")
     elif item_type == "process":
         primary = item.get("name") or item.get("id")
-    elif item_type == "task":
+    elif item_type == "node":
         primary = item.get("name") or item.get("id")
-    elif item_type == "step":
+    elif item_type == "user_step":
         primary = item.get("name")
+    elif item_type == "orchestration_task":
+        primary = item.get("name") or item.get("target")
     elif item_type == "entity":
         primary = item.get("name") or item.get("id")
     elif item_type == "field":
@@ -649,27 +663,27 @@ def validate_document(document: dict) -> list[dict]:
     role_ids = {role["id"] for role in doc.get("roles", [])}
     entity_ids = {entity["id"] for entity in doc.get("entities", [])}
     process_ids = {process["id"] for process in doc.get("processes", [])}
-    task_ids = {task["id"] for process in doc.get("processes", []) for task in process.get("tasks", [])}
+    node_ids = {node["id"] for process in doc.get("processes", []) for node in process.get("nodes", [])}
 
     for process in doc.get("processes", []):
-        for task in process.get("tasks", []):
-            role_id = str(task.get("role_id", "")).strip()
+        for node in process.get("nodes", []):
+            role_id = str(node.get("role_id", "")).strip()
             if role_id and role_id not in role_ids:
                 issues.append(
                     {
                         "level": "error",
-                        "path": f"processes.{process['id']}.tasks.{task['id']}.role_id",
-                        "message": f"任务 {task['id']} 引用了不存在的角色 {role_id}",
+                        "path": f"processes.{process['id']}.nodes.{node['id']}.role_id",
+                        "message": f"任务 {node['id']} 引用了不存在的角色 {role_id}",
                     }
                 )
-            for entity_op in task.get("entity_ops", []):
+            for entity_op in node.get("entity_ops", []):
                 entity_id = str(entity_op.get("entity_id", "")).strip()
                 if entity_id and entity_id not in entity_ids:
                     issues.append(
                         {
                             "level": "error",
-                            "path": f"processes.{process['id']}.tasks.{task['id']}.entity_ops",
-                            "message": f"任务 {task['id']} 引用了不存在的实体 {entity_id}",
+                            "path": f"processes.{process['id']}.nodes.{node['id']}.entity_ops",
+                            "message": f"任务 {node['id']} 引用了不存在的实体 {entity_id}",
                         }
                     )
 
@@ -693,7 +707,7 @@ def validate_document(document: dict) -> list[dict]:
                 }
             )
 
-    valid_applies_to = role_ids | entity_ids | process_ids | task_ids
+    valid_applies_to = role_ids | entity_ids | process_ids | node_ids
     for rule in doc.get("rules", []):
         applies_to = str(rule.get("applies_to", "")).strip()
         if applies_to and applies_to not in valid_applies_to:

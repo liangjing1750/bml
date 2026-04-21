@@ -6,7 +6,7 @@ from uuid import uuid4
 
 DEFAULT_PROCESS_NAME = "主流程"
 DEFAULT_ROLE_NAME = "新角色"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 STEP_TYPE_ALIASES = {
     "validate": "Check",
@@ -18,6 +18,25 @@ STEP_TYPE_ALIASES = {
     "compute": "Compute",
     "change": "Mutate",
     "mutate": "Mutate",
+}
+
+ORCHESTRATION_TYPE_ALIASES = {
+    "query": "Query",
+    "check": "Check",
+    "compute": "Compute",
+    "service": "Service",
+    "mutate": "Mutate",
+    "custom": "Custom",
+}
+
+QUERY_SOURCE_KIND_ALIASES = {
+    "dictionary": "Dictionary",
+    "dict": "Dictionary",
+    "enum": "Enum",
+    "queryservice": "QueryService",
+    "query_service": "QueryService",
+    "service": "QueryService",
+    "custom": "Custom",
 }
 
 FIELD_TYPE_ALIASES = {
@@ -71,7 +90,15 @@ def create_empty_document(name: str) -> dict:
             "roles": [],
             "language": [],
             "processes": [
-                {"id": "P1", "name": DEFAULT_PROCESS_NAME, "trigger": "", "outcome": "", "tasks": []}
+                {
+                    "id": "P1",
+                    "name": DEFAULT_PROCESS_NAME,
+                    "subDomain": "",
+                    "flowGroup": "",
+                    "trigger": "",
+                    "outcome": "",
+                    "nodes": [],
+                }
             ],
             "entities": [],
             "relations": [],
@@ -84,6 +111,18 @@ def normalize_step_type(step_type: str) -> str:
     if not step_type:
         return ""
     return STEP_TYPE_ALIASES.get(step_type.strip().casefold(), step_type)
+
+
+def normalize_orchestration_type(task_type: str) -> str:
+    if not task_type:
+        return "Custom"
+    return ORCHESTRATION_TYPE_ALIASES.get(task_type.strip().casefold(), task_type)
+
+
+def normalize_query_source_kind(kind: str) -> str:
+    if not kind:
+        return ""
+    return QUERY_SOURCE_KIND_ALIASES.get(kind.strip().casefold(), kind)
 
 
 def normalize_field_type(field_type: str) -> str:
@@ -216,7 +255,7 @@ def _normalize_meta(meta: dict) -> dict:
     meta.setdefault("author", "")
     meta.setdefault("date", "")
     meta["document_uid"] = str(meta.get("document_uid", "")).strip() or _new_uid()
-    meta["schema_version"] = int(meta.get("schema_version") or SCHEMA_VERSION)
+    meta["schema_version"] = SCHEMA_VERSION
     meta.pop("bounded_context", None)
     return meta
 
@@ -293,48 +332,74 @@ def _normalize_processes(processes: list[dict], roles: list[dict]) -> None:
     for process_index, process in enumerate(processes, start=1):
         _ensure_uid(process)
         process.setdefault("id", f"P{process_index}")
-        process.setdefault("name", DEFAULT_PROCESS_NAME if process_index == 1 else f"流程{process_index}")
+        process.setdefault("name", DEFAULT_PROCESS_NAME if process_index == 1 else f"\u6d41\u7a0b{process_index}")
         process.setdefault("trigger", "")
         process.setdefault("outcome", "")
-        process.setdefault("tasks", [])
         process.setdefault("subDomain", "")
+        process.setdefault("flowGroup", "")
+        legacy_nodes = process.pop("tasks", None)
+        if "nodes" not in process:
+            process["nodes"] = legacy_nodes or []
+        elif isinstance(legacy_nodes, list) and legacy_nodes:
+            process["nodes"].extend(legacy_nodes)
 
-        for task_index, task in enumerate(process["tasks"], start=1):
-            _ensure_uid(task)
-            task.setdefault("id", f"T{task_index}")
-            task.setdefault("name", "")
-            task_role_name = normalize_role_name(task.get("role", ""))
-            task_role = _ensure_role(
+        for node_index, node in enumerate(process["nodes"], start=1):
+            _ensure_uid(node)
+            node.setdefault("id", f"T{node_index}")
+            node.setdefault("name", "")
+            node_role_name = normalize_role_name(node.get("role", ""))
+            node_role = _ensure_role(
                 roles,
                 roles_by_id,
                 roles_by_name,
-                role_id=task.get("role_id", ""),
-                role_name=task_role_name,
+                role_id=node.get("role_id", ""),
+                role_name=node_role_name,
             )
-            if task_role:
-                task["role_id"] = task_role["id"]
-                task["role"] = task_role["name"]
+            if node_role:
+                node["role_id"] = node_role["id"]
+                node["role"] = node_role["name"]
                 process_sub_domain = normalize_role_name(process.get("subDomain", ""))
-                if process_sub_domain and process_sub_domain not in task_role["subDomains"]:
-                    task_role["subDomains"].append(process_sub_domain)
+                if process_sub_domain and process_sub_domain not in node_role["subDomains"]:
+                    node_role["subDomains"].append(process_sub_domain)
             else:
-                task["role_id"] = ""
-                task["role"] = task_role_name
-            task.setdefault("repeatable", False)
-            task.setdefault("steps", [])
-            task.setdefault("entity_ops", [])
-            task.setdefault("rules_note", "")
+                node["role_id"] = ""
+                node["role"] = node_role_name
+            node.setdefault("repeatable", False)
+            legacy_steps = node.pop("steps", None)
+            if "userSteps" not in node:
+                node["userSteps"] = legacy_steps or []
+            elif isinstance(legacy_steps, list) and legacy_steps:
+                node["userSteps"].extend(legacy_steps)
+            node.setdefault("entity_ops", [])
+            node.setdefault("rules_note", "")
+            node.setdefault("orchestrationTasks", [])
 
-            for step in task["steps"]:
+            for step in node["userSteps"]:
                 _ensure_uid(step)
                 step.setdefault("name", "")
                 step.setdefault("note", "")
                 step["type"] = normalize_step_type(step.get("type", ""))
 
-            for entity_op in task["entity_ops"]:
+            for entity_op in node["entity_ops"]:
                 _ensure_uid(entity_op)
                 entity_op.setdefault("entity_id", "")
                 entity_op["ops"] = list(entity_op.get("ops", []))
+
+            for orchestration_task in node["orchestrationTasks"]:
+                _ensure_uid(orchestration_task)
+                orchestration_task.setdefault("name", "")
+                orchestration_task.setdefault("target", "")
+                orchestration_task.setdefault("note", "")
+                orchestration_task["type"] = normalize_orchestration_type(
+                    orchestration_task.get("type", "Custom")
+                )
+                query_source_kind = normalize_query_source_kind(
+                    orchestration_task.get("querySourceKind", "")
+                )
+                orchestration_task["querySourceKind"] = (
+                    query_source_kind if orchestration_task["type"] == "Query" else ""
+                )
+
 
 
 def migrate_document(document: dict | None) -> dict:
@@ -348,9 +413,10 @@ def migrate_document(document: dict | None) -> dict:
                 "id": "P1",
                 "name": legacy_process.get("name", DEFAULT_PROCESS_NAME),
                 "subDomain": legacy_process.get("subDomain", ""),
+                "flowGroup": legacy_process.get("flowGroup", ""),
                 "trigger": legacy_process.get("trigger", ""),
                 "outcome": legacy_process.get("outcome", ""),
-                "tasks": legacy_process.get("tasks", []),
+                "nodes": legacy_process.get("nodes", legacy_process.get("tasks", [])),
             }
         ]
 
@@ -399,8 +465,8 @@ def renumber_document_ids(document: dict | None) -> dict:
             role_map[old_id] = new_id
 
     process_map: dict[str, str] = {}
-    task_map: dict[str, str] = {}
-    next_task_index = 1
+    node_map: dict[str, str] = {}
+    next_node_index = 1
     for process_index, process in enumerate(doc["processes"], start=1):
         old_process_id = str(process.get("id", "")).strip()
         new_process_id = f"P{process_index}"
@@ -408,18 +474,18 @@ def renumber_document_ids(document: dict | None) -> dict:
         if old_process_id:
             process_map[old_process_id] = new_process_id
 
-        for task in process.get("tasks", []):
-            old_task_id = str(task.get("id", "")).strip()
-            new_task_id = f"T{next_task_index}"
-            next_task_index += 1
-            task["id"] = new_task_id
-            if old_task_id:
-                task_map[old_task_id] = new_task_id
-            if task.get("role_id") in role_map:
-                task["role_id"] = role_map[task["role_id"]]
-            if task.get("role_id"):
-                role = next((item for item in doc["roles"] if item["id"] == task["role_id"]), None)
-                task["role"] = role["name"] if role else task.get("role", "")
+        for node in process.get("nodes", []):
+            old_node_id = str(node.get("id", "")).strip()
+            new_node_id = f"T{next_node_index}"
+            next_node_index += 1
+            node["id"] = new_node_id
+            if old_node_id:
+                node_map[old_node_id] = new_node_id
+            if node.get("role_id") in role_map:
+                node["role_id"] = role_map[node["role_id"]]
+            if node.get("role_id"):
+                role = next((item for item in doc["roles"] if item["id"] == node["role_id"]), None)
+                node["role"] = role["name"] if role else node.get("role", "")
 
     entity_map: dict[str, str] = {}
     for entity_index, entity in enumerate(doc["entities"], start=1):
@@ -430,8 +496,8 @@ def renumber_document_ids(document: dict | None) -> dict:
             entity_map[old_entity_id] = new_entity_id
 
     for process in doc["processes"]:
-        for task in process.get("tasks", []):
-            for entity_op in task.get("entity_ops", []):
+        for node in process.get("nodes", []):
+            for entity_op in node.get("entity_ops", []):
                 if entity_op.get("entity_id") in entity_map:
                     entity_op["entity_id"] = entity_map[entity_op["entity_id"]]
 
@@ -444,7 +510,7 @@ def renumber_document_ids(document: dict | None) -> dict:
     id_map = {}
     id_map.update(role_map)
     id_map.update(process_map)
-    id_map.update(task_map)
+    id_map.update(node_map)
     id_map.update(entity_map)
     for rule in doc["rules"]:
         applies_to = str(rule.get("applies_to", "")).strip()

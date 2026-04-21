@@ -1,7 +1,7 @@
 'use strict';
 
 function buildProcMermaid(proc) {
-  const tasks = proc?.tasks||[];
+  const tasks = getProcNodes(proc);
   if(!tasks.length) return null;
 
   const roleMap = {};
@@ -49,7 +49,7 @@ function buildProcMermaid(proc) {
 function renderProcFlow(containerId, proc, onClickMap) {
   const el = document.getElementById(containerId);
   if(!el) return;
-  const tasks = proc?.tasks||[];
+  const tasks = getProcNodes(proc);
   if(!tasks.length) { el.innerHTML=`<div class="diag-empty">暂无任务，点击上方"添加任务"</div>`; initZoom(containerId); return; }
 
   /* 角色→颜色 */
@@ -228,7 +228,8 @@ function moveGrpGroup(grp, dir, e) {
 function addProcess(subDomain) {
   const id  = nextId('P', S.doc.processes);
   const pos = _nextFreePos(S.doc.processes, null); /* 自动填补空缺格子 */
-  S.doc.processes.push({id, name:'新流程', subDomain:subDomain||'', trigger:'', outcome:'', tasks:[], pos});
+  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:subDomain||'', flowGroup:'', trigger:'', outcome:'', nodes:[], pos});
+  hydrateDocumentForUi(S.doc);
   markModified();
   navigate('process',{procId:id, taskId:null});
 }
@@ -248,28 +249,31 @@ function setProc(procId,key,val) {
 ═══════════════════════════════════════════════════════════ */
 function addTask(procId) {
   const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
-  const allTasks=S.doc.processes.flatMap(p=>p.tasks||[]);
+  const allTasks=S.doc.processes.flatMap(p=>getProcNodes(p));
   const id=nextId('T',allTasks);
-  proc.tasks.push({id, name:'新任务', role_id:'', role:'', steps:[], entity_ops:[], repeatable:false});
+  getProcNodes(proc).push({id, name:'\u65b0\u8282\u70b9', role_id:'', role:'', userSteps:[], orchestrationTasks:[], entity_ops:[], repeatable:false, rules_note:''});
+  hydrateDocumentForUi(S.doc);
   markModified();
   navigate('process',{procId, taskId:id});
 }
 function removeTask(procId,taskId) {
   const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
-  proc.tasks=proc.tasks.filter(t=>t.id!==taskId);
+  proc.nodes=getProcNodes(proc).filter(t=>t.id!==taskId);
   if(S.ui.taskId===taskId) S.ui.taskId=null;
+  S.ui.orchestrationOpen = false;
   markModified(); render();
 }
 function moveTask(procId,taskId,dir) {
   const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
-  const idx=proc.tasks.findIndex(t=>t.id===taskId);
+  const nodes = getProcNodes(proc);
+  const idx=nodes.findIndex(t=>t.id===taskId);
   const nidx=idx+dir;
-  if(nidx<0||nidx>=proc.tasks.length) return;
-  [proc.tasks[idx],proc.tasks[nidx]]=[proc.tasks[nidx],proc.tasks[idx]];
+  if(nidx<0||nidx>=nodes.length) return;
+  [nodes[idx],nodes[nidx]]=[nodes[nidx],nodes[idx]];
   markModified(); render();
 }
 function setTask(procId,taskId,key,val) {
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(t){t[key]=val; markModified();}
 }
 
@@ -277,17 +281,17 @@ function setTask(procId,taskId,key,val) {
    MUTATIONS — Steps
 ═══════════════════════════════════════════════════════════ */
 function addStep(procId,taskId) {
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(!t) return;
-  t.steps.push({name:'',type:'Query',note:''}); markModified(); render();
+  getNodeUserSteps(t).push({name:'',type:'Query',note:''}); markModified(); render();
 }
 function removeStep(procId,taskId,idx) {
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
-  if(!t) return; t.steps.splice(idx,1); markModified(); render();
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
+  if(!t) return; getNodeUserSteps(t).splice(idx,1); markModified(); render();
 }
 function setStep(procId,taskId,idx,key,val) {
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
-  if(t?.steps[idx]!==undefined){t.steps[idx][key]=val; markModified();}
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
+  if(getNodeUserSteps(t)[idx]!==undefined){getNodeUserSteps(t)[idx][key]=val; markModified();}
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -295,7 +299,7 @@ function setStep(procId,taskId,idx,key,val) {
 ═══════════════════════════════════════════════════════════ */
 function addEntityOp(procId,taskId,entityId) {
   if(!entityId) return;
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(!t) return;
   if(!t.entity_ops) t.entity_ops=[];
   if(t.entity_ops.some(eo=>eo.entity_id===entityId)) return;
@@ -303,16 +307,56 @@ function addEntityOp(procId,taskId,entityId) {
   markModified(); render();
 }
 function removeEntityOp(procId,taskId,entityId) {
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(!t) return; t.entity_ops=(t.entity_ops||[]).filter(eo=>eo.entity_id!==entityId);
   markModified(); render();
 }
 function toggleEntityOp(procId,taskId,entityId,op,checked) {
-  const t=S.doc.processes.find(p=>p.id===procId)?.tasks?.find(t=>t.id===taskId);
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   const eo=t?.entity_ops?.find(eo=>eo.entity_id===entityId);
   if(!eo) return;
   if(checked){if(!eo.ops.includes(op))eo.ops.push(op);}
   else{eo.ops=eo.ops.filter(o=>o!==op);}
+  markModified();
+}
+
+function openOrchestrationPanel(procId, taskId) {
+  S.ui.procId = procId;
+  S.ui.taskId = taskId;
+  S.ui.orchestrationOpen = true;
+  renderProcessTab();
+}
+function closeOrchestrationPanel() {
+  S.ui.orchestrationOpen = false;
+  renderProcessTab();
+}
+function addOrchestrationTask(procId, taskId) {
+  const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
+  if (!node) return;
+  getNodeOrchestrationTasks(node).push({
+    name: '',
+    type: 'Query',
+    querySourceKind: 'Dictionary',
+    target: '',
+    note: '',
+  });
+  markModified();
+  renderProcessTab();
+}
+function removeOrchestrationTask(procId, taskId, idx) {
+  const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
+  if (!node) return;
+  getNodeOrchestrationTasks(node).splice(idx, 1);
+  markModified();
+  renderProcessTab();
+}
+function setOrchestrationTask(procId, taskId, idx, key, val) {
+  const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
+  const item = getNodeOrchestrationTasks(node)[idx];
+  if (!item) return;
+  item[key] = val;
+  if (key === 'type' && val !== 'Query') item.querySourceKind = '';
+  if (key === 'type' && val === 'Query' && !item.querySourceKind) item.querySourceKind = 'Dictionary';
   markModified();
 }
 
@@ -649,8 +693,8 @@ function renderProcessTab() {
       style="height:${ovMaxRow*OV_CARD_H+8}px;min-width:${Math.max(ovMaxCol*OV_CARD_W+8,400)}px">`;
   for(const p of procs) {
     const r=p.pos?.r||1, c=p.pos?.c||1;
-    const taskCnt=(p.tasks||[]).length;
-    const stepCnt=(p.tasks||[]).reduce((n,t)=>n+(t.steps?.length||0),0);
+    const taskCnt=getProcNodes(p).length;
+    const stepCnt=getProcNodes(p).reduce((n,t)=>n+(getNodeUserSteps(t).length||0),0);
     const isActive=S.ui.procId===p.id;
     h+=`<div class="proc-card ov-card${isActive?' ov-active':''}" data-id="${esc(p.id)}"
       style="left:${(c-1)*OV_CARD_W+8}px;top:${(r-1)*OV_CARD_H+8}px;width:${OV_CARD_W-12}px;height:${OV_CARD_H-10}px">
@@ -681,9 +725,9 @@ function renderProcessTab() {
           <span>${esc(task.id)} ${esc(task.name||'')}</span>`:''}
       </div>
       <div class="drawer-actions">
-        ${!task?`<button class="btn btn-outline btn-sm" onclick="addTask('${esc(proc.id)}')">＋ 任务</button>`:''}
+        ${!task?`<button class="btn btn-outline btn-sm" onclick="addTask('${esc(proc.id)}')">\uff0b\u8282\u70b9</button>`:''}
         ${!task?`<button class="btn btn-ghost-sm" onclick="removeProcess('${esc(proc.id)}')">删除流程</button>`:''}
-        ${task?`<button class="btn btn-danger btn-sm" onclick="removeTask('${esc(proc.id)}','${esc(task.id)}')">删除任务</button>`:''}
+        ${task?`<button class="btn btn-danger btn-sm" onclick="removeTask('${esc(proc.id)}','${esc(task.id)}')">\u5220\u9664\u8282\u70b9</button>`:''}
         <button class="drawer-close" onclick="navigate('process',{procId:null,taskId:null})" title="关闭抽屉">✕</button>
       </div>
     </div>`;
@@ -691,7 +735,7 @@ function renderProcessTab() {
     /* 流程图（小图） */
     h+=`<div class="drawer-diag">
       <div class="drawer-diag-bar">
-        <span class="live-diagram-hint">点击任务节点进入编辑</span>
+        <span class="live-diagram-hint">\u70b9\u51fb\u8282\u70b9\u8fdb\u5165\u7f16\u8f91</span>
         <div class="zoom-controls">
           <button class="zoom-btn" onclick="zoomBy('proc-diagram',0.2)">＋</button>
           <button class="zoom-btn" onclick="resetZoom('proc-diagram')">⊙</button>
@@ -708,8 +752,8 @@ function renderProcessTab() {
       /* ── 任务编辑 ── */
       h+=`<div class="form-grid" style="margin-bottom:16px">
         <div class="field-group">
-          <label>任务名称</label>
-          <input type="text" value="${esc(task.name||'')}" placeholder="如：录入采购单"
+          <label>\u8282\u70b9\u540d\u79f0</label>
+          <input type="text" value="${esc(task.name||'')}" placeholder="\u5982\uff1a\u5f55\u5165\u91c7\u8d2d\u5355"
             oninput="setTask('${esc(proc.id)}','${esc(task.id)}','name',this.value);renderSidebar();renderProcDiagramNow()">
         </div>
         <div class="field-group">
@@ -744,10 +788,11 @@ function renderProcessTab() {
 
       /* 步骤 */
       h+=`<div class="form-section">
-        <h4>操作步骤 <button class="btn btn-outline btn-sm" onclick="addStep('${esc(proc.id)}','${esc(task.id)}')">＋</button></h4>`;
-      if(task.steps?.length){
+        <h4>\u7528\u6237\u64cd\u4f5c\u6b65\u9aa4 <button class="btn btn-outline btn-sm" onclick="addStep('${esc(proc.id)}','${esc(task.id)}')">\uff0b</button></h4>`;
+      const userSteps = getNodeUserSteps(task);
+      if(userSteps.length){
         h+=`<div class="step-list">`;
-        task.steps.forEach((s,i)=>{
+        userSteps.forEach((s,i)=>{
           h+=`<div class="step-row">
             <div class="step-row-top">
               <span class="step-num">${i+1}</span>
@@ -806,9 +851,18 @@ function renderProcessTab() {
       /* 业务规则 */
       h+=`<div class="form-section">
         <h4>业务规则 <span class="section-hint">约束、前置条件、决策逻辑</span></h4>
-        <textarea rows="3" placeholder="如：金额>10000需主管审批"
+        <textarea rows="3" placeholder="\u5982\uff1a\u91d1\u989d>10000\u9700\u4e3b\u7ba1\u5ba1\u6279"
           oninput="setTask('${esc(proc.id)}','${esc(task.id)}','rules_note',this.value)"
           >${esc(task.rules_note||'')}</textarea>
+      </div>`;
+
+      const orchestrationTasks = getNodeOrchestrationTasks(task);
+      h+=`<div class="form-section">
+        <h4>\u7f16\u6392\u4efb\u52a1</h4>
+        <div class="node-summary-row">
+          <span class="node-summary-pill">${orchestrationTasks.length} \u9879</span>
+          <button class="btn btn-outline btn-sm" onclick="openOrchestrationPanel('${esc(proc.id)}','${esc(task.id)}')">\u8fdb\u5165\u7f16\u6392\u4efb\u52a1</button>
+        </div>
       </div>`;
 
     } else {
@@ -824,6 +878,11 @@ function renderProcessTab() {
           <label>业务子域</label>
           <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：订单子域"
             oninput="setProc('${esc(proc.id)}','subDomain',this.value);renderSidebar()">
+        </div>
+        <div class="field-group">
+          <label>\u6d41\u7a0b\u7ec4</label>
+          <input type="text" value="${esc(proc.flowGroup||'')}" placeholder="\u5982\uff1a\u4ed3\u5e93\u57fa\u7840\u7ef4\u62a4"
+            oninput="setProc('${esc(proc.id)}','flowGroup',this.value);renderSidebar()">
         </div>
         <div class="field-group">
           <label>触发条件</label>
@@ -850,12 +909,46 @@ function renderProcessTab() {
 
   h+=`</div>`; /* end proc-drawer */
 
+  if(proc && task) {
+    const orchestrationTasks = getNodeOrchestrationTasks(task);
+    const open = !!S.ui.orchestrationOpen;
+    h+=`<div class="proc-subdrawer${open?' open':''}">
+      <div class="subdrawer-head">
+        <div class="drawer-crumb">${esc(proc.name||'')} / ${esc(task.name||'')} / \u7f16\u6392\u4efb\u52a1</div>
+        <button class="drawer-close" onclick="closeOrchestrationPanel()" title="\u5173\u95ed">\u2715</button>
+      </div>
+      <div class="subdrawer-body">
+        <div class="subdrawer-toolbar">
+          <span class="section-hint">\u4ece\u7814\u53d1\u5b9e\u73b0\u89c6\u89d2\u62c6\u89e3\u8282\u70b9\u7684\u670d\u52a1\u7f16\u6392</span>
+          <button class="btn btn-outline btn-sm" onclick="addOrchestrationTask('${esc(proc.id)}','${esc(task.id)}')">\uff0b\u7f16\u6392\u4efb\u52a1</button>
+        </div>
+        ${orchestrationTasks.length ? `<div class="orch-list">${orchestrationTasks.map((item, index) => `
+          <div class="orch-card">
+            <div class="orch-row">
+              <input type="text" value="${esc(item.name||'')}" placeholder="\u5982\uff1a\u6821\u9a8c\u5e93\u5b58\u4f59\u989d"
+                oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'name',this.value)">
+              <select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'type',this.value);renderProcessTab()">
+                ${ORCHESTRATION_TYPES.map((option) => `<option value="${option.value}" ${item.type===option.value?'selected':''}>${option.label}</option>`).join('')}
+              </select>
+              <button class="step-del" onclick="removeOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index})">\u2715</button>
+            </div>
+            <div class="orch-row">
+              ${item.type==='Query' ? `<select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'querySourceKind',this.value)">${QUERY_SOURCE_KINDS.map((option) => `<option value="${option.value}" ${item.querySourceKind===option.value?'selected':''}>${option.label}</option>`).join('')}</select>` : '<span class="orch-spacer"></span>'}
+              <input type="text" value="${esc(item.target||'')}" placeholder="\u76ee\u6807\u670d\u52a1 / \u5b57\u5178 / \u679a\u4e3e"
+                oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'target',this.value)">
+            </div>
+            <textarea class="auto-resize" rows="2" placeholder="\u5907\u6ce8\uff1a\u8f93\u5165\u8f93\u51fa\uff0c\u524d\u7f6e\u6761\u4ef6\uff0c\u5f02\u5e38\u5904\u7406" oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'note',this.value);autoResize(this)">${esc(item.note||'')}</textarea>
+          </div>`).join('')}</div>` : '<p class="no-refs">\u6682\u65e0\u7f16\u6392\u4efb\u52a1</p>'}
+      </div>
+    </div>`;
+  }
+
   document.getElementById('tab-content').innerHTML=h;
 
   /* 渲染流程图 */
   if(proc) {
     const clickMap={};
-    for(const t of (proc.tasks||[]))
+    for(const t of getProcNodes(proc))
       clickMap[t.id]=()=>navigate('process',{procId:proc.id,taskId:t.id});
     renderProcFlow('proc-diagram', proc, clickMap);
   }
@@ -865,7 +958,7 @@ function renderProcessTab() {
 function renderProcDiagramNow() {
   const proc=currentProc(); if(!proc) return;
   const clickMap={};
-  for(const t of (proc.tasks||[]))
+  for(const t of getProcNodes(proc))
     clickMap[t.id]=()=>navigate('process',{procId:proc.id,taskId:t.id});
   renderProcFlow('proc-diagram', proc, clickMap);
 }

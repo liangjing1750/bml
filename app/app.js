@@ -24,7 +24,7 @@ function createLocalDocument(name) {
     meta: { title: name, domain: name, author: '', date: '' },
     roles: [],
     language: [],
-    processes: [{ id: 'P1', name: '主流程', trigger: '', outcome: '', tasks: [] }],
+    processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', trigger: '', outcome: '', nodes: [] }],
     entities: [],
     relations: [],
     rules: [],
@@ -32,6 +32,7 @@ function createLocalDocument(name) {
 }
 
 function setActiveDocumentSession(doc, options = {}) {
+  hydrateDocumentForUi(doc);
   if (doc.meta && !doc.meta.domain) {
     doc.meta.domain = options.domain || options.fileName || '';
   }
@@ -740,6 +741,7 @@ function createDocUiState(doc) {
     procView: 'card',
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     entityDrawerW: getUiPrefNumber('entityDrawerW', 480),
+    orchestrationOpen: false,
   };
 }
 

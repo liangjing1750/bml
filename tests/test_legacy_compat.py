@@ -19,11 +19,13 @@ class LegacyDocumentCompatibilityTests(unittest.TestCase):
                 document = store.load_path(fixture_path)
 
                 self.assertTrue(document["meta"]["document_uid"])
-                self.assertEqual(document["meta"]["schema_version"], 2)
+                self.assertEqual(document["meta"]["schema_version"], 3)
                 self.assertIn("processes", document)
                 self.assertNotIn("process", document)
                 self.assertTrue(all(role.get("uid") for role in document.get("roles", [])))
                 self.assertTrue(all(process.get("uid") for process in document.get("processes", [])))
+                self.assertTrue(all("nodes" in process for process in document.get("processes", [])))
+                self.assertTrue(all("flowGroup" in process for process in document.get("processes", [])))
                 self.assertTrue(all(entity.get("uid") for entity in document.get("entities", [])))
 
     def test_legacy_fixture_documents_round_trip_after_save(self):
@@ -40,8 +42,9 @@ class LegacyDocumentCompatibilityTests(unittest.TestCase):
                     reloaded_document = store.load_path(output_path)
 
                     self.assertEqual(reloaded_document["meta"]["title"], saved_document["meta"]["title"])
-                    self.assertEqual(reloaded_document["meta"]["schema_version"], 2)
+                    self.assertEqual(reloaded_document["meta"]["schema_version"], 3)
                     self.assertTrue(reloaded_document["meta"]["document_uid"])
+                    self.assertTrue(all("nodes" in process for process in reloaded_document.get("processes", [])))
                     self.assertTrue(output_path.exists())
                     self.assertTrue(output_path.with_suffix(".md").exists())
 

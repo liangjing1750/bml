@@ -12,6 +12,22 @@ STEP_LABELS = {
     "Mutate": "变更",
 }
 
+ORCHESTRATION_TYPE_LABELS = {
+    "Query": "\u67e5\u8be2",
+    "Check": "\u6821\u9a8c",
+    "Compute": "\u8ba1\u7b97",
+    "Service": "\u670d\u52a1",
+    "Mutate": "\u53d8\u66f4",
+    "Custom": "\u81ea\u5b9a\u4e49",
+}
+
+QUERY_SOURCE_KIND_LABELS = {
+    "Dictionary": "\u5b57\u5178",
+    "Enum": "\u679a\u4e3e",
+    "QueryService": "\u67e5\u8be2\u670d\u52a1",
+    "Custom": "\u81ea\u5b9a\u4e49",
+}
+
 FIELD_LABELS = {
     "string": "字符",
     "number": "数值",
@@ -216,56 +232,88 @@ class MarkdownExporter:
         return "\n".join(lines)
 
     def _render_process(self, line, process: dict, entities_by_id: dict) -> None:
-        tasks = process.get("tasks", [])
+        nodes = process.get("nodes", [])
         line(f"### {process.get('id', 'P')}: {process.get('name', '')}")
         line()
+        process_meta = []
+        if process.get("subDomain"):
+            process_meta.append(f"**\u4e1a\u52a1\u5b50\u57df**: {process.get('subDomain', '')}")
+        if process.get("flowGroup"):
+            process_meta.append(f"**\u6d41\u7a0b\u7ec4**: {process.get('flowGroup', '')}")
         if process.get("trigger") or process.get("outcome"):
-            line(
-                f"**触发**: {process.get('trigger', '—')}  →  **预期结果**: {process.get('outcome', '—')}"
+            trigger = process.get("trigger") or "—"
+            outcome = process.get("outcome") or "—"
+            process_meta.append(
+                f"**\u89e6\u53d1**: {trigger}  \u2192  **\u9884\u671f\u7ed3\u679c**: {outcome}"
             )
+        if process_meta:
+            for item in process_meta:
+                line(item)
             line()
 
-        if tasks:
+        if nodes:
             line("```mermaid")
             line("flowchart LR")
-            line("  Start([开始])")
-            for task in tasks:
-                task_name = task.get("name", "").replace('"', "'")
-                role = task.get("role", "")
-                label = f"{task_name}\\n({role})" if role else task_name
-                line(f'  {task["id"]}["{label}"]')
-            line("  End([结束])")
-            line("  " + " --> ".join(["Start"] + [task["id"] for task in tasks] + ["End"]))
+            line("  Start([\u5f00\u59cb])")
+            for node in nodes:
+                node_name = node.get("name", "").replace('"', "'")
+                role = node.get("role", "")
+                label = f"{node_name}\\n({role})" if role else node_name
+                line(f'  {node["id"]}["{label}"]')
+            line("  End([\u7ed3\u675f])")
+            line("  " + " --> ".join(["Start"] + [node["id"] for node in nodes] + ["End"]))
             line("```")
             line()
 
-            for task in tasks:
-                line(f"#### {task['id']}. {task.get('name', '')}（角色：{task.get('role', '')}）")
+            for node in nodes:
+                line(f"#### {node['id']}. {node.get('name', '')}\uff08\u89d2\u8272\uff1a{node.get('role', '')}\uff09")
                 line()
-                steps = task.get("steps", [])
-                if steps:
-                    line("| # | 步骤 | 类型 | 条件/备注 |")
-                    line("|---|------|------|----------|")
-                    for index, step in enumerate(steps, start=1):
+                if node.get("repeatable"):
+                    line("> \u21ba \u53ef\u91cd\u590d\u8282\u70b9")
+                    line()
+
+                user_steps = node.get("userSteps", [])
+                if user_steps:
+                    line("##### \u7528\u6237\u64cd\u4f5c\u6b65\u9aa4")
+                    line()
+                    line("| # | \u7528\u6237\u64cd\u4f5c\u6b65\u9aa4 | \u7c7b\u578b | \u6761\u4ef6/\u5907\u6ce8 |")
+                    line("|---|--------------|------|-----------|")
+                    for index, step in enumerate(user_steps, start=1):
                         step_type = STEP_LABELS.get(step.get("type", ""), step.get("type", ""))
                         line(
                             f"| {index} | {step.get('name', '')} | {step_type} | {step.get('note', '')} |"
                         )
                     line()
 
-                entity_ops = task.get("entity_ops", [])
+                orchestration_tasks = node.get("orchestrationTasks", [])
+                if orchestration_tasks:
+                    line("##### \u7f16\u6392\u4efb\u52a1")
+                    line()
+                    line("| # | \u7f16\u6392\u4efb\u52a1 | \u7c7b\u578b | \u67e5\u8be2\u6765\u6e90 | \u76ee\u6807 | \u5907\u6ce8 |")
+                    line("|---|----------|------|----------|------|------|")
+                    for index, task in enumerate(orchestration_tasks, start=1):
+                        task_type = ORCHESTRATION_TYPE_LABELS.get(task.get("type", ""), task.get("type", ""))
+                        query_source_kind = QUERY_SOURCE_KIND_LABELS.get(
+                            task.get("querySourceKind", ""), task.get("querySourceKind", "")
+                        )
+                        line(
+                            f"| {index} | {task.get('name', '')} | {task_type} | {query_source_kind} | {task.get('target', '')} | {task.get('note', '')} |"
+                        )
+                    line()
+
+                entity_ops = node.get("entity_ops", [])
                 if entity_ops:
                     rendered_ops = []
                     for entity_op in entity_ops:
                         entity = entities_by_id.get(entity_op.get("entity_id", ""), {})
                         entity_name = entity.get("name") or entity_op.get("entity_id", "")
                         ops = ",".join(entity_op.get("ops", []))
-                        rendered_ops.append(f"{entity_name}（{ops}）")
-                    line(f"**涉及实体**: {', '.join(rendered_ops)}")
+                        rendered_ops.append(f"{entity_name}\uff08{ops}\uff09")
+                    line(f"**\u6d89\u53ca\u5b9e\u4f53**: {', '.join(rendered_ops)}")
                     line()
 
-                if task.get("rules_note", "").strip():
-                    line(f"**业务规则**: {task['rules_note']}")
+                if node.get("rules_note", "").strip():
+                    line(f"**\u4e1a\u52a1\u89c4\u5219**: {node['rules_note']}")
                     line()
         line()
 

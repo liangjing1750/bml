@@ -9,6 +9,11 @@ const S = {
   saveDialogMode: 'save',
   doc: null,
   modified: false,
+  runtime: {
+    checked: false,
+    apiVersion: 0,
+    supportsDocs: false,
+  },
   merge: {
     workspaceFiles: [],
     workspaceNames: {
@@ -41,6 +46,7 @@ const S = {
     outline: [],
     images: [],
     loading: false,
+    error: '',
   },
   ui: {
     tab: 'domain',
@@ -56,6 +62,7 @@ const S = {
     procView: 'card',  // 'list' | 'card' | 'role'
     procDrawerW: 480,
     entityDrawerW: 480,
+    orchestrationOpen: false,
   }
 };
 
@@ -124,6 +131,20 @@ const STEP_TYPES = [
   {value:'Compute',label:'计算'}, {value:'Mutate', label:'变更'},
   {value:'__other__', label:'其它…'},
 ];
+const ORCHESTRATION_TYPES = [
+  {value:'Query', label:'查询'},
+  {value:'Check', label:'校验'},
+  {value:'Compute', label:'计算'},
+  {value:'Service', label:'服务'},
+  {value:'Mutate', label:'变更'},
+  {value:'Custom', label:'自定义'},
+];
+const QUERY_SOURCE_KINDS = [
+  {value:'Dictionary', label:'字典'},
+  {value:'Enum', label:'枚举'},
+  {value:'QueryService', label:'查询服务'},
+  {value:'Custom', label:'自定义'},
+];
 const FIELD_TYPES = [
   {value:'string',  label:'字符'},  {value:'number',  label:'数值'},
   {value:'decimal', label:'金额'},  {value:'date',    label:'日期'},
@@ -191,8 +212,49 @@ function resetRecoveryState() {
   S.recovery.trashEntries = [];
 }
 function getEntityName(id) { return S.doc?.entities?.find(e=>e.id===id)?.name||id; }
+function getProcNodes(proc) {
+  return Array.isArray(proc?.nodes) ? proc.nodes : (Array.isArray(proc?.tasks) ? proc.tasks : []);
+}
+function getNodeUserSteps(node) {
+  return Array.isArray(node?.userSteps) ? node.userSteps : (Array.isArray(node?.steps) ? node.steps : []);
+}
+function getNodeOrchestrationTasks(node) {
+  return Array.isArray(node?.orchestrationTasks) ? node.orchestrationTasks : [];
+}
+function defineUiAlias(target, aliasKey, actualKey) {
+  if (!target || typeof target !== 'object') return;
+  const existing = Object.getOwnPropertyDescriptor(target, aliasKey);
+  if (existing && typeof existing.get === 'function') return;
+  Object.defineProperty(target, aliasKey, {
+    configurable: true,
+    enumerable: false,
+    get() {
+      return this[actualKey];
+    },
+    set(value) {
+      this[actualKey] = value;
+    },
+  });
+}
+function hydrateDocumentForUi(doc) {
+  if (!doc || typeof doc !== 'object') return doc;
+  (doc.processes || []).forEach((proc) => {
+    if (!Array.isArray(proc.nodes) && Array.isArray(proc.tasks)) proc.nodes = proc.tasks;
+    if (!Array.isArray(proc.nodes)) proc.nodes = [];
+    defineUiAlias(proc, 'tasks', 'nodes');
+    proc.flowGroup = String(proc.flowGroup || '');
+    proc.nodes.forEach((node) => {
+      if (!Array.isArray(node.userSteps) && Array.isArray(node.steps)) node.userSteps = node.steps;
+      if (!Array.isArray(node.userSteps)) node.userSteps = [];
+      if (!Array.isArray(node.orchestrationTasks)) node.orchestrationTasks = [];
+      defineUiAlias(node, 'steps', 'userSteps');
+    });
+  });
+  return doc;
+}
 function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.procId)||null; }
-function currentTask()  { return currentProc()?.tasks?.find(t=>t.id===S.ui.taskId)||null; }
+function currentNode()  { return getProcNodes(currentProc()).find(t=>t.id===S.ui.taskId)||null; }
+function currentTask()  { return currentNode(); }
 function currentEntity() { return (S.doc?.entities||[]).find(e=>e.id===S.ui.entityId)||null; }
 function normalizeRoleName(name) { return String(name || '').trim(); }
 function normalizeSlashList(value) {
@@ -338,7 +400,7 @@ function syncTaskRole(task) {
 }
 function syncAllTaskRoles() {
   for (const proc of (S.doc?.processes || [])) {
-    for (const task of (proc.tasks || [])) {
+    for (const task of getProcNodes(proc)) {
       syncTaskRole(task);
     }
   }
@@ -475,7 +537,8 @@ function parseRoleTokens(value) {
 }
 
 function setTaskRole(procId, taskId, roleId) {
-  const task = S.doc?.processes?.find((proc) => proc.id === procId)?.tasks?.find((item) => item.id === taskId);
+  const proc = S.doc?.processes?.find((item) => item.id === procId);
+  const task = getProcNodes(proc).find((item) => item.id === taskId);
   if (!task) return;
   const normalizedRoleId = normalizeRoleName(roleId);
   task.role_id = normalizedRoleId;
@@ -486,7 +549,7 @@ function getRoleUsage(roleId) {
   const normalizedRoleId = normalizeRoleName(roleId);
   const usage = [];
   for (const proc of (S.doc?.processes || [])) {
-    for (const task of (proc.tasks || [])) {
+    for (const task of getProcNodes(proc)) {
       if (getTaskRoleId(task) !== normalizedRoleId) continue;
       usage.push({ proc, task });
     }
@@ -532,7 +595,7 @@ function getRoleSummaryCounts() {
 function getTasksReferencingEntity(entityId) {
   const result=[];
   for(const proc of (S.doc?.processes||[])) {
-    for(const task of (proc.tasks||[])) {
+    for(const task of getProcNodes(proc)) {
       if((task.entity_ops||[]).some(eo=>eo.entity_id===entityId))
         result.push({proc,task});
     }

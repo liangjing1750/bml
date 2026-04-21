@@ -172,7 +172,7 @@ test('流程角色视图可以按角色聚合流程和任务', async ({ page, re
   await page.getByTestId('role-view-task-chip').first().click();
 
   await expect(page.getByTestId('process-overview-view')).toBeVisible();
-  await expect(page.locator('.drawer-crumb')).toContainText('确认到货');
+  await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('确认到货');
 });
 
 test('业务域页只允许删除未使用角色的轻量词典项', async ({ page, request }) => {

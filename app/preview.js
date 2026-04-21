@@ -197,29 +197,38 @@ function renderPreviewLanguageHtml(languageItems) {
     </tbody></table>`;
 }
 
-function renderPreviewProcessesHtml(processes, entityMap, stepLabels) {
+function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   if (!processes.length) return '';
   return `<h2 id="preview-processes">流程建模</h2>
     ${processes.map((proc) => {
-      const tasks = proc.tasks || [];
+      const nodes = getProcNodes(proc);
       return `<h3 id="${previewAnchorId('proc', proc.id || proc.name || 'process')}">${esc(proc.id)}: ${esc(proc.name||'')}</h3>
+        <p class="pv-note">
+          <strong>业务子域</strong>: ${esc(proc.subDomain || '—')}
+          ${proc.flowGroup ? ` | <strong>流程组</strong>: ${esc(proc.flowGroup)}` : ''}
+        </p>
         ${proc.trigger || proc.outcome ? `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>` : ''}
         <div id="pv-proc-${proc.id}" class="pv-diag"></div>
-        ${tasks.length ? `<div class="pv-tasks">
-          ${tasks.map((task) => {
-            const roleName = getTaskRoleName(task);
-            const entityOps = task.entity_ops || [];
+        ${nodes.length ? `<div class="pv-tasks">
+          ${nodes.map((node) => {
+            const roleName = getTaskRoleName(node);
+            const entityOps = node.entity_ops || [];
+            const userSteps = getNodeUserSteps(node);
+            const orchestrationTasks = getNodeOrchestrationTasks(node);
             return `<div class="pv-task-detail">
-              <h4>${esc(task.id)}: ${esc(task.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>
-              ${task.repeatable ? '<p class="pv-note">↺ 可重复任务</p>' : ''}
-              ${task.steps?.length ? `<table><thead><tr><th>#</th><th>步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>
-                ${task.steps.map((step, index) => `<tr><td>${index + 1}</td><td>${esc(step.name||'')}</td><td>${esc(stepLabels[step.type]||step.type||'')}</td><td>${esc(step.note||'')}</td></tr>`).join('')}
+              <h4>${esc(node.id)}: ${esc(node.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>
+              ${node.repeatable ? '<p class="pv-note">↺ 可重复节点</p>' : ''}
+              ${userSteps.length ? `<table><thead><tr><th>#</th><th>用户操作步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>
+                ${userSteps.map((step, index) => `<tr><td>${index + 1}</td><td>${esc(step.name||'')}</td><td>${esc(stepLabels[step.type]||step.type||'')}</td><td>${esc(step.note||'')}</td></tr>`).join('')}
+              </tbody></table>` : ''}
+              ${orchestrationTasks.length ? `<table><thead><tr><th>#</th><th>编排任务</th><th>类型</th><th>查询来源</th><th>目标</th><th>备注</th></tr></thead><tbody>
+                ${orchestrationTasks.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.name||'')}</td><td>${esc(orchestrationLabels[item.type]||item.type||'')}</td><td>${esc(querySourceLabels[item.querySourceKind]||item.querySourceKind||'—')}</td><td>${esc(item.target||'')}</td><td>${esc(item.note||'')}</td></tr>`).join('')}
               </tbody></table>` : ''}
               ${entityOps.length ? `<p class="pv-note"><strong>涉及实体</strong>: ${entityOps.map((entityOp) => {
                 const entityName = (entityMap[entityOp.entity_id]?.name) || entityOp.entity_id;
                 return `${esc(entityName)}（${esc((entityOp.ops||[]).join(','))}）`;
               }).join(', ')}</p>` : ''}
-              ${task.rules_note?.trim() ? `<p class="pv-note"><strong>业务规则</strong>: ${esc(task.rules_note)}</p>` : ''}
+              ${node.rules_note?.trim() ? `<p class="pv-note"><strong>业务规则</strong>: ${esc(node.rules_note)}</p>` : ''}
             </div>`;
           }).join('')}
         </div>` : ''}`;
@@ -262,6 +271,8 @@ function buildHtmlPreview() {
   const doc = S.doc;
   const m   = doc.meta||{};
   const STEP_LBL  = {Query:'查询',Check:'校验',Fill:'填写',Select:'选择',Compute:'计算',Mutate:'变更'};
+  const ORCH_LBL = {Query:'查询',Check:'校验',Compute:'计算',Service:'服务',Mutate:'变更',Custom:'自定义'};
+  const QUERY_SOURCE_LBL = {Dictionary:'字典',Enum:'枚举',QueryService:'查询服务',Custom:'自定义'};
   const FIELD_LBL = {string:'字符',number:'数值',decimal:'金额',date:'日期',datetime:'日期时间',boolean:'布尔',enum:'枚举',text:'长文本',id:'标识ID'};
   const roles = doc.roles||[];
   const lang = doc.language||[];
@@ -274,13 +285,13 @@ function buildHtmlPreview() {
     '<hr>',
     renderPreviewRolesHtml(roles),
     renderPreviewLanguageHtml(lang),
-    renderPreviewProcessesHtml(procs, emap, STEP_LBL),
+    renderPreviewProcessesHtml(procs, emap, STEP_LBL, ORCH_LBL, QUERY_SOURCE_LBL),
     renderPreviewEntitiesHtml(entities, FIELD_LBL),
   ].filter(Boolean).join('');
 
   /* Render proc flow diagrams */
   for(const proc of procs) {
-    if((proc.tasks||[]).length) {
+    if(getProcNodes(proc).length) {
       renderProcFlow(`pv-proc-${proc.id}`, proc, null);
     }
   }
@@ -305,16 +316,19 @@ function appendPreviewLanguageMd(add, languageItems) {
   add('');
 }
 
-function appendPreviewProcessesMd(add, processes, entityMap, stepLabels) {
+function appendPreviewProcessesMd(add, processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   for (const proc of processes) {
-    const tasks = proc.tasks || [];
+    const nodes = getProcNodes(proc);
     add(`### ${proc.id}: ${proc.name||''}`);
+    add('');
+    add(`**业务子域**: ${proc.subDomain||'—'}`);
+    if(proc.flowGroup) add(`**流程组**: ${proc.flowGroup}`);
     add('');
     if(proc.trigger||proc.outcome){
       add(`**触发**: ${proc.trigger||'—'}  →  **预期结果**: ${proc.outcome||'—'}`);
       add('');
     }
-    if(!tasks.length) continue;
+    if(!nodes.length) continue;
     const procCode = buildProcMermaid(proc);
     if(procCode){
       add('```mermaid');
@@ -322,20 +336,28 @@ function appendPreviewProcessesMd(add, processes, entityMap, stepLabels) {
       add('```');
       add('');
     }
-    for (const task of tasks) {
-      add(`#### ${task.id}. ${task.name||''}（角色：${getTaskRoleName(task)}）`);
+    for (const node of nodes) {
+      add(`#### ${node.id}. ${node.name||''}（角色：${getTaskRoleName(node)}）`);
       add('');
-      if(task.repeatable) {
-        add('> ↺ 可重复任务');
+      if(node.repeatable) {
+        add('> ↺ 可重复节点');
         add('');
       }
-      if(task.steps?.length){
-        add('| # | 步骤 | 类型 | 条件/备注 |');
+      const userSteps = getNodeUserSteps(node);
+      if(userSteps.length){
+        add('| # | 用户操作步骤 | 类型 | 条件/备注 |');
         add('|---|------|------|----------|');
-        task.steps.forEach((step, index) => add(`| ${index+1} | ${step.name||''} | ${stepLabels[step.type]||step.type||''} | ${step.note||''} |`));
+        userSteps.forEach((step, index) => add(`| ${index+1} | ${step.name||''} | ${stepLabels[step.type]||step.type||''} | ${step.note||''} |`));
         add('');
       }
-      const entityOps = task.entity_ops || [];
+      const orchestrationTasks = getNodeOrchestrationTasks(node);
+      if(orchestrationTasks.length){
+        add('| # | 编排任务 | 类型 | 查询来源 | 目标 | 备注 |');
+        add('|---|-----------|------|----------|------|------|');
+        orchestrationTasks.forEach((item, index) => add(`| ${index+1} | ${item.name||''} | ${orchestrationLabels[item.type]||item.type||''} | ${querySourceLabels[item.querySourceKind]||item.querySourceKind||'—'} | ${item.target||''} | ${item.note||''} |`));
+        add('');
+      }
+      const entityOps = node.entity_ops || [];
       if(entityOps.length){
         add(`**涉及实体**: ${entityOps.map((entityOp) => {
           const entityName = (entityMap[entityOp.entity_id]?.name) || entityOp.entity_id;
@@ -343,8 +365,8 @@ function appendPreviewProcessesMd(add, processes, entityMap, stepLabels) {
         }).join(', ')}`);
         add('');
       }
-      if(task.rules_note?.trim()){
-        add(`**业务规则**: ${task.rules_note}`);
+      if(node.rules_note?.trim()){
+        add(`**业务规则**: ${node.rules_note}`);
         add('');
       }
       add('');
@@ -393,6 +415,8 @@ function appendPreviewEntitiesMd(add, doc, entities, fieldLabels) {
 function buildMdFromDoc(doc) {
   if(!doc) return '';
   const STEP_LBL  = {Query:'查询',Check:'校验',Fill:'填写',Select:'选择',Compute:'计算',Mutate:'变更'};
+  const ORCH_LBL = {Query:'查询',Check:'校验',Compute:'计算',Service:'服务',Mutate:'变更',Custom:'自定义'};
+  const QUERY_SOURCE_LBL = {Dictionary:'字典',Enum:'枚举',QueryService:'查询服务',Custom:'自定义'};
   const FIELD_LBL = {string:'字符',number:'数值',decimal:'金额',date:'日期',datetime:'日期时间',boolean:'布尔',enum:'枚举',text:'长文本',id:'标识ID'};
   const L = [];
   const m = doc.meta||{};
@@ -423,7 +447,7 @@ function buildMdFromDoc(doc) {
   const procs = doc.processes||[];
   const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
   add(`## ${nums[sn++]}、流程建模`); add('');
-  appendPreviewProcessesMd(add, procs, emap, STEP_LBL);
+  appendPreviewProcessesMd(add, procs, emap, STEP_LBL, ORCH_LBL, QUERY_SOURCE_LBL);
   sep();
 
   const entities  = doc.entities||[];

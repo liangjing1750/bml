@@ -180,14 +180,19 @@ function setProcView(v) {
 }
 
 function _defaultSbCollapse(doc) {
-  const c = { lang: true }; /* 统一语言默认折叠 */
+  const c = { lang: true };
   [...new Set((doc.processes||[]).map(p => p.subDomain || '').filter(Boolean))]
     .forEach((sd) => { c[`sd-${sd}`] = true; });
+  [...new Set((doc.processes||[])
+    .map((p) => `${p.subDomain || ''}::${p.flowGroup || ''}`)
+    .filter((key) => key.split('::')[1]))]
+    .forEach((key) => { c[`fg-${key}`] = true; });
   [...new Set((doc.entities||[]).map(e => e.group || '').filter(Boolean))]
     .forEach((grp) => { c[`grp-${grp}`] = true; });
   (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
   return c;
 }
+
 
 function render() {
   renderToolbar();
@@ -256,7 +261,7 @@ function _renderSbProc(p) {
   const procKey=`proc-${p.id}`;
   const collapsed=S.ui.sbCollapse[procKey];
   const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
-  const taskCount=(p.tasks||[]).length;
+  const taskCount=getProcNodes(p).length;
   let h=`<div class="sb-proc-head ${procActive?'active':''}" data-process-id="${esc(p.id)}"
     onclick="navigate('process',{procId:'${p.id}',taskId:null})">
     <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
@@ -269,7 +274,7 @@ function _renderSbProc(p) {
     </span>
   </div>`;
   if(!collapsed) {
-    for(const t of (p.tasks||[])) {
+    for(const t of getProcNodes(p)) {
       const tActive=S.ui.tab==='process'&&S.ui.taskId===t.id;
       h+=`<div class="sb-task-item ${tActive?'active':''}"
         onclick="navigate('process',{procId:'${p.id}',taskId:'${t.id}'})">
@@ -292,11 +297,10 @@ function renderSidebar() {
   const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
   const groups=[...new Set(entities.map(e=>e.group||''))];
   const processBucketCount = subDomains.filter(Boolean).length + (subDomains.includes('') ? 1 : 0);
+  const flowGroupCount = [...new Set(procs.map((proc) => `${proc.subDomain || ''}::${proc.flowGroup || ''}`))].length;
   const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
   const processCount = procs.length;
-  const stepCount = procs.reduce((sum, proc) => {
-    return sum + (proc.tasks || []).reduce((taskSum, task) => taskSum + ((task.steps || []).length), 0);
-  }, 0);
+  const nodeCount = procs.reduce((sum, proc) => sum + getProcNodes(proc).length, 0);
   const entityCount = entities.length;
   const fieldCount = entities.reduce((sum, entity) => sum + ((entity.fields || []).length), 0);
 
@@ -330,39 +334,46 @@ function renderSidebar() {
         <span class="sb-header-title">\u6d41\u7a0b</span>
         ${_renderSbMetrics([
           { label: '\u5b50\u57df', value: processBucketCount },
-          { label: '\u6d41\u7a0b', value: processCount },
-          { label: '\u6b65\u9aa4', value: stepCount },
+          { label: '\u6d41\u7a0b\u7ec4', value: flowGroupCount },
+          { label: '\u8282\u70b9', value: nodeCount },
         ])}
       </div>
       <button class="sb-add-btn" onclick="addProcess()" title="\u65b0\u5efa\u6d41\u7a0b">+</button>
     </div>`;
 
   if(!procs.length){
-    h+=`<div class="sb-empty">暂无流程</div>`;
+    h+=`<div class="sb-empty">\u6682\u65e0\u6d41\u7a0b</div>`;
   } else {
     for(const sd of subDomains) {
       const sdProcs=procs.filter(p=>(p.subDomain||'')===sd);
-      if(sd) {
-        const sdKey=`sd-${sd}`;
-        const collapsed=S.ui.sbCollapse[sdKey];
-        h+=`<div class="sb-grp-head" data-subdomain="${esc(sd)}" onclick="toggleCollapse('${sdKey}')">
-          <button class="sb-caret">${collapsed?'▶':'▾'}</button>
-          <span class="sb-name" title="${esc(sd)}">${esc(sd)}</span>
-          ${_renderSbCount(sdProcs.length)}
-          <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="在此子域新建流程">＋</button>
-          <span class="sb-move-btns">
-            <button class="sb-move-btn sb-move-up" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
-            <button class="sb-move-btn sb-move-down" onclick="moveSdGroup('${esc(sd)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
-          </span>
+      const sdLabel = sd || '\u672a\u5f52\u7c7b\u4e1a\u52a1\u5b50\u57df';
+      const sdKey=`sd-${sd}`;
+      const sdCollapsed=S.ui.sbCollapse[sdKey];
+      h+=`<div class="sb-grp-head" data-subdomain="${esc(sdLabel)}" onclick="toggleCollapse('${sdKey}')">
+        <button class="sb-caret">${sdCollapsed?'▸':'▾'}</button>
+        <span class="sb-name" title="${esc(sdLabel)}">${esc(sdLabel)}</span>
+        ${_renderSbCount(sdProcs.length)}
+        <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="\u5728\u6b64\u5b50\u57df\u65b0\u5efa\u6d41\u7a0b">＋</button>
+        ${sd ? `<span class="sb-move-btns">
+          <button class="sb-move-btn sb-move-up" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
+          <button class="sb-move-btn sb-move-down" onclick="moveSdGroup('${esc(sd)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
+        </span>` : ''}
+      </div>`;
+      if(sdCollapsed) continue;
+
+      const flowGroups = [...new Set(sdProcs.map((proc) => proc.flowGroup || ''))];
+      for(const flowGroup of flowGroups) {
+        const groupProcs = sdProcs.filter((proc) => (proc.flowGroup || '') === flowGroup);
+        const groupLabel = flowGroup || '\u672a\u5206\u7ec4\u6d41\u7a0b';
+        const fgKey=`fg-${sd}::${flowGroup}`;
+        const fgCollapsed = !!flowGroup && S.ui.sbCollapse[fgKey];
+        h+=`<div class="sb-subgrp-head" onclick="${flowGroup ? `toggleCollapse('${fgKey}')` : ''}">
+          ${flowGroup ? `<button class="sb-caret">${fgCollapsed?'▸':'▾'}</button>` : '<span class="sb-subgrp-dot"></span>'}
+          <span class="sb-name" title="${esc(groupLabel)}">${esc(groupLabel)}</span>
+          ${_renderSbCount(groupProcs.length)}
         </div>`;
-        if(!collapsed) {
-          for(const p of sdProcs) {
-            h+=_renderSbProc(p);
-          }
-        }
-      } else {
-        /* 无业务子域的流程直接列出 */
-        for(const p of sdProcs) {
+        if (fgCollapsed) continue;
+        for(const p of groupProcs) {
           h+=_renderSbProc(p);
         }
       }

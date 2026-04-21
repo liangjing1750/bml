@@ -19,7 +19,8 @@ class CreateEmptyDocumentTests(unittest.TestCase):
         self.assertEqual(document["meta"]["title"], "Inventory")
         self.assertEqual(document["meta"]["domain"], "")
         self.assertEqual(document["processes"][0]["id"], "P1")
-        self.assertEqual(document["processes"][0]["tasks"], [])
+        self.assertEqual(document["processes"][0]["flowGroup"], "")
+        self.assertEqual(document["processes"][0]["nodes"], [])
         self.assertEqual(document["entities"], [])
 
 
@@ -60,10 +61,10 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertNotIn("process", migrated)
         self.assertNotIn("bounded_context", migrated["meta"])
         self.assertEqual(migrated["processes"][0]["id"], "P1")
-        self.assertEqual(
-            migrated["processes"][0]["tasks"][0]["steps"][0]["type"],
-            "Check",
-        )
+        self.assertEqual(migrated["meta"]["schema_version"], 3)
+        self.assertEqual(migrated["processes"][0]["flowGroup"], "")
+        self.assertEqual(migrated["processes"][0]["nodes"][0]["userSteps"][0]["type"], "Check")
+        self.assertEqual(migrated["processes"][0]["nodes"][0]["orchestrationTasks"], [])
         self.assertEqual(migrated["entities"][0]["fields"][0]["type"], "string")
         self.assertTrue(migrated["entities"][0]["fields"][0]["is_key"])
         self.assertFalse(migrated["entities"][0]["fields"][0]["is_status"])
@@ -72,8 +73,8 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(migrated["roles"][0]["group"], "仓库作业方")
         self.assertEqual(migrated["roles"][0]["subDomains"], ["仓储仓单管理"])
         self.assertNotIn("status", migrated["roles"][0])
-        self.assertEqual(migrated["processes"][0]["tasks"][0]["role"], "仓库管理员")
-        self.assertTrue(migrated["processes"][0]["tasks"][0]["role_id"])
+        self.assertEqual(migrated["processes"][0]["nodes"][0]["role"], "仓库管理员")
+        self.assertTrue(migrated["processes"][0]["nodes"][0]["role_id"])
         self.assertEqual(migrated["relations"], [])
         self.assertEqual(migrated["rules"], [])
         self.assertEqual(migrated["language"], [])
@@ -107,9 +108,9 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertNotIn("status", migrated["roles"][0])
         self.assertEqual(migrated["roles"][1]["id"], "R9")
         self.assertNotIn("status", migrated["roles"][1])
-        self.assertEqual(migrated["processes"][0]["tasks"][0]["role"], "会员")
-        self.assertEqual(migrated["processes"][0]["tasks"][1]["role"], "监管员")
-        self.assertEqual(migrated["processes"][0]["tasks"][1]["role_id"], "R9")
+        self.assertEqual(migrated["processes"][0]["nodes"][0]["role"], "会员")
+        self.assertEqual(migrated["processes"][0]["nodes"][1]["role"], "监管员")
+        self.assertEqual(migrated["processes"][0]["nodes"][1]["role_id"], "R9")
 
     def test_migrate_document_adds_state_flow_defaults_for_entities(self):
         document = {
@@ -166,6 +167,8 @@ class MarkdownExporterTests(unittest.TestCase):
                 {
                     "id": "P1",
                     "name": "Borrow",
+                    "subDomain": "Circulation",
+                    "flowGroup": "Borrow Management",
                     "trigger": "Reader wants a book",
                     "outcome": "Loan created",
                     "tasks": [
@@ -174,6 +177,15 @@ class MarkdownExporterTests(unittest.TestCase):
                             "name": "Check reader",
                             "role_id": "R1",
                             "steps": [{"name": "Read quota", "type": "Query", "note": ""}],
+                            "orchestrationTasks": [
+                                {
+                                    "name": "Query reader quota",
+                                    "type": "Query",
+                                    "querySourceKind": "QueryService",
+                                    "target": "ReaderQuotaService",
+                                    "note": "Load current quota before submit",
+                                }
+                            ],
                             "entity_ops": [{"entity_id": "E1", "ops": ["R", "U"]}],
                             "rules_note": "Reader must be active",
                         }
@@ -221,10 +233,15 @@ class MarkdownExporterTests(unittest.TestCase):
 
         self.assertIn("# Library", markdown)
         self.assertIn("P1: Borrow", markdown)
+        self.assertIn("流程组", markdown)
+        self.assertIn("Borrow Management", markdown)
         self.assertIn("```mermaid", markdown)
         self.assertIn("T1", markdown)
         self.assertIn("Reader", markdown)
         self.assertIn("业务参与方", markdown)
+        self.assertIn("用户操作步骤", markdown)
+        self.assertIn("编排任务", markdown)
+        self.assertIn("Query reader quota", markdown)
         self.assertIn("reader_id", markdown)
         self.assertIn("reader_status", markdown)
         self.assertIn("字段规则", markdown)
@@ -440,8 +457,9 @@ class MergeApiTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["document"]["meta"]["document_uid"])
-        self.assertEqual(result["document"]["meta"]["schema_version"], 2)
+        self.assertEqual(result["document"]["meta"]["schema_version"], 3)
         self.assertTrue(result["document"]["roles"][0]["uid"])
+        self.assertEqual(result["document"]["processes"], [])
 
     def test_merge_analyze_accepts_inline_documents(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -664,6 +682,31 @@ class RecoveryApiTests(unittest.TestCase):
 
 
 class DocsApiTests(unittest.TestCase):
+    def test_runtime_api_exposes_docs_capability(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/runtime"
+                ) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(result["api_version"], 2)
+        self.assertTrue(result["supports_docs"])
+        self.assertEqual(result["mode"], "browser")
+
     def test_docs_api_lists_builtin_documents(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_dir = Path(temp_dir) / "workspace"
