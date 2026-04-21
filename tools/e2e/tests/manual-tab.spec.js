@@ -17,4 +17,12 @@ test('用户可以在使用手册页签查看简洁阅读布局', async ({ page 
   await expect(page.locator('.manual-outline-link').first()).toBeVisible();
   await expect(page.locator('.manual-article img').first()).toBeVisible();
   await expect(page.locator('.manual-rail')).toHaveCount(0);
+
+  const manualReaderMetrics = await page.locator('.manual-reader').evaluate((node) => ({
+    clientHeight: node.clientHeight,
+    scrollHeight: node.scrollHeight,
+    overflowY: window.getComputedStyle(node).overflowY,
+  }));
+  expect(manualReaderMetrics.overflowY).toBe('auto');
+  expect(manualReaderMetrics.scrollHeight).toBeGreaterThan(manualReaderMetrics.clientHeight);
 });
