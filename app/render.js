@@ -369,6 +369,7 @@ function renderSidebar() {
         const fgCollapsed = !!flowGroup && S.ui.sbCollapse[fgKey];
         h+=`<div class="sb-subgrp-head" onclick="${flowGroup ? `toggleCollapse('${fgKey}')` : ''}">
           ${flowGroup ? `<button class="sb-caret">${fgCollapsed?'▸':'▾'}</button>` : '<span class="sb-subgrp-dot"></span>'}
+          <span class="sb-subgrp-badge">\u6d41\u7a0b\u7ec4</span>
           <span class="sb-name" title="${esc(groupLabel)}">${esc(groupLabel)}</span>
           ${_renderSbCount(groupProcs.length)}
         </div>`;

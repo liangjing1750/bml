@@ -115,6 +115,39 @@ test('左侧目录会显示带标签的顶层统计摘要', async ({ page, reque
   await expect(page.locator('[data-process-id="P1"] .sb-count')).toHaveText('1');
 });
 
+test('流程组层级样式弱于业务子域并显示流程组标签', async ({ page, request }) => {
+  const documentName = `sidebar-flowgroup-${Date.now()}`;
+  const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程');
+  doc.processes[0].flowGroup = '基础展示屏';
+
+  await createDocument(request, documentName, doc);
+  await page.goto('/');
+  await openDocument(page, documentName);
+
+  const subdomainHead = page.locator('[data-subdomain="仓储仓单管理"]').first();
+  await subdomainHead.click();
+
+  const flowGroupHead = page.locator('.sb-subgrp-head').first();
+  await expect(flowGroupHead).toContainText('流程组');
+  await expect(flowGroupHead).toContainText('基础展示屏');
+
+  const metrics = await page.evaluate(() => {
+    const subdomainName = document.querySelector('[data-subdomain="仓储仓单管理"] .sb-name');
+    const flowGroupName = document.querySelector('.sb-subgrp-head .sb-name');
+    const badge = document.querySelector('.sb-subgrp-badge');
+    const subdomainSize = parseFloat(window.getComputedStyle(subdomainName).fontSize || '0');
+    const flowGroupSize = parseFloat(window.getComputedStyle(flowGroupName).fontSize || '0');
+    return {
+      subdomainSize,
+      flowGroupSize,
+      badgeRadius: window.getComputedStyle(badge).borderRadius,
+    };
+  });
+
+  expect(metrics.flowGroupSize).toBeLessThan(metrics.subdomainSize);
+  expect(metrics.badgeRadius).not.toBe('0px');
+});
+
 test('左侧目录悬停显示移动按钮时不应把目录项挤成两行', async ({ page, request }) => {
   const documentName = `sidebar-hover-${Date.now()}`;
   const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程名称很长用于验证悬停后不要换行');
