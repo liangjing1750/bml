@@ -47,8 +47,8 @@ function applyZoom(id) {
     svg.setAttribute('height', Math.round(svg._zH * s));
     return;
   }
-  /* 自定义 HTML 流程图（pf-wrap），用 CSS zoom 属性（影响布局，容器会出现滚动条） */
-  const wrap = el.querySelector('.pf-wrap');
+  /* 自定义 HTML 流程图（pf-wrap / ptf-wrap），用 CSS zoom 属性（影响布局，容器会出现滚动条） */
+  const wrap = el.querySelector('.pf-wrap, .ptf-wrap');
   if(wrap) wrap.style.zoom = String(s);
 }
 
