@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from uuid import uuid4
 
 
 DEFAULT_PROCESS_NAME = "主流程"
 DEFAULT_ROLE_NAME = "新角色"
+SCHEMA_VERSION = 2
 
 STEP_TYPE_ALIASES = {
     "validate": "Check",
@@ -37,18 +39,45 @@ FIELD_TYPE_ALIASES = {
     "id": "id",
 }
 
+
+def _new_uid() -> str:
+    return uuid4().hex
+
+
+def _ensure_uid(item: dict) -> str:
+    uid = str(item.get("uid", "")).strip()
+    if not uid:
+        uid = _new_uid()
+        item["uid"] = uid
+    return uid
+
+
+def _normalize_text_list(values: list[str] | None) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        text = normalize_role_name(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
 def create_empty_document(name: str) -> dict:
-    return {
-        "meta": {"title": name, "domain": "", "author": "", "date": ""},
-        "roles": [],
-        "language": [],
-        "processes": [
-            {"id": "P1", "name": DEFAULT_PROCESS_NAME, "trigger": "", "outcome": "", "tasks": []}
-        ],
-        "entities": [],
-        "relations": [],
-        "rules": [],
-    }
+    return migrate_document(
+        {
+            "meta": {"title": name, "domain": "", "author": "", "date": ""},
+            "roles": [],
+            "language": [],
+            "processes": [
+                {"id": "P1", "name": DEFAULT_PROCESS_NAME, "trigger": "", "outcome": "", "tasks": []}
+            ],
+            "entities": [],
+            "relations": [],
+            "rules": [],
+        }
+    )
 
 
 def normalize_step_type(step_type: str) -> str:
@@ -82,7 +111,7 @@ def infer_role_group(role_name: str, tags: list[str] | None = None) -> str:
     ):
         return "平台与运维方"
     if (
-        "交割部" in normalized_name
+        "交易部" in normalized_name
         or "交易所" in normalized_name
         or "品种负责人" in normalized_name
         or "监管" in normalized_name
@@ -92,18 +121,6 @@ def infer_role_group(role_name: str, tags: list[str] | None = None) -> str:
     if not normalized_name:
         return "待分类角色"
     return "业务参与方"
-
-
-def _normalize_text_list(values: list[str] | None) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values or []:
-        text = normalize_role_name(value)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 def _next_role_id(existing_roles: list[dict]) -> str:
@@ -122,7 +139,8 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
         role_id = normalize_role_name(raw_role.get("id", "")) or _next_role_id(existing_roles)
         if any(existing.get("id") == role_id for existing in existing_roles):
             role_id = _next_role_id(existing_roles)
-        return {
+        role = {
+            "uid": str(raw_role.get("uid", "")).strip() or _new_uid(),
             "id": role_id,
             "name": role_name,
             "desc": normalize_role_name(raw_role.get("desc", "")),
@@ -131,11 +149,13 @@ def _normalize_role(raw_role, existing_roles: list[dict]) -> dict | None:
             ),
             "subDomains": _normalize_text_list(raw_role.get("subDomains", [])),
         }
+        return role
 
     role_name = normalize_role_name(raw_role)
     if not role_name:
         return None
     return {
+        "uid": _new_uid(),
         "id": _next_role_id(existing_roles),
         "name": role_name,
         "desc": "",
@@ -190,9 +210,136 @@ def _ensure_role(
     return role
 
 
+def _normalize_meta(meta: dict) -> dict:
+    meta.setdefault("title", "")
+    meta.setdefault("domain", "")
+    meta.setdefault("author", "")
+    meta.setdefault("date", "")
+    meta["document_uid"] = str(meta.get("document_uid", "")).strip() or _new_uid()
+    meta["schema_version"] = int(meta.get("schema_version") or SCHEMA_VERSION)
+    meta.pop("bounded_context", None)
+    return meta
+
+
+def _normalize_rules(rules: list[dict]) -> None:
+    for rule in rules:
+        _ensure_uid(rule)
+        rule.setdefault("name", "")
+        rule.setdefault("type", "")
+        rule.setdefault("applies_to", "")
+        rule.setdefault("description", "")
+        rule.setdefault("formula", "")
+
+
+def _normalize_language(language: list[dict]) -> None:
+    for item in language:
+        _ensure_uid(item)
+        item.setdefault("term", "")
+        item.setdefault("definition", "")
+
+
+def _normalize_relations(relations: list[dict]) -> None:
+    for relation in relations:
+        _ensure_uid(relation)
+        relation.setdefault("from", "")
+        relation.setdefault("to", "")
+        relation.setdefault("type", "")
+        relation.setdefault("label", "")
+
+
+def _normalize_entities(entities: list[dict]) -> None:
+    for entity_index, entity in enumerate(entities, start=1):
+        _ensure_uid(entity)
+        entity.setdefault("id", f"E{entity_index}")
+        entity.setdefault("name", "")
+        entity.setdefault("group", "")
+        entity.setdefault("note", "")
+        entity.setdefault("fields", [])
+        entity.setdefault("state_transitions", [])
+
+        for field in entity["fields"]:
+            _ensure_uid(field)
+            is_key = bool(field.pop("pk", field.get("is_key", False)))
+            is_status = bool(field.pop("status", field.get("is_status", False)))
+            field.setdefault("name", "")
+            field.setdefault("note", "")
+            field["type"] = normalize_field_type(field.get("type", "string"))
+            field["is_key"] = is_key
+            field["is_status"] = is_status
+            field.setdefault("state_values", "")
+
+        normalized_transitions = []
+        status_fields = [field.get("name", "") for field in entity["fields"] if field.get("is_status")]
+        default_field_name = status_fields[0] if len(status_fields) == 1 else ""
+        for transition in entity["state_transitions"]:
+            transition_uid = str(transition.get("uid", "")).strip() or _new_uid()
+            normalized_transitions.append(
+                {
+                    "uid": transition_uid,
+                    "from": str(transition.get("from", "")).strip(),
+                    "to": str(transition.get("to", "")).strip(),
+                    "action": str(transition.get("action", "")).strip(),
+                    "note": str(transition.get("note", "")).strip(),
+                    "field_name": str(transition.get("field_name", default_field_name)).strip(),
+                }
+            )
+        entity["state_transitions"] = normalized_transitions
+
+
+def _normalize_processes(processes: list[dict], roles: list[dict]) -> None:
+    roles_by_id = {role["id"]: role for role in roles}
+    roles_by_name = {role["name"]: role for role in roles}
+
+    for process_index, process in enumerate(processes, start=1):
+        _ensure_uid(process)
+        process.setdefault("id", f"P{process_index}")
+        process.setdefault("name", DEFAULT_PROCESS_NAME if process_index == 1 else f"流程{process_index}")
+        process.setdefault("trigger", "")
+        process.setdefault("outcome", "")
+        process.setdefault("tasks", [])
+        process.setdefault("subDomain", "")
+
+        for task_index, task in enumerate(process["tasks"], start=1):
+            _ensure_uid(task)
+            task.setdefault("id", f"T{task_index}")
+            task.setdefault("name", "")
+            task_role_name = normalize_role_name(task.get("role", ""))
+            task_role = _ensure_role(
+                roles,
+                roles_by_id,
+                roles_by_name,
+                role_id=task.get("role_id", ""),
+                role_name=task_role_name,
+            )
+            if task_role:
+                task["role_id"] = task_role["id"]
+                task["role"] = task_role["name"]
+                process_sub_domain = normalize_role_name(process.get("subDomain", ""))
+                if process_sub_domain and process_sub_domain not in task_role["subDomains"]:
+                    task_role["subDomains"].append(process_sub_domain)
+            else:
+                task["role_id"] = ""
+                task["role"] = task_role_name
+            task.setdefault("repeatable", False)
+            task.setdefault("steps", [])
+            task.setdefault("entity_ops", [])
+            task.setdefault("rules_note", "")
+
+            for step in task["steps"]:
+                _ensure_uid(step)
+                step.setdefault("name", "")
+                step.setdefault("note", "")
+                step["type"] = normalize_step_type(step.get("type", ""))
+
+            for entity_op in task["entity_ops"]:
+                _ensure_uid(entity_op)
+                entity_op.setdefault("entity_id", "")
+                entity_op["ops"] = list(entity_op.get("ops", []))
+
+
 def migrate_document(document: dict | None) -> dict:
     doc = deepcopy(document or {})
-    meta = doc.setdefault("meta", {})
+    meta = _normalize_meta(doc.setdefault("meta", {}))
 
     if "process" in doc and "processes" not in doc:
         legacy_process = doc.pop("process") or {}
@@ -206,12 +353,6 @@ def migrate_document(document: dict | None) -> dict:
                 "tasks": legacy_process.get("tasks", []),
             }
         ]
-
-    meta.setdefault("title", "")
-    meta.setdefault("domain", "")
-    meta.setdefault("author", "")
-    meta.setdefault("date", "")
-    meta.pop("bounded_context", None)
 
     doc.setdefault("roles", [])
     doc.setdefault("language", [])
@@ -236,96 +377,78 @@ def migrate_document(document: dict | None) -> dict:
         roles_by_name[role["name"]] = role
     doc["roles"] = normalized_roles
 
+    _normalize_processes(doc["processes"], doc["roles"])
+    _normalize_entities(doc["entities"])
+    _normalize_relations(doc["relations"])
+    _normalize_rules(doc["rules"])
+    _normalize_language(doc["language"])
+
+    doc["meta"] = meta
+    return doc
+
+
+def renumber_document_ids(document: dict | None) -> dict:
+    doc = migrate_document(document)
+
+    role_map: dict[str, str] = {}
+    for index, role in enumerate(doc["roles"], start=1):
+        old_id = str(role.get("id", "")).strip()
+        new_id = f"R{index}"
+        role["id"] = new_id
+        if old_id:
+            role_map[old_id] = new_id
+
+    process_map: dict[str, str] = {}
+    task_map: dict[str, str] = {}
+    next_task_index = 1
     for process_index, process in enumerate(doc["processes"], start=1):
-        process.setdefault("id", f"P{process_index}")
-        process.setdefault("name", DEFAULT_PROCESS_NAME if process_index == 1 else f"流程{process_index}")
-        process.setdefault("trigger", "")
-        process.setdefault("outcome", "")
-        process.setdefault("tasks", [])
-        process.setdefault("subDomain", "")
+        old_process_id = str(process.get("id", "")).strip()
+        new_process_id = f"P{process_index}"
+        process["id"] = new_process_id
+        if old_process_id:
+            process_map[old_process_id] = new_process_id
 
-        for task_index, task in enumerate(process["tasks"], start=1):
-            task.setdefault("id", f"T{task_index}")
-            task.setdefault("name", "")
-            task_role_name = normalize_role_name(task.get("role", ""))
-            task_role = _ensure_role(
-                normalized_roles,
-                roles_by_id,
-                roles_by_name,
-                role_id=task.get("role_id", ""),
-                role_name=task_role_name,
-            )
-            if task_role:
-                task["role_id"] = task_role["id"]
-                task["role"] = task_role["name"]
-                process_sub_domain = normalize_role_name(process.get("subDomain", ""))
-                if process_sub_domain and process_sub_domain not in task_role["subDomains"]:
-                    task_role["subDomains"].append(process_sub_domain)
-            else:
-                task["role_id"] = ""
-                task["role"] = task_role_name
-            task.setdefault("repeatable", False)
-            task.setdefault("steps", [])
-            task.setdefault("entity_ops", [])
-            task.setdefault("rules_note", "")
+        for task in process.get("tasks", []):
+            old_task_id = str(task.get("id", "")).strip()
+            new_task_id = f"T{next_task_index}"
+            next_task_index += 1
+            task["id"] = new_task_id
+            if old_task_id:
+                task_map[old_task_id] = new_task_id
+            if task.get("role_id") in role_map:
+                task["role_id"] = role_map[task["role_id"]]
+            if task.get("role_id"):
+                role = next((item for item in doc["roles"] if item["id"] == task["role_id"]), None)
+                task["role"] = role["name"] if role else task.get("role", "")
 
-            for step in task["steps"]:
-                step.setdefault("name", "")
-                step.setdefault("note", "")
-                step["type"] = normalize_step_type(step.get("type", ""))
-
-            for entity_op in task["entity_ops"]:
-                entity_op.setdefault("entity_id", "")
-                entity_op["ops"] = list(entity_op.get("ops", []))
-
+    entity_map: dict[str, str] = {}
     for entity_index, entity in enumerate(doc["entities"], start=1):
-        entity.setdefault("id", f"E{entity_index}")
-        entity.setdefault("name", "")
-        entity.setdefault("group", "")
-        entity.setdefault("note", "")
-        entity.setdefault("fields", [])
-        entity.setdefault("state_transitions", [])
+        old_entity_id = str(entity.get("id", "")).strip()
+        new_entity_id = f"E{entity_index}"
+        entity["id"] = new_entity_id
+        if old_entity_id:
+            entity_map[old_entity_id] = new_entity_id
 
-        for field in entity["fields"]:
-            is_key = bool(field.pop("pk", field.get("is_key", False)))
-            is_status = bool(field.pop("status", field.get("is_status", False)))
-            field.setdefault("name", "")
-            field.setdefault("note", "")
-            field["type"] = normalize_field_type(field.get("type", "string"))
-            field["is_key"] = is_key
-            field["is_status"] = is_status
-            field.setdefault("state_values", "")
-
-        normalized_transitions = []
-        status_fields = [field.get("name", "") for field in entity["fields"] if field.get("is_status")]
-        default_field_name = status_fields[0] if len(status_fields) == 1 else ""
-        for transition in entity["state_transitions"]:
-            normalized_transitions.append(
-                {
-                    "from": str(transition.get("from", "")).strip(),
-                    "to": str(transition.get("to", "")).strip(),
-                    "action": str(transition.get("action", "")).strip(),
-                    "note": str(transition.get("note", "")).strip(),
-                    "field_name": str(transition.get("field_name", default_field_name)).strip(),
-                }
-            )
-        entity["state_transitions"] = normalized_transitions
+    for process in doc["processes"]:
+        for task in process.get("tasks", []):
+            for entity_op in task.get("entity_ops", []):
+                if entity_op.get("entity_id") in entity_map:
+                    entity_op["entity_id"] = entity_map[entity_op["entity_id"]]
 
     for relation in doc["relations"]:
-        relation.setdefault("from", "")
-        relation.setdefault("to", "")
-        relation.setdefault("type", "")
-        relation.setdefault("label", "")
+        if relation.get("from") in entity_map:
+            relation["from"] = entity_map[relation["from"]]
+        if relation.get("to") in entity_map:
+            relation["to"] = entity_map[relation["to"]]
 
+    id_map = {}
+    id_map.update(role_map)
+    id_map.update(process_map)
+    id_map.update(task_map)
+    id_map.update(entity_map)
     for rule in doc["rules"]:
-        rule.setdefault("name", "")
-        rule.setdefault("type", "")
-        rule.setdefault("applies_to", "")
-        rule.setdefault("description", "")
-        rule.setdefault("formula", "")
-
-    for item in doc["language"]:
-        item.setdefault("term", "")
-        item.setdefault("definition", "")
+        applies_to = str(rule.get("applies_to", "")).strip()
+        if applies_to in id_map:
+            rule["applies_to"] = id_map[applies_to]
 
     return doc

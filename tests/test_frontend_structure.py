@@ -22,6 +22,8 @@ class FrontendStructureTests(unittest.TestCase):
     def test_split_scripts_exist(self):
         for script_name in EXPECTED_SCRIPTS:
             self.assertTrue((APP_DIR / script_name).exists(), f"{script_name} 不存在")
+        self.assertTrue((APP_DIR / "vendor" / "mermaid.min.js").exists())
+        self.assertTrue((APP_DIR / "vendor" / "marked.umd.js").exists())
 
     def test_split_scripts_pass_node_syntax_check(self):
         for script_name in EXPECTED_SCRIPTS:
@@ -42,6 +44,28 @@ class FrontendStructureTests(unittest.TestCase):
         html = (APP_DIR / "index.html").read_text("utf-8")
         self.assertIn("<title>BLM - Business Language Modeling</title>", html)
         self.assertIn('<span class="logo">BLM</span>', html)
+        self.assertIn('id="toolbar-save-as-label">复制</button>', html)
+        self.assertIn('data-testid="open-modal-tabs"', html)
+        self.assertIn('data-open-tab="workspace"', html)
+        self.assertIn('data-open-tab="trash"', html)
+        self.assertIn('id="open-workspace-panel"', html)
+        self.assertIn('id="open-trash-panel"', html)
+        self.assertIn('data-testid="history-modal"', html)
+        self.assertIn('id="history-list"', html)
+        self.assertIn('id="trash-list"', html)
+        self.assertIn('id="save-as-modal-title">复制文档</h3>', html)
+        self.assertIn('id="save-as-confirm-label">确认复制</button>', html)
+        self.assertIn('<script src="vendor/mermaid.min.js"></script>', html)
+        self.assertIn('<script src="vendor/marked.umd.js"></script>', html)
+        self.assertNotIn("https://cdn.jsdelivr.net", html)
+        self.assertIn('id="merge-left-select"', html)
+        self.assertIn('id="merge-right-select"', html)
+        self.assertIn("App.selectMergeWorkspace('left', this.value)", html)
+        self.assertIn("App.selectMergeWorkspace('right', this.value)", html)
+        self.assertIn('data-testid="merge-confirm-button"', html)
+        self.assertNotIn('data-testid="merge-analyze-button"', html)
+        self.assertNotIn('上传 JSON', html)
+        self.assertNotIn('生成新的合并文档', html)
         previous_position = -1
         for script_name in EXPECTED_SCRIPTS:
             marker = f'<script src="{script_name}"></script>'

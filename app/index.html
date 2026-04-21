@@ -11,14 +11,15 @@
 <div id="toolbar">
   <div class="toolbar-left">
     <span class="logo">BLM</span>
-    <span id="file-name" class="file-name" data-testid="current-file-name">—</span>
+    <span id="file-name" class="file-name" data-testid="current-file-name">-</span>
     <span id="modified-badge" class="modified-badge hidden" data-testid="modified-badge">未保存</span>
   </div>
   <div class="toolbar-right">
     <button onclick="App.cmdNew()" class="btn btn-ghost" data-testid="toolbar-new-button">新建</button>
     <button onclick="App.cmdOpen()" class="btn btn-ghost" data-testid="toolbar-open-button">打开</button>
-    <button onclick="App.cmdSave()" class="btn btn-primary" id="btn-save" title="保存（Ctrl+S）">保存</button>
-    <button onclick="App.cmdSaveAs()" class="btn btn-ghost" data-testid="toolbar-save-as-button">另存</button>
+    <button onclick="App.cmdSave()" class="btn btn-primary" id="btn-save" title="保存 (Ctrl+S)">保存</button>
+    <button onclick="App.cmdSaveAs()" class="btn btn-ghost" data-testid="toolbar-save-as-button" id="toolbar-save-as-label">复制</button>
+    <button onclick="App.cmdMerge()" class="btn btn-ghost" data-testid="toolbar-merge-button">合并</button>
     <button onclick="App.cmdExport()" class="btn btn-ghost" data-testid="toolbar-export-button">导出</button>
   </div>
 </div>
@@ -42,7 +43,6 @@
   </main>
 </div>
 
-<!-- 新建文档弹窗 -->
 <div id="modal-overlay" class="hidden" onclick="App.closeModal()" data-testid="new-doc-modal">
   <div class="modal" onclick="event.stopPropagation()">
     <h3>新建文档</h3>
@@ -60,31 +60,85 @@
   </div>
 </div>
 
-<!-- 打开文档弹窗 -->
 <div id="open-modal-overlay" class="hidden" onclick="App.closeOpenModal()">
-  <div class="modal" onclick="event.stopPropagation()">
+  <div class="modal open-modal-shell" onclick="event.stopPropagation()">
     <h3>打开文档</h3>
-    <div id="file-list" class="file-list"></div>
+    <div class="open-modal-tabs" data-testid="open-modal-tabs">
+      <button
+        type="button"
+        class="open-modal-tab"
+        data-open-tab="workspace"
+        onclick="App.switchOpenTab('workspace')"
+      >工作区文档</button>
+      <button
+        type="button"
+        class="open-modal-tab"
+        data-open-tab="trash"
+        onclick="App.switchOpenTab('trash')"
+      >回收站</button>
+    </div>
+    <div class="open-modal-body">
+      <section id="open-workspace-panel" class="open-modal-panel">
+        <div class="recovery-subtitle">直接从当前工作区打开文档，历史版本可在每条文档右侧进入。</div>
+        <div id="file-list" class="file-list open-modal-scroll"></div>
+      </section>
+      <section id="open-trash-panel" class="open-modal-panel hidden">
+        <div class="recovery-subtitle">删除的文档会先进入回收站；恢复后回到原工作区名称，覆盖前会先保留快照。</div>
+        <div id="trash-list" class="file-list open-modal-scroll"></div>
+      </section>
+    </div>
     <div class="modal-footer">
-      <button onclick="App.closeOpenModal()" class="btn btn-ghost">取消</button>
+      <button onclick="App.closeOpenModal()" class="btn btn-ghost">关闭</button>
     </div>
   </div>
 </div>
 
-<!-- 另存文档弹窗 -->
+<div id="history-modal-overlay" class="hidden" onclick="App.closeHistoryModal()" data-testid="history-modal">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>历史版本</h3>
+    <div id="history-modal-subtitle" class="recovery-subtitle"></div>
+    <div id="history-list" class="file-list"></div>
+    <div class="modal-footer">
+      <button onclick="App.closeHistoryModal()" class="btn btn-ghost">关闭</button>
+    </div>
+  </div>
+</div>
+
 <div id="save-as-modal-overlay" class="hidden" onclick="App.closeSaveAsModal()" data-testid="save-as-modal">
   <div class="modal" onclick="event.stopPropagation()">
-    <h3>另存文档</h3>
+    <h3 id="save-as-modal-title">复制文档</h3>
     <input
       id="save-as-name"
       type="text"
-      placeholder="输入业务域名称，例如：仓储仓单管理-v2"
+      placeholder="输入新文档名称，例如：仓储仓单管理-副本"
       data-testid="save-as-name-input"
       onkeydown="if(event.key==='Enter') App.confirmSaveAs()"
     >
     <div class="modal-footer">
       <button onclick="App.closeSaveAsModal()" class="btn btn-ghost">取消</button>
-      <button onclick="App.confirmSaveAs()" class="btn btn-primary" data-testid="save-as-confirm-button">确定</button>
+      <button onclick="App.confirmSaveAs()" class="btn btn-primary" data-testid="save-as-confirm-button" id="save-as-confirm-label">确认复制</button>
+    </div>
+  </div>
+</div>
+
+<div id="merge-modal-overlay" class="hidden" onclick="App.closeMergeModal()" data-testid="merge-modal">
+  <div class="modal merge-modal" onclick="event.stopPropagation()">
+    <h3>合并文档</h3>
+    <div class="merge-select-grid">
+      <label class="merge-select-field">
+        <span>左侧文档</span>
+        <select id="merge-left-select" onchange="App.selectMergeWorkspace('left', this.value)"></select>
+      </label>
+      <label class="merge-select-field">
+        <span>右侧文档</span>
+        <select id="merge-right-select" onchange="App.selectMergeWorkspace('right', this.value)"></select>
+      </label>
+    </div>
+    <div class="merge-inline-note">只支持工作区文档合并；左右顺序没有区别，确认后会自动分析并在无冲突时生成合并文档。</div>
+    <div id="merge-analysis" class="merge-analysis"></div>
+    <div class="modal-footer">
+      <button onclick="App.closeMergeModal()" class="btn btn-ghost">取消</button>
+      <button onclick="App.confirmMerge()" class="btn btn-primary" data-testid="merge-confirm-button">确认合并</button>
     </div>
   </div>
 </div>
@@ -97,22 +151,15 @@
 <script src="entity.js"></script>
 <script src="preview.js"></script>
 <script src="app.js"></script>
-
-<!-- CDN: Mermaid + marked，联网时加载，离线时降级 -->
-<script type="module">
-  try {
-    const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs');
-    window.mermaidLib = mermaid;
-    mermaid.initialize({ startOnLoad: false, theme: 'default' });
-  } catch (e) {
-    console.warn('Mermaid 加载失败');
+<script src="vendor/mermaid.min.js"></script>
+<script src="vendor/marked.umd.js"></script>
+<script>
+  if (window.mermaid) {
+    window.mermaidLib = window.mermaid;
+    window.mermaid.initialize({ startOnLoad: false, theme: 'default' });
   }
-
-  try {
-    const { marked } = await import('https://cdn.jsdelivr.net/npm/marked@12/src/marked.js');
-    window.markedLib = marked;
-  } catch (e) {
-    console.warn('marked 加载失败');
+  if (window.marked) {
+    window.markedLib = window.marked;
   }
 </script>
 

@@ -7,6 +7,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class ProjectLayoutTests(unittest.TestCase):
+    def test_desktop_host_directory_is_absent(self):
+        self.assertFalse((ROOT / "apps" / "desktop").exists())
+
     def test_root_directory_stays_free_of_node_test_entry_files(self):
         self.assertFalse((ROOT / "package.json").exists())
         self.assertFalse((ROOT / "package-lock.json").exists())

@@ -1,9 +1,14 @@
+import http.server
+import json
 import tempfile
+import threading
 import unittest
+import urllib.request
 from pathlib import Path
 
 from blm_core.document import create_empty_document, migrate_document
 from blm_core.markdown import MarkdownExporter
+from blm_core.server import create_handler
 from blm_core.storage import InvalidDocumentNameError, WorkspaceStorage
 
 
@@ -251,6 +256,411 @@ class WorkspaceStorageTests(unittest.TestCase):
 
             with self.assertRaises(InvalidDocumentNameError):
                 storage.load("nested/path")
+
+    def test_save_existing_document_creates_history_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+
+            storage.save("Loans", document)
+            document["meta"]["title"] = "Loans v2"
+            storage.save("Loans", document)
+
+            history_dir = workspace / ".history" / "Loans"
+            snapshots = sorted(history_dir.glob("*.json"))
+
+            self.assertEqual(len(snapshots), 1)
+            self.assertTrue((history_dir / f"{snapshots[0].stem}.md").exists())
+            snapshot_document = json.loads(snapshots[0].read_text("utf-8"))
+            self.assertEqual(snapshot_document["meta"]["title"], "Loans")
+            self.assertEqual(storage.load("Loans")["meta"]["title"], "Loans v2")
+
+    def test_delete_moves_document_to_trash(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            storage.save("Loans", create_empty_document("Loans"))
+
+            storage.delete("Loans")
+
+            self.assertFalse((workspace / "Loans.json").exists())
+            self.assertFalse((workspace / "Loans.md").exists())
+            trash_json = sorted((workspace / ".trash").glob("Loans-*.json"))
+            trash_md = sorted((workspace / ".trash").glob("Loans-*.md"))
+            self.assertEqual(len(trash_json), 1)
+            self.assertEqual(len(trash_md), 1)
+
+    def test_history_keeps_recent_snapshots_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            storage.history_limit = 3
+            document = create_empty_document("Loans")
+
+            storage.save("Loans", document)
+            for version in range(1, 6):
+                document["meta"]["title"] = f"Loans v{version}"
+                storage.save("Loans", document)
+
+            history_dir = workspace / ".history" / "Loans"
+            snapshots = sorted(history_dir.glob("*.json"))
+
+            self.assertEqual(len(snapshots), 3)
+            self.assertEqual(
+                [json.loads(path.read_text("utf-8"))["meta"]["title"] for path in snapshots],
+                ["Loans v2", "Loans v3", "Loans v4"],
+            )
+
+    def test_list_and_restore_history_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+
+            storage.save("Loans", document)
+            document["meta"]["title"] = "Loans v2"
+            storage.save("Loans", document)
+
+            history_entries = storage.list_history("Loans")
+            self.assertEqual(len(history_entries), 1)
+
+            restored = storage.restore_history("Loans", history_entries[0]["id"])
+            self.assertEqual(restored["meta"]["title"], "Loans")
+            self.assertEqual(storage.load("Loans")["meta"]["title"], "Loans")
+
+    def test_list_and_restore_trash_entry(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            storage.save("Loans", create_empty_document("Loans"))
+            storage.delete("Loans")
+
+            trash_entries = storage.list_trash()
+            self.assertEqual(len(trash_entries), 1)
+            restored_name, restored_document = storage.restore_trash(trash_entries[0]["id"])
+
+            self.assertEqual(restored_name, "Loans")
+            self.assertEqual(restored_document["meta"]["title"], "Loans")
+            self.assertTrue((workspace / "Loans.json").exists())
+            self.assertEqual(storage.list_trash(), [])
+
+    def test_rename_moves_old_workspace_document_to_trash(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("交割智慧监管平台-合并")
+            document["meta"]["domain"] = "交割智慧监管平台"
+            document["meta"]["title"] = "交割智慧监管平台"
+            storage.save("交割智慧监管平台-合并", create_empty_document("交割智慧监管平台-合并"))
+
+            renamed_name, renamed_document = storage.rename(
+                "交割智慧监管平台-合并",
+                "交割智慧监管平台",
+                document,
+            )
+
+            self.assertEqual(renamed_name, "交割智慧监管平台")
+            self.assertEqual(renamed_document["meta"]["title"], "交割智慧监管平台")
+            self.assertEqual(renamed_document["meta"]["domain"], "交割智慧监管平台")
+            self.assertFalse((workspace / "交割智慧监管平台-合并.json").exists())
+            self.assertTrue((workspace / "交割智慧监管平台.json").exists())
+            self.assertTrue(any(entry["doc_name"] == "交割智慧监管平台-合并" for entry in storage.list_trash()))
+
+    def test_rename_can_overwrite_existing_document_when_explicitly_allowed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            source = create_empty_document("交割智慧监管平台-合并")
+            source["meta"]["domain"] = "交割智慧监管平台"
+            source["meta"]["title"] = "交割智慧监管平台"
+            target = create_empty_document("交割智慧监管平台")
+            target["meta"]["author"] = "legacy"
+
+            storage.save("交割智慧监管平台-合并", source)
+            storage.save("交割智慧监管平台", target)
+
+            renamed_name, renamed_document = storage.rename(
+                "交割智慧监管平台-合并",
+                "交割智慧监管平台",
+                source,
+                overwrite=True,
+            )
+
+            self.assertEqual(renamed_name, "交割智慧监管平台")
+            self.assertEqual(renamed_document["meta"]["title"], "交割智慧监管平台")
+            self.assertFalse((workspace / "交割智慧监管平台-合并.json").exists())
+            self.assertEqual(storage.load("交割智慧监管平台")["meta"]["title"], "交割智慧监管平台")
+            history_entries = storage.list_history("交割智慧监管平台")
+            self.assertEqual(len(history_entries), 1)
+            history_snapshot = storage.restore_history("交割智慧监管平台", history_entries[0]["id"])
+            self.assertEqual(history_snapshot["meta"]["author"], "legacy")
+
+
+class MergeApiTests(unittest.TestCase):
+    def test_document_normalize_returns_migrated_document(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            payload = json.dumps(
+                {
+                    "document": {
+                        "meta": {"title": "Local"},
+                        "roles": [{"name": "审核员"}],
+                        "processes": [],
+                        "entities": [],
+                        "relations": [],
+                        "rules": [],
+                        "language": [],
+                    }
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/document/normalize",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(request) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["document"]["meta"]["document_uid"])
+        self.assertEqual(result["document"]["meta"]["schema_version"], 2)
+        self.assertTrue(result["document"]["roles"][0]["uid"])
+
+    def test_merge_analyze_accepts_inline_documents(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            left = create_empty_document("Supply")
+            left["roles"].append(
+                {
+                    "id": "R1",
+                    "name": "仓库主管",
+                    "desc": "",
+                    "group": "业务参与方",
+                    "subDomains": ["仓储"],
+                }
+            )
+            right = create_empty_document("Supply")
+            right["entities"].append(
+                {
+                    "id": "E1",
+                    "name": "出库单",
+                    "group": "仓储",
+                    "note": "",
+                    "fields": [{"name": "单号", "type": "string", "is_key": True, "is_status": False}],
+                    "state_transitions": [],
+                }
+            )
+
+            payload = json.dumps(
+                {
+                    "mode": "combine",
+                    "left_document": left,
+                    "right_document": right,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/merge/analyze",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(request) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["conflicts"], [])
+        self.assertEqual(len(result["merged_document"]["roles"]), 1)
+        self.assertEqual(len(result["merged_document"]["entities"]), 1)
+
+    def test_rename_api_keeps_workspace_name_aligned_with_domain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            storage.save("交割智慧监管平台-合并", create_empty_document("交割智慧监管平台-合并"))
+            document = storage.load("交割智慧监管平台-合并")
+            document["meta"]["domain"] = "交割智慧监管平台"
+            document["meta"]["title"] = "交割智慧监管平台"
+
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            payload = json.dumps(
+                {
+                    "old_name": "交割智慧监管平台-合并",
+                    "new_name": "交割智慧监管平台",
+                    "document": document,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/rename",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(request) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "交割智慧监管平台")
+        self.assertEqual(result["document"]["meta"]["title"], "交割智慧监管平台")
+        self.assertEqual(result["document"]["meta"]["domain"], "交割智慧监管平台")
+
+    def test_rename_api_can_overwrite_existing_document(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            storage.save("交割智慧监管平台-合并", create_empty_document("交割智慧监管平台-合并"))
+            existing = create_empty_document("交割智慧监管平台")
+            existing["meta"]["author"] = "existing"
+            storage.save("交割智慧监管平台", existing)
+
+            document = storage.load("交割智慧监管平台-合并")
+            document["meta"]["domain"] = "交割智慧监管平台"
+            document["meta"]["title"] = "交割智慧监管平台"
+
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            payload = json.dumps(
+                {
+                    "old_name": "交割智慧监管平台-合并",
+                    "new_name": "交割智慧监管平台",
+                    "document": document,
+                    "overwrite": True,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/rename",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(request) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "交割智慧监管平台")
+        self.assertEqual(result["document"]["meta"]["title"], "交割智慧监管平台")
+
+
+class RecoveryApiTests(unittest.TestCase):
+    def test_history_api_lists_snapshots(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            document = create_empty_document("Loans")
+            storage.save("Loans", document)
+            document["meta"]["title"] = "Loans v2"
+            storage.save("Loans", document)
+
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/history/Loans"
+                ) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["doc_name"], "Loans")
+
+    def test_trash_restore_api_restores_document(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            storage.save("Loans", create_empty_document("Loans"))
+            storage.delete("Loans")
+            trash_entry = storage.list_trash()[0]["id"]
+
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            payload = json.dumps({"entry_id": trash_entry}).encode("utf-8")
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/trash/restore",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(request) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "Loans")
+        self.assertEqual(result["document"]["meta"]["title"], "Loans")
 
 
 if __name__ == "__main__":

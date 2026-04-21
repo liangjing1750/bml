@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /* ═══════════════════════════════════════════════════════════
    STATE
@@ -6,8 +6,32 @@
 const S = {
   files: [],
   currentFile: null,
+  saveDialogMode: 'save',
   doc: null,
   modified: false,
+  merge: {
+    workspaceFiles: [],
+    workspaceNames: {
+      left: '',
+      right: '',
+    },
+    labels: {
+      left: '',
+      right: '',
+    },
+    documents: {
+      left: null,
+      right: null,
+    },
+    analysis: null,
+    resolutions: {},
+  },
+  recovery: {
+    openTab: 'workspace',
+    historyDocName: '',
+    historyEntries: [],
+    trashEntries: [],
+  },
   ui: {
     tab: 'domain',
     procId: null, taskId: null,
@@ -132,6 +156,29 @@ function markModified() {
     S.modified = true;
     if (typeof renderToolbar === 'function') renderToolbar();
   }
+}
+function getCurrentDocumentLabel() {
+  return S.doc?.meta?.domain || S.currentFile || '—';
+}
+function getCurrentDocumentTitle() {
+  return getCurrentDocumentLabel();
+}
+function canOverwriteCurrentDocument() {
+  return !!S.currentFile;
+}
+function resetMergeState() {
+  S.merge.workspaceFiles = [];
+  S.merge.workspaceNames = { left: '', right: '' };
+  S.merge.labels = { left: '', right: '' };
+  S.merge.documents = { left: null, right: null };
+  S.merge.analysis = null;
+  S.merge.resolutions = {};
+}
+function resetRecoveryState() {
+  S.recovery.openTab = 'workspace';
+  S.recovery.historyDocName = '';
+  S.recovery.historyEntries = [];
+  S.recovery.trashEntries = [];
 }
 function getEntityName(id) { return S.doc?.entities?.find(e=>e.id===id)?.name||id; }
 function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.procId)||null; }
