@@ -142,17 +142,12 @@ function clearMergeAnalysisState() {
   renderMergeAnalysis(null);
 }
 
-function setMergeSource(kind, { workspaceName = '', path = '', label = '', document = null } = {}) {
+function setMergeSource(kind, { workspaceName = '', label = '', document = null } = {}) {
   S.merge.workspaceNames[kind] = workspaceName;
-  S.merge.paths[kind] = path;
-  S.merge.labels[kind] = label || workspaceName || (path ? getPathBasename(path) : '');
+  S.merge.labels[kind] = label || workspaceName;
   S.merge.documents[kind] = document;
   clearMergeAnalysisState();
   syncMergeWorkspaceUi();
-}
-
-function hasMergeSource(kind) {
-  return !!(S.merge.paths?.[kind] || S.merge.documents?.[kind]);
 }
 
 function getMergeSelectedName(kind) {
@@ -172,7 +167,6 @@ async function ensureMergeWorkspaceDocuments() {
         return { error: document.error };
       }
       S.merge.workspaceNames[kind] = selectedName;
-      S.merge.paths[kind] = '';
       S.merge.labels[kind] = selectedName;
       S.merge.documents[kind] = document;
     }

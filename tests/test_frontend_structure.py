@@ -74,6 +74,15 @@ class FrontendStructureTests(unittest.TestCase):
             self.assertGreater(position, previous_position, f"{script_name} 加载顺序不正确")
             previous_position = position
 
+    def test_browser_frontend_no_longer_depends_on_path_merge_state(self):
+        app_js = (APP_DIR / "app.js").read_text("utf-8")
+        state_js = (APP_DIR / "state.js").read_text("utf-8")
+
+        self.assertNotIn("S.merge.paths", app_js)
+        self.assertNotIn("getPathBasename", app_js)
+        self.assertNotIn("path = ''", app_js)
+        self.assertNotIn("paths:", state_js)
+
 
 if __name__ == "__main__":
     unittest.main()
