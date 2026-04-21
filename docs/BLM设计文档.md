@@ -26,7 +26,7 @@
 - `blm_core/server.py`
   负责浏览器 API，暴露工作区文件、合并、恢复等接口。
 - `app/`
-  浏览器前端。`state.js` 管状态，`render.js/domain.js/process.js/entity.js/preview.js` 负责界面与建模编辑，`app.js` 负责工作流编排。
+  浏览器前端。`state.js` 管状态，`render.js/domain.js/process.js/entity.js/preview.js/manual.js` 负责界面与建模编辑，`app.js` 负责工作流编排。
 
 ![工作区编辑主界面](screenshots/06_workspace_editor.png)
 
@@ -131,6 +131,18 @@
 - 仅提供左右两个下拉框。
 - 右下角主按钮为“确认合并”。
 - 合并分析摘要、冲突项、结果预览都在同一弹窗内完成。
+
+### 7.3 使用手册入口
+
+- 位于顶部工具栏“导出”后方，作为独立阅读页入口，不与业务建模页签混用。
+- 布局采用三栏：
+  - 左侧为文档列表与目录大纲；
+  - 中间为 Markdown 正文阅读区；
+  - 右侧为截图速览区，点击后可跳转到正文中的对应图片。
+- 文档内容来自 `docs/` 目录，截图资源来自 `docs/screenshots/`，由后端提供只读接口。
+- 该页支持渲染标题、表格、列表、代码块、Mermaid 和截图，适合作为内置知识库与使用指引。
+
+![使用手册入口与阅读页](screenshots/09_manual_tab.png)
 
 ## 8. 文档维护约定
 

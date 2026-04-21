@@ -41,6 +41,12 @@ const api = {
   async trash() {
     return fetch('/api/trash').then((response) => response.json());
   },
+  async docs() {
+    return fetch('/api/docs').then((response) => response.json());
+  },
+  async doc(docId) {
+    return fetch(`/api/docs/${encodeURIComponent(docId)}`).then((response) => response.json());
+  },
   async restoreTrash(entryId) {
     return postJson('/api/trash/restore', { entry_id: entryId });
   },

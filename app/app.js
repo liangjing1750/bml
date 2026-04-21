@@ -442,12 +442,12 @@ const App = {
     const name = document.getElementById('new-doc-name').value.trim();
     if (!name) return alert('请输入名称');
 
-    const document = createLocalDocument(name);
-    const saveResult = await saveWorkspaceDocument(name, document);
+    const newDocument = createLocalDocument(name);
+    const saveResult = await saveWorkspaceDocument(name, newDocument);
     if (!saveResult) return;
 
     App.closeModal();
-    setActiveDocumentSession(saveResult.document || document, { fileName: saveResult.name || name });
+    setActiveDocumentSession(saveResult.document || newDocument, { fileName: saveResult.name || name });
   },
 
   async cmdOpen() {
@@ -591,6 +591,10 @@ const App = {
       jsonName,
     );
     App._downloadBlob(buildMdFromDoc(S.doc), 'text/plain;charset=utf-8', mdName);
+  },
+
+  cmdManual() {
+    navigate('manual', {});
   },
 
   async cmdMerge() {

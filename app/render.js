@@ -190,10 +190,17 @@ function _defaultSbCollapse(doc) {
 }
 
 function render() {
-  if(!S.doc){renderNoDoc();return;}
   renderToolbar();
-  renderSidebar();
   renderTabBar();
+  const manualMode = S.ui.tab === 'manual';
+  document.body.classList.toggle('manual-shell', manualMode);
+  if (manualMode) {
+    if (typeof renderManualTab === 'function') renderManualTab();
+    if (typeof bootManualTab === 'function') void bootManualTab();
+    return;
+  }
+  if(!S.doc){renderNoDoc();return;}
+  renderSidebar();
   const t=S.ui.tab;
   if     (t==='domain') renderDomainTab();
   else if(t==='process') renderProcessTab();
@@ -209,6 +216,7 @@ function renderToolbar() {
   document.getElementById('file-name').title = getCurrentDocumentTitle();
   document.getElementById('modified-badge')?.classList.toggle('hidden', !S.modified);
   document.getElementById('save-alert')?.classList.toggle('hidden', !S.modified);
+  document.getElementById('toolbar-manual-button')?.classList.toggle('active', S.ui.tab === 'manual');
   if (typeof refreshSaveDialogText === 'function') {
     refreshSaveDialogText();
   }

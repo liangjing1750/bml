@@ -32,6 +32,16 @@ const S = {
     historyEntries: [],
     trashEntries: [],
   },
+  manual: {
+    docs: [],
+    activeDocId: '',
+    activeTitle: '',
+    activeSummary: '',
+    html: '',
+    outline: [],
+    images: [],
+    loading: false,
+  },
   ui: {
     tab: 'domain',
     procId: null, taskId: null,

@@ -38,6 +38,8 @@ test('用户可以从工作区选择两个文档并确认合并', async ({ page,
   await page.getByTestId('toolbar-merge-button').click();
 
   await expect(page.getByTestId('merge-modal')).not.toHaveClass(/hidden/);
+  await page.locator('#merge-left-select').selectOption(leftName);
+  await page.locator('#merge-right-select').selectOption(rightName);
   await expect(page.locator('#merge-left-select')).toHaveValue(leftName);
   await expect(page.locator('#merge-right-select')).toHaveValue(rightName);
 

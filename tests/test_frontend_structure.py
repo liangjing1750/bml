@@ -14,6 +14,7 @@ EXPECTED_SCRIPTS = [
     "process.js",
     "entity.js",
     "preview.js",
+    "manual.js",
     "app.js",
 ]
 
@@ -55,8 +56,11 @@ class FrontendStructureTests(unittest.TestCase):
         self.assertIn('id="trash-list"', html)
         self.assertIn('id="save-as-modal-title">复制文档</h3>', html)
         self.assertIn('id="save-as-confirm-label">确认复制</button>', html)
+        self.assertIn('data-testid="toolbar-manual-button"', html)
+        self.assertLess(html.find('data-testid="toolbar-export-button"'), html.find('data-testid="toolbar-manual-button"'))
         self.assertIn('<script src="vendor/mermaid.min.js"></script>', html)
         self.assertIn('<script src="vendor/marked.umd.js"></script>', html)
+        self.assertIn('<script src="manual.js"></script>', html)
         self.assertNotIn("https://cdn.jsdelivr.net", html)
         self.assertIn('id="merge-left-select"', html)
         self.assertIn('id="merge-right-select"', html)
@@ -77,11 +81,14 @@ class FrontendStructureTests(unittest.TestCase):
     def test_browser_frontend_no_longer_depends_on_path_merge_state(self):
         app_js = (APP_DIR / "app.js").read_text("utf-8")
         state_js = (APP_DIR / "state.js").read_text("utf-8")
+        render_js = (APP_DIR / "render.js").read_text("utf-8")
 
         self.assertNotIn("S.merge.paths", app_js)
         self.assertNotIn("getPathBasename", app_js)
         self.assertNotIn("path = ''", app_js)
         self.assertNotIn("paths:", state_js)
+        self.assertNotIn("{id:'manual', label:'使用手册'}", render_js)
+        self.assertIn("toolbar-manual-button", render_js)
 
 
 if __name__ == "__main__":

@@ -663,5 +663,84 @@ class RecoveryApiTests(unittest.TestCase):
         self.assertEqual(result["document"]["meta"]["title"], "Loans")
 
 
+class DocsApiTests(unittest.TestCase):
+    def test_docs_api_lists_builtin_documents(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/docs"
+                ) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(
+            [item["id"] for item in result],
+            ["design", "test-cases", "user-manual"],
+        )
+        self.assertTrue(all(item["title"] for item in result))
+
+    def test_docs_api_returns_markdown_content(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/docs/user-manual"
+                ) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(result["id"], "user-manual")
+        self.assertEqual(result["title"], "用户手册")
+        self.assertIn("screenshots/05_open_dialog.png", result["content"])
+
+    def test_docs_asset_api_returns_screenshot_binary(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/docs/assets/screenshots/05_open_dialog.png"
+                ) as response:
+                    body = response.read()
+                    content_type = response.headers.get_content_type()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(content_type, "image/png")
+        self.assertGreater(len(body), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

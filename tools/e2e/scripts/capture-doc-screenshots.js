@@ -219,6 +219,12 @@ async function captureScreenshots() {
       fullPage: true,
     });
 
+    await page.getByTestId('toolbar-manual-button').click();
+    await page.getByTestId('manual-doc-user-manual').click();
+    await page.getByTestId('manual-tab').screenshot({
+      path: path.join(screenshotDir, '09_manual_tab.png'),
+    });
+
     await browser.close();
   } finally {
     serverProcess.kill();

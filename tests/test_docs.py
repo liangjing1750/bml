@@ -21,15 +21,18 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("历史快照", content)
         self.assertIn("screenshots/06_workspace_editor.png", content)
         self.assertIn("screenshots/07_merge_dialog.png", content)
+        self.assertIn("screenshots/09_manual_tab.png", content)
 
     def test_test_case_doc_covers_core_regressions(self):
         content = (DOCS_DIR / "BLM测试用例.md").read_text("utf-8")
         self.assertIn("# BLM测试用例", content)
         self.assertIn("打开文档", content)
         self.assertIn("确认合并", content)
+        self.assertIn("使用手册入口", content)
         self.assertIn("回收站恢复", content)
         self.assertIn("未保存修改保护", content)
         self.assertIn("screenshots/07_merge_dialog.png", content)
+        self.assertIn("screenshots/09_manual_tab.png", content)
 
     def test_user_manual_covers_main_user_actions(self):
         content = (DOCS_DIR / "BLM用户手册.md").read_text("utf-8")
@@ -38,9 +41,11 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("打开文档", content)
         self.assertIn("复制文档", content)
         self.assertIn("合并文档", content)
+        self.assertIn("使用手册入口", content)
         self.assertIn("回收站", content)
         self.assertIn("screenshots/05_open_dialog.png", content)
         self.assertIn("screenshots/08_merge_result.png", content)
+        self.assertIn("screenshots/09_manual_tab.png", content)
 
     def test_required_doc_screenshots_exist(self):
         for screenshot_name in [
@@ -48,6 +53,7 @@ class DocumentationTests(unittest.TestCase):
             "06_workspace_editor.png",
             "07_merge_dialog.png",
             "08_merge_result.png",
+            "09_manual_tab.png",
         ]:
             self.assertTrue((DOCS_DIR / "screenshots" / screenshot_name).exists(), screenshot_name)
 

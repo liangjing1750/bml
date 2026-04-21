@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import mimetypes
 import threading
 import webbrowser
 from pathlib import Path
@@ -15,8 +16,32 @@ from blm_core.storage import (
     WorkspaceStorage,
 )
 
+DOCS_MANIFEST = [
+    {
+        "id": "design",
+        "title": "设计文档",
+        "filename": "BLM设计文档.md",
+        "summary": "查看当前浏览器版架构、工作流、合并和恢复机制。",
+    },
+    {
+        "id": "test-cases",
+        "title": "测试用例",
+        "filename": "BLM测试用例.md",
+        "summary": "查看核心回归点、测试分层和端到端验证范围。",
+    },
+    {
+        "id": "user-manual",
+        "title": "用户手册",
+        "filename": "BLM用户手册.md",
+        "summary": "查看工作区使用方法、合并流程、回收站和导出说明。",
+    },
+]
+DOCS_INDEX = {item["id"]: item for item in DOCS_MANIFEST}
+
 
 def create_handler(app_dir: Path, storage: WorkspaceStorage):
+    docs_dir = (app_dir.parent / "docs").resolve()
+
     class BlmRequestHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(app_dir), **kwargs)
@@ -41,6 +66,12 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
                 return self._json(storage.list_documents())
             if path == "/api/trash":
                 return self._json(storage.list_trash())
+            if path == "/api/docs":
+                return self._json(DOCS_MANIFEST)
+            if path.startswith("/api/docs/assets/"):
+                return self._handle_docs_asset(path)
+            if path.startswith("/api/docs/"):
+                return self._handle_docs(path)
             if path.startswith("/api/load/"):
                 return self._handle_load(path)
             if path.startswith("/api/export/"):
@@ -101,6 +132,33 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
                 return self._json(storage.list_history(name))
             except InvalidDocumentNameError as exc:
                 return self._json({"error": str(exc)}, 400)
+
+        def _handle_docs(self, path: str):
+            doc_id = unquote(path[len("/api/docs/"):]).strip("/")
+            entry = DOCS_INDEX.get(doc_id)
+            if not entry:
+                return self._json({"error": "not found"}, 404)
+            doc_path = (docs_dir / entry["filename"]).resolve()
+            if not self._is_safe_docs_path(doc_path) or not doc_path.exists():
+                return self._json({"error": "not found"}, 404)
+            return self._json(
+                {
+                    "id": entry["id"],
+                    "title": entry["title"],
+                    "summary": entry["summary"],
+                    "content": doc_path.read_text("utf-8"),
+                }
+            )
+
+        def _handle_docs_asset(self, path: str):
+            raw_relative_path = unquote(path[len("/api/docs/assets/"):]).strip("/")
+            if not raw_relative_path:
+                return self._json({"error": "not found"}, 404)
+            asset_path = (docs_dir / raw_relative_path).resolve()
+            if not self._is_safe_docs_path(asset_path) or not asset_path.is_file():
+                return self._json({"error": "not found"}, 404)
+            content_type = mimetypes.guess_type(asset_path.name)[0] or "application/octet-stream"
+            return self._binary(asset_path.read_bytes(), content_type)
 
         def _handle_save(self, path: str, body: bytes):
             name = unquote(path[len("/api/save/"):])
@@ -252,6 +310,13 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
             except json.JSONDecodeError:
                 return {"error": "invalid json"}, 400
 
+        def _is_safe_docs_path(self, target_path: Path) -> bool:
+            try:
+                target_path.relative_to(docs_dir)
+            except ValueError:
+                return False
+            return True
+
         def _json(self, payload, code: int = 200):
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
@@ -259,6 +324,13 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _binary(self, payload: bytes, content_type: str, code: int = 200):
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
 
         def _text(self, payload: str, code: int = 200):
             body = payload.encode("utf-8")
