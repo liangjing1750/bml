@@ -301,6 +301,13 @@ function renderSidebar() {
   const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
   const processCount = procs.length;
   const nodeCount = procs.reduce((sum, proc) => sum + getProcNodes(proc).length, 0);
+  const orchestrationTaskCount = procs.reduce(
+    (sum, proc) => sum + getProcNodes(proc).reduce(
+      (nodeSum, node) => nodeSum + getNodeOrchestrationTasks(node).length,
+      0,
+    ),
+    0,
+  );
   const entityCount = entities.length;
   const fieldCount = entities.reduce((sum, entity) => sum + ((entity.fields || []).length), 0);
 
@@ -333,9 +340,9 @@ function renderSidebar() {
       <div class="sb-header-main">
         <span class="sb-header-title">\u6d41\u7a0b</span>
         ${_renderSbMetrics([
-          { label: '\u5b50\u57df', value: processBucketCount },
-          { label: '\u6d41\u7a0b\u7ec4', value: flowGroupCount },
+          { label: '\u6d41\u7a0b', value: processCount },
           { label: '\u8282\u70b9', value: nodeCount },
+          { label: '\u4efb\u52a1', value: orchestrationTaskCount },
         ])}
       </div>
       <button class="sb-add-btn" onclick="addProcess()" title="\u65b0\u5efa\u6d41\u7a0b">+</button>

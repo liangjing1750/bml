@@ -260,7 +260,6 @@ function removeTask(procId,taskId) {
   const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
   proc.nodes=getProcNodes(proc).filter(t=>t.id!==taskId);
   if(S.ui.taskId===taskId) S.ui.taskId=null;
-  S.ui.orchestrationOpen = false;
   markModified(); render();
 }
 function moveTask(procId,taskId,dir) {
@@ -279,13 +278,10 @@ function setTask(procId,taskId,key,val) {
 
 function rerenderProcessEditor(options = {}) {
   const drawerScrollTop = document.querySelector('.proc-drawer .drawer-body')?.scrollTop || 0;
-  const subdrawerScrollTop = document.querySelector('.proc-subdrawer .subdrawer-body')?.scrollTop || 0;
   renderProcessTab();
   requestAnimationFrame(() => {
     const drawerBody = document.querySelector('.proc-drawer .drawer-body');
     if (drawerBody) drawerBody.scrollTop = options.drawerScrollTop ?? drawerScrollTop;
-    const subdrawerBody = document.querySelector('.proc-subdrawer .subdrawer-body');
-    if (subdrawerBody) subdrawerBody.scrollTop = options.subdrawerScrollTop ?? subdrawerScrollTop;
     if (options.focusSelector) {
       const field = document.querySelector(options.focusSelector);
       if (field) {
@@ -361,20 +357,21 @@ function toggleEntityOp(procId,taskId,entityId,op,checked) {
   markModified();
 }
 
-function openOrchestrationPanel(procId, taskId) {
-  S.ui.procId = procId;
-  S.ui.taskId = taskId;
-  S.ui.orchestrationOpen = true;
-  rerenderProcessEditor();
+function setNodePerspective(view) {
+  if(view !== 'user' && view !== 'engineering') return;
+  S.ui.nodePerspective = view;
+  rerenderProcessEditor({
+    focusSelector: view === 'engineering'
+      ? '[data-testid="orchestration-section"] .orch-name, [data-testid="orchestration-section"]'
+      : '[data-testid="user-steps-section"] .step-name, [data-testid="user-steps-section"]',
+  });
 }
-function closeOrchestrationPanel() {
-  S.ui.orchestrationOpen = false;
-  rerenderProcessEditor();
-}
-function addOrchestrationTask(procId, taskId) {
+function addOrchestrationTask(procId, taskId, afterIdx) {
   const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
   if (!node) return;
-  getNodeOrchestrationTasks(node).push({
+  const orchestrationTasks = getNodeOrchestrationTasks(node);
+  const insertIndex = Number.isInteger(afterIdx) ? afterIdx + 1 : orchestrationTasks.length;
+  orchestrationTasks.splice(insertIndex, 0, {
     name: '',
     type: 'Query',
     querySourceKind: 'Dictionary',
@@ -383,7 +380,7 @@ function addOrchestrationTask(procId, taskId) {
   });
   markModified();
   rerenderProcessEditor({
-    focusSelector: '.proc-subdrawer .orch-card:last-child input[type="text"]',
+    focusSelector: `.orch-card[data-orch-index="${insertIndex}"] .orch-name`,
   });
 }
 function removeOrchestrationTask(procId, taskId, idx) {
@@ -402,6 +399,18 @@ function setOrchestrationTask(procId, taskId, idx, key, val) {
   if (key === 'type' && val === 'Query' && !item.querySourceKind) item.querySourceKind = 'Dictionary';
   markModified();
 }
+function moveOrchestrationTask(procId, taskId, idx, dir) {
+  const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
+  if (!node) return;
+  const orchestrationTasks = getNodeOrchestrationTasks(node);
+  const targetIdx = idx + dir;
+  if(targetIdx < 0 || targetIdx >= orchestrationTasks.length) return;
+  [orchestrationTasks[idx], orchestrationTasks[targetIdx]] = [orchestrationTasks[targetIdx], orchestrationTasks[idx]];
+  markModified();
+  rerenderProcessEditor({
+    focusSelector: `.orch-card[data-orch-index="${targetIdx}"] .orch-name`,
+  });
+}
 
 /* 找第一个空位（不与任何现有流程重叠） */
 function _nextFreePos(procs, excludeId) {
@@ -417,6 +426,121 @@ function ensureProcPos(doc) {
   (doc.processes||[]).forEach(p => {
     if(!p.pos) p.pos = _nextFreePos(doc.processes, p.id);
   });
+}
+
+function buildOrchestrationFlowHtml(task) {
+  const orchestrationTasks = getNodeOrchestrationTasks(task);
+  if(!orchestrationTasks.length) {
+    return `<div class="orch-flow-empty">暂无编排任务，先补充研发视角下的任务拆解。</div>`;
+  }
+  return `<div class="orch-flow-frame" data-testid="orchestration-flow">
+    <div class="orch-flow-node-label">节点 ${esc(task.id)} · ${esc(task.name || '未命名节点')}</div>
+    <div class="orch-flow-track">
+      ${orchestrationTasks.map((item, index) => `
+        <div class="orch-flow-item">
+          <div class="orch-flow-card tone-${String(item.type || 'Custom').toLowerCase()}">
+            <span class="orch-flow-index">${index + 1}</span>
+            <div class="orch-flow-text">
+              <strong>${esc(item.name || `任务 ${index + 1}`)}</strong>
+              <span>${esc(item.target || (item.type === 'Query' ? '待补充查询目标' : '待补充执行目标'))}</span>
+            </div>
+          </div>
+          ${index < orchestrationTasks.length - 1 ? '<div class="orch-flow-arrow">→</div>' : ''}
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function renderNodePerspectiveSwitch() {
+  const perspective = S.ui.nodePerspective || 'user';
+  return `<div class="node-perspective-switch" data-testid="node-perspective-switch">
+    <button
+      type="button"
+      class="node-perspective-btn ${perspective === 'user' ? 'active' : ''}"
+      data-testid="node-perspective-user"
+      onclick="setNodePerspective('user')"
+    >用户视角</button>
+    <button
+      type="button"
+      class="node-perspective-btn ${perspective === 'engineering' ? 'active' : ''}"
+      data-testid="node-perspective-engineering"
+      onclick="setNodePerspective('engineering')"
+    >研发视角</button>
+  </div>`;
+}
+
+function renderUserStepsSection(proc, task) {
+  const userSteps = getNodeUserSteps(task);
+  const perspective = S.ui.nodePerspective || 'user';
+  return `<div class="form-section node-perspective-panel ${perspective === 'user' ? 'active' : ''}" data-testid="user-steps-section">
+    <div class="section-toolbar">
+      <h4>用户操作步骤 <span class="section-count">${userSteps.length} 项</span></h4>
+      <button class="btn btn-outline btn-sm" type="button" onclick="addStep('${esc(proc.id)}','${esc(task.id)}')">＋添加步骤</button>
+    </div>
+    <p class="section-hint">面向产品视角，描述页面上的查看、点击、填写、提交等用户动作。</p>
+    ${userSteps.length ? `<div class="step-list">${userSteps.map((s, i) => `
+      <div class="step-row" data-step-index="${i}">
+        <div class="step-row-top">
+          <span class="step-num">${i + 1}</span>
+          <input class="step-name" type="text" value="${esc(s.name || '')}" placeholder="步骤描述"
+            oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'name',this.value)">
+          <select class="step-type" onchange="onStepTypeChange(this,'${esc(proc.id)}','${esc(task.id)}',${i})">
+            ${STEP_TYPES.map((t) => `<option value="${t.value}" ${(t.value === '__other__' ? isCustomStepType(s.type) : s.type === t.value) ? 'selected' : ''}>${t.label}</option>`).join('')}
+          </select>
+          ${isCustomStepType(s.type) ? `<input class="step-type-custom" type="text" value="${esc(s.type)}" placeholder="自定义类型"
+            oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'type',this.value)">` : ''}
+          <div class="step-actions">
+            <button class="step-action step-add-after" type="button" title="在下方插入步骤" onclick="addStep('${esc(proc.id)}','${esc(task.id)}',${i})">+</button>
+            <button class="step-action step-move-up" type="button" title="上移" ${i === 0 ? 'disabled' : ''} onclick="moveStep('${esc(proc.id)}','${esc(task.id)}',${i},-1)">↑</button>
+            <button class="step-action step-move-down" type="button" title="下移" ${i === userSteps.length - 1 ? 'disabled' : ''} onclick="moveStep('${esc(proc.id)}','${esc(task.id)}',${i},1)">↓</button>
+            <button class="step-del" type="button" onclick="removeStep('${esc(proc.id)}','${esc(task.id)}',${i})">✕</button>
+          </div>
+        </div>
+        <textarea class="step-note auto-resize" rows="1" placeholder="条件 / 备注 / 规则"
+          oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'note',this.value);autoResize(this)"
+        >${esc(s.note || '')}</textarea>
+      </div>`).join('')}</div>` : '<p class="no-refs">暂无用户操作步骤</p>'}
+  </div>`;
+}
+
+function renderOrchestrationSection(proc, task) {
+  const orchestrationTasks = getNodeOrchestrationTasks(task);
+  const perspective = S.ui.nodePerspective || 'user';
+  return `<div class="form-section node-perspective-panel ${perspective === 'engineering' ? 'active' : ''}" data-testid="orchestration-section">
+    <div class="section-toolbar">
+      <h4>编排任务 <span class="section-count">${orchestrationTasks.length} 项</span></h4>
+      <button class="btn btn-outline btn-sm" type="button" onclick="addOrchestrationTask('${esc(proc.id)}','${esc(task.id)}')">＋添加任务</button>
+    </div>
+    <p class="section-hint">面向研发视角，描述查询、校验、计算、服务编排等实现任务。</p>
+    ${buildOrchestrationFlowHtml(task)}
+    ${orchestrationTasks.length ? `<div class="orch-list">${orchestrationTasks.map((item, index) => `
+      <div class="orch-card" data-orch-index="${index}">
+        <div class="orch-row orch-row-main">
+          <span class="orch-index">${index + 1}</span>
+          <input class="orch-name" type="text" value="${esc(item.name || '')}" placeholder="如：校验账户状态"
+            oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'name',this.value)">
+          <select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'type',this.value);rerenderProcessEditor()">
+            ${ORCHESTRATION_TYPES.map((option) => `<option value="${option.value}" ${item.type === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+          </select>
+          <div class="step-actions orch-actions">
+            <button class="step-action" type="button" title="在下方插入任务" onclick="addOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index})">+</button>
+            <button class="step-action" type="button" title="上移" ${index === 0 ? 'disabled' : ''} onclick="moveOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},-1)">↑</button>
+            <button class="step-action" type="button" title="下移" ${index === orchestrationTasks.length - 1 ? 'disabled' : ''} onclick="moveOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},1)">↓</button>
+            <button class="step-del" type="button" onclick="removeOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index})">✕</button>
+          </div>
+        </div>
+        <div class="orch-row orch-row-secondary">
+          ${item.type === 'Query' ? `<select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'querySourceKind',this.value)">
+            ${QUERY_SOURCE_KINDS.map((option) => `<option value="${option.value}" ${item.querySourceKind === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+          </select>` : '<span class="orch-spacer"></span>'}
+          <input type="text" value="${esc(item.target || '')}" placeholder="目标服务 / 字典 / 枚举"
+            oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'target',this.value)">
+        </div>
+        <textarea class="auto-resize" rows="2" placeholder="备注：输入输出、前置条件、异常处理"
+          oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'note',this.value);autoResize(this)"
+        >${esc(item.note || '')}</textarea>
+      </div>`).join('')}</div>` : '<p class="no-refs">暂无编排任务</p>'}
+  </div>`;
 }
 
 /* 就地更新卡片坐标（不重绘整个 Tab，保留滚动位置） */
@@ -830,31 +954,8 @@ function renderProcessTab() {
       </div>`;
 
       /* 步骤 */
-      h+=`<div class="form-section">
-        <h4>\u7528\u6237\u64cd\u4f5c\u6b65\u9aa4 <button class="btn btn-outline btn-sm" onclick="addStep('${esc(proc.id)}','${esc(task.id)}')">\uff0b</button></h4>`;
-      const userSteps = getNodeUserSteps(task);
-      if(userSteps.length){
-        h+=`<div class="step-list">`;
-        userSteps.forEach((s,i)=>{
-          h+=`<div class="step-row">
-            <div class="step-row-top">
-              <span class="step-num">${i+1}</span>
-              <input class="step-name" type="text" value="${esc(s.name||'')}" placeholder="步骤描述"
-                oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'name',this.value)">
-              <select class="step-type" onchange="onStepTypeChange(this,'${esc(proc.id)}','${esc(task.id)}',${i})">
-                ${STEP_TYPES.map(t=>`<option value="${t.value}" ${(t.value==='__other__'?isCustomStepType(s.type):s.type===t.value)?'selected':''}>${t.label}</option>`).join('')}
-              </select>${isCustomStepType(s.type)?`<input class="step-type-custom" type="text" value="${esc(s.type)}" placeholder="自定义类型"
-                oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'type',this.value)">`:''}
-              <button class="step-del" onclick="removeStep('${esc(proc.id)}','${esc(task.id)}',${i})">✕</button>
-            </div>
-            <textarea class="step-note auto-resize" rows="1" placeholder="条件 / 备注 / 规则"
-              oninput="setStep('${esc(proc.id)}','${esc(task.id)}',${i},'note',this.value);autoResize(this)"
-              >${esc(s.note||'')}</textarea>
-          </div>`;
-        });
-        h+=`</div>`;
-      } else { h+=`<p class="no-refs">暂无步骤</p>`; }
-      h+=`</div>`;
+      h+=renderNodePerspectiveSwitch();
+      h+=renderUserStepsSection(proc, task);
 
       /* 涉及实体 */
       const eops=task.entity_ops||[];
@@ -899,14 +1000,7 @@ function renderProcessTab() {
           >${esc(task.rules_note||'')}</textarea>
       </div>`;
 
-      const orchestrationTasks = getNodeOrchestrationTasks(task);
-      h+=`<div class="form-section">
-        <h4>\u7f16\u6392\u4efb\u52a1</h4>
-        <div class="node-summary-row">
-          <span class="node-summary-pill">${orchestrationTasks.length} \u9879</span>
-          <button class="btn btn-outline btn-sm" onclick="openOrchestrationPanel('${esc(proc.id)}','${esc(task.id)}')">\u8fdb\u5165\u7f16\u6392\u4efb\u52a1</button>
-        </div>
-      </div>`;
+      h+=renderOrchestrationSection(proc, task);
 
     } else {
       /* ── 流程信息 ── */
@@ -952,40 +1046,6 @@ function renderProcessTab() {
 
   h+=`</div>`; /* end proc-drawer */
 
-  if(proc && task) {
-    const orchestrationTasks = getNodeOrchestrationTasks(task);
-    const open = !!S.ui.orchestrationOpen;
-    h+=`<div class="proc-subdrawer${open?' open':''}">
-      <div class="subdrawer-head">
-        <div class="drawer-crumb">${esc(proc.name||'')} / ${esc(task.name||'')} / \u7f16\u6392\u4efb\u52a1</div>
-        <button class="drawer-close" onclick="closeOrchestrationPanel()" title="\u5173\u95ed">\u2715</button>
-      </div>
-      <div class="subdrawer-body">
-        <div class="subdrawer-toolbar">
-          <span class="section-hint">\u4ece\u7814\u53d1\u5b9e\u73b0\u89c6\u89d2\u62c6\u89e3\u8282\u70b9\u7684\u670d\u52a1\u7f16\u6392</span>
-          <button class="btn btn-outline btn-sm" onclick="addOrchestrationTask('${esc(proc.id)}','${esc(task.id)}')">\uff0b\u7f16\u6392\u4efb\u52a1</button>
-        </div>
-        ${orchestrationTasks.length ? `<div class="orch-list">${orchestrationTasks.map((item, index) => `
-          <div class="orch-card">
-            <div class="orch-row">
-              <input type="text" value="${esc(item.name||'')}" placeholder="\u5982\uff1a\u6821\u9a8c\u5e93\u5b58\u4f59\u989d"
-                oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'name',this.value)">
-              <select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'type',this.value);rerenderProcessEditor()">
-                ${ORCHESTRATION_TYPES.map((option) => `<option value="${option.value}" ${item.type===option.value?'selected':''}>${option.label}</option>`).join('')}
-              </select>
-              <button class="step-del" onclick="removeOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index})">\u2715</button>
-            </div>
-            <div class="orch-row">
-              ${item.type==='Query' ? `<select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'querySourceKind',this.value)">${QUERY_SOURCE_KINDS.map((option) => `<option value="${option.value}" ${item.querySourceKind===option.value?'selected':''}>${option.label}</option>`).join('')}</select>` : '<span class="orch-spacer"></span>'}
-              <input type="text" value="${esc(item.target||'')}" placeholder="\u76ee\u6807\u670d\u52a1 / \u5b57\u5178 / \u679a\u4e3e"
-                oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'target',this.value)">
-            </div>
-            <textarea class="auto-resize" rows="2" placeholder="\u5907\u6ce8\uff1a\u8f93\u5165\u8f93\u51fa\uff0c\u524d\u7f6e\u6761\u4ef6\uff0c\u5f02\u5e38\u5904\u7406" oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'note',this.value);autoResize(this)">${esc(item.note||'')}</textarea>
-          </div>`).join('')}</div>` : '<p class="no-refs">\u6682\u65e0\u7f16\u6392\u4efb\u52a1</p>'}
-      </div>
-    </div>`;
-  }
-
   const tabContent = document.getElementById('tab-content');
   tabContent.innerHTML = h;
 
@@ -1009,16 +1069,7 @@ function renderProcessTab() {
       top.appendChild(actions);
     });
 
-    const orchestrationButton = tabContent.querySelector('.node-summary-row button');
-    if (orchestrationButton) {
-      orchestrationButton.type = 'button';
-      orchestrationButton.dataset.testid = 'open-orchestration-button';
-    }
-    const subdrawer = tabContent.querySelector('.proc-subdrawer');
-    if (subdrawer) {
-      subdrawer.dataset.testid = 'orchestration-subdrawer';
-    }
-    tabContent.querySelectorAll('.proc-subdrawer button, .step-list button').forEach((button) => {
+    tabContent.querySelectorAll('.step-list button, .orch-list button, .node-perspective-switch button').forEach((button) => {
       button.type = 'button';
     });
   }

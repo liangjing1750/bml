@@ -101,9 +101,9 @@ test('左侧目录会显示带标签的顶层统计摘要', async ({ page, reque
   await page.goto('/');
   await openDocument(page, documentName);
 
-  await expect(page.locator('[data-section="process"]')).toContainText(/子域\s*2/);
-  await expect(page.locator('[data-section="process"]')).toContainText(/流程组\s*2/);
+  await expect(page.locator('[data-section="process"]')).toContainText(/流程\s*2/);
   await expect(page.locator('[data-section="process"]')).toContainText(/节点\s*1/);
+  await expect(page.locator('[data-section="process"]')).toContainText(/任务\s*0/);
   await expect(page.locator('[data-section="entity"]')).toContainText('主题域 2');
   await expect(page.locator('[data-section="entity"]')).toContainText('实体 3');
   await expect(page.locator('[data-section="entity"]')).toContainText('字段 4');

@@ -45,6 +45,7 @@ const S = {
     html: '',
     outline: [],
     images: [],
+    collapsedGroups: {},
     loading: false,
     error: '',
   },
@@ -60,9 +61,9 @@ const S = {
     sidebarCollapsed: false,
     sidebarW: 240,
     procView: 'card',  // 'list' | 'card' | 'role'
+    nodePerspective: 'user',
     procDrawerW: 480,
     entityDrawerW: 480,
-    orchestrationOpen: false,
   }
 };
 

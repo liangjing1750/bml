@@ -739,9 +739,9 @@ function createDocUiState(doc) {
     sidebarCollapsed: false,
     sidebarW: getUiPrefNumber('sidebarW', 240),
     procView: 'card',
+    nodePerspective: 'user',
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     entityDrawerW: getUiPrefNumber('entityDrawerW', 480),
-    orchestrationOpen: false,
   };
 }
 

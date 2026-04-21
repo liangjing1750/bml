@@ -54,17 +54,19 @@ async function openTaskEditor(page, name) {
   await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('登录校验');
 }
 
-test('节点可以打开编排任务二级抽屉', async ({ page, request }) => {
+test('节点在当前编辑区内展示编排任务与任务级流程图', async ({ page, request }) => {
   const documentName = `process-orchestration-${Date.now()}`;
   await createDocument(request, documentName, buildProcessEditorDoc(documentName));
 
   await openTaskEditor(page, documentName);
-  await page.getByTestId('open-orchestration-button').click();
-
-  const subdrawer = page.getByTestId('orchestration-subdrawer');
-  await expect(subdrawer).toHaveClass(/open/);
-  await expect(subdrawer.locator('.orch-card input[type="text"]').first()).toHaveValue('校验账号状态');
-  await expect(subdrawer.locator('.orch-card input[type="text"]').nth(1)).toHaveValue('认证服务');
+  await expect(page.getByTestId('node-perspective-switch')).toBeVisible();
+  await page.getByTestId('node-perspective-engineering').click();
+  await expect(page.locator('.node-perspective-btn.active')).toContainText('研发视角');
+  await expect(page.getByTestId('orchestration-section')).toBeVisible();
+  await expect(page.getByTestId('orchestration-flow')).toBeVisible();
+  await expect(page.locator('.proc-subdrawer')).toHaveCount(0);
+  await expect(page.locator('.orch-card .orch-name').first()).toHaveValue('校验账号状态');
+  await expect(page.locator('.orch-card input[type="text"]').nth(1)).toHaveValue('认证服务');
 });
 
 test('用户操作步骤支持行内插入并可上下调整顺序', async ({ page, request }) => {
