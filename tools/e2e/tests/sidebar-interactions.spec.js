@@ -155,6 +155,7 @@ test('业务子域和主题域显示轻量标签且标签字体弱于名称', as
   await createDocument(request, documentName, doc);
   await page.goto('/');
   await openDocument(page, documentName);
+  await page.locator('[data-subdomain="仓储仓单管理"]').click();
 
   const metrics = await page.evaluate(() => {
     const subdomainHead = document.querySelector('[data-subdomain="仓储仓单管理"]');
@@ -162,11 +163,13 @@ test('业务子域和主题域显示轻量标签且标签字体弱于名称', as
     const subdomainBadge = subdomainHead?.querySelector('.sb-grp-badge');
     const themeBadge = themeHead?.querySelector('.sb-grp-badge');
     const subdomainName = subdomainHead?.querySelector('.sb-name');
+    const processName = document.querySelector('[data-process-id="P1"] .sb-name');
     return {
       subdomainBadgeText: subdomainBadge?.textContent?.trim() || '',
       themeBadgeText: themeBadge?.textContent?.trim() || '',
       badgeFontSize: parseFloat(window.getComputedStyle(subdomainBadge).fontSize || '0'),
       nameFontSize: parseFloat(window.getComputedStyle(subdomainName).fontSize || '0'),
+      processNameFontSize: parseFloat(window.getComputedStyle(processName).fontSize || '0'),
       badgeRadius: window.getComputedStyle(themeBadge).borderRadius,
     };
   });
@@ -174,6 +177,7 @@ test('业务子域和主题域显示轻量标签且标签字体弱于名称', as
   expect(metrics.subdomainBadgeText).toBe('业务子域');
   expect(metrics.themeBadgeText).toBe('主题域');
   expect(metrics.badgeFontSize).toBeLessThan(metrics.nameFontSize);
+  expect(metrics.nameFontSize).toBeGreaterThan(metrics.processNameFontSize);
   expect(metrics.badgeRadius).not.toBe('0px');
 });
 

@@ -277,21 +277,62 @@ function setTask(procId,taskId,key,val) {
   if(t){t[key]=val; markModified();}
 }
 
+function rerenderProcessEditor(options = {}) {
+  const drawerScrollTop = document.querySelector('.proc-drawer .drawer-body')?.scrollTop || 0;
+  const subdrawerScrollTop = document.querySelector('.proc-subdrawer .subdrawer-body')?.scrollTop || 0;
+  renderProcessTab();
+  requestAnimationFrame(() => {
+    const drawerBody = document.querySelector('.proc-drawer .drawer-body');
+    if (drawerBody) drawerBody.scrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    const subdrawerBody = document.querySelector('.proc-subdrawer .subdrawer-body');
+    if (subdrawerBody) subdrawerBody.scrollTop = options.subdrawerScrollTop ?? subdrawerScrollTop;
+    if (options.focusSelector) {
+      const field = document.querySelector(options.focusSelector);
+      if (field) {
+        field.focus();
+        if (typeof field.select === 'function') field.select();
+        field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Steps
 ═══════════════════════════════════════════════════════════ */
-function addStep(procId,taskId) {
+function addStep(procId,taskId,afterIdx) {
   const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(!t) return;
-  getNodeUserSteps(t).push({name:'',type:'Query',note:''}); markModified(); render();
+  const steps = getNodeUserSteps(t);
+  const insertIndex = Number.isInteger(afterIdx) ? afterIdx + 1 : steps.length;
+  steps.splice(insertIndex, 0, {name:'',type:'Query',note:''});
+  markModified();
+  rerenderProcessEditor({
+    focusSelector: `.step-row[data-step-index="${insertIndex}"] .step-name`,
+  });
 }
 function removeStep(procId,taskId,idx) {
   const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
-  if(!t) return; getNodeUserSteps(t).splice(idx,1); markModified(); render();
+  if(!t) return;
+  getNodeUserSteps(t).splice(idx,1);
+  markModified();
+  rerenderProcessEditor();
 }
 function setStep(procId,taskId,idx,key,val) {
   const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(getNodeUserSteps(t)[idx]!==undefined){getNodeUserSteps(t)[idx][key]=val; markModified();}
+}
+function moveStep(procId,taskId,idx,dir) {
+  const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
+  if(!t) return;
+  const steps = getNodeUserSteps(t);
+  const targetIdx = idx + dir;
+  if(targetIdx < 0 || targetIdx >= steps.length) return;
+  [steps[idx], steps[targetIdx]] = [steps[targetIdx], steps[idx]];
+  markModified();
+  rerenderProcessEditor({
+    focusSelector: `.step-row[data-step-index="${targetIdx}"] .step-name`,
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -324,11 +365,11 @@ function openOrchestrationPanel(procId, taskId) {
   S.ui.procId = procId;
   S.ui.taskId = taskId;
   S.ui.orchestrationOpen = true;
-  renderProcessTab();
+  rerenderProcessEditor();
 }
 function closeOrchestrationPanel() {
   S.ui.orchestrationOpen = false;
-  renderProcessTab();
+  rerenderProcessEditor();
 }
 function addOrchestrationTask(procId, taskId) {
   const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
@@ -341,14 +382,16 @@ function addOrchestrationTask(procId, taskId) {
     note: '',
   });
   markModified();
-  renderProcessTab();
+  rerenderProcessEditor({
+    focusSelector: '.proc-subdrawer .orch-card:last-child input[type="text"]',
+  });
 }
 function removeOrchestrationTask(procId, taskId, idx) {
   const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
   if (!node) return;
   getNodeOrchestrationTasks(node).splice(idx, 1);
   markModified();
-  renderProcessTab();
+  rerenderProcessEditor();
 }
 function setOrchestrationTask(procId, taskId, idx, key, val) {
   const node = getProcNodes(S.doc.processes.find(p => p.id === procId)).find(t => t.id === taskId);
@@ -927,7 +970,7 @@ function renderProcessTab() {
             <div class="orch-row">
               <input type="text" value="${esc(item.name||'')}" placeholder="\u5982\uff1a\u6821\u9a8c\u5e93\u5b58\u4f59\u989d"
                 oninput="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'name',this.value)">
-              <select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'type',this.value);renderProcessTab()">
+              <select onchange="setOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index},'type',this.value);rerenderProcessEditor()">
                 ${ORCHESTRATION_TYPES.map((option) => `<option value="${option.value}" ${item.type===option.value?'selected':''}>${option.label}</option>`).join('')}
               </select>
               <button class="step-del" onclick="removeOrchestrationTask('${esc(proc.id)}','${esc(task.id)}',${index})">\u2715</button>
@@ -943,7 +986,42 @@ function renderProcessTab() {
     </div>`;
   }
 
-  document.getElementById('tab-content').innerHTML=h;
+  const tabContent = document.getElementById('tab-content');
+  tabContent.innerHTML = h;
+
+  if(proc && task) {
+    tabContent.querySelectorAll('.step-row').forEach((row, index) => {
+      row.dataset.stepIndex = String(index);
+      const top = row.querySelector('.step-row-top');
+      if (!top || top.querySelector('.step-actions')) return;
+      const delButton = top.querySelector('.step-del');
+      const actions = document.createElement('div');
+      actions.className = 'step-actions';
+      actions.innerHTML = `
+        <button class="step-action step-add-after" type="button" title="在下方插入步骤" onclick="addStep('${esc(proc.id)}','${esc(task.id)}',${index})">+</button>
+        <button class="step-action step-move-up" type="button" title="上移" ${index===0?'disabled':''} onclick="moveStep('${esc(proc.id)}','${esc(task.id)}',${index},-1)">↑</button>
+        <button class="step-action step-move-down" type="button" title="下移" ${index===getNodeUserSteps(task).length-1?'disabled':''} onclick="moveStep('${esc(proc.id)}','${esc(task.id)}',${index},1)">↓</button>
+      `;
+      if (delButton) {
+        delButton.type = 'button';
+        actions.appendChild(delButton);
+      }
+      top.appendChild(actions);
+    });
+
+    const orchestrationButton = tabContent.querySelector('.node-summary-row button');
+    if (orchestrationButton) {
+      orchestrationButton.type = 'button';
+      orchestrationButton.dataset.testid = 'open-orchestration-button';
+    }
+    const subdrawer = tabContent.querySelector('.proc-subdrawer');
+    if (subdrawer) {
+      subdrawer.dataset.testid = 'orchestration-subdrawer';
+    }
+    tabContent.querySelectorAll('.proc-subdrawer button, .step-list button').forEach((button) => {
+      button.type = 'button';
+    });
+  }
 
   /* 渲染流程图 */
   if(proc) {
