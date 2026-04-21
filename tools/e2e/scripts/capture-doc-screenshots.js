@@ -21,37 +21,41 @@ function buildDocument(name, { processName, entityName, relationLabel }) {
     roles: [
       {
         id: 'R1',
-        name: '业务专员',
+        name: '馆员',
         desc: '',
         group: '业务参与方',
-        subDomains: ['采购'],
+        subDomains: ['图书馆借阅管理'],
       },
     ],
     language: [
       {
-        term: '采购申请',
-        definition: '业务侧提交的采购需求单据',
+        term: '借阅',
+        definition: '读者借出馆藏图书的业务动作',
+      },
+      {
+        term: '归还',
+        definition: '读者将馆藏图书归还至图书馆',
       },
     ],
     processes: [
       {
         id: 'P1',
         name: processName,
-        trigger: '提交申请',
-        outcome: '完成审核',
+        trigger: '读者发起请求',
+        outcome: '完成借阅或归还处理',
         tasks: [
           {
             id: 'T1',
-            name: '登记申请',
+            name: '处理馆藏',
             role_id: 'R1',
-            role: '业务专员',
+            role: '馆员',
             repeatable: false,
-            rules_note: '申请单必须填写完整',
+            rules_note: '必须先核对读者资格与馆藏状态',
             steps: [
               {
-                name: '填写申请',
+                name: '核对借阅信息',
                 type: 'Fill',
-                note: '录入采购主题、预算和数量',
+                note: '登记读者、馆藏条码和业务状态',
               },
             ],
             entity_ops: [
@@ -68,11 +72,11 @@ function buildDocument(name, { processName, entityName, relationLabel }) {
       {
         id: 'E1',
         name: entityName,
-        group: '采购',
+        group: '图书馆借阅管理',
         note: '',
         fields: [
           {
-            name: '申请单号',
+            name: '记录编号',
             type: 'id',
             is_key: true,
             is_status: false,
@@ -80,21 +84,21 @@ function buildDocument(name, { processName, entityName, relationLabel }) {
             note: '',
           },
           {
-            name: '单据状态',
+            name: '状态',
             type: 'enum',
             is_key: false,
             is_status: true,
-            state_values: '草稿/待审核/已完成',
+            state_values: '草稿/处理中/已完成',
             note: '业务主状态',
           },
         ],
         state_transitions: [
           {
             from: '草稿',
-            to: '待审核',
-            action: '提交',
-            note: '提交后进入审批',
-            field_name: '单据状态',
+            to: '处理中',
+            action: '提交处理',
+            note: '进入馆员处理阶段',
+            field_name: '状态',
           },
         ],
       },
@@ -110,10 +114,10 @@ function buildDocument(name, { processName, entityName, relationLabel }) {
     rules: [
       {
         id: 'RULE-1',
-        name: '预算校验',
+        name: '馆藏状态校验',
         type: 'check',
         applies_to: 'P1',
-        description: '预算必须大于零',
+        description: '只有可借馆藏才能进入借阅流程',
         formula: '',
       },
     ],
@@ -127,7 +131,7 @@ async function waitForServer() {
       const response = await fetch(`${baseUrl}/api/files`);
       if (response.ok) return;
     } catch (_) {
-      // ignore until ready
+      // wait until ready
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -169,19 +173,19 @@ async function captureScreenshots() {
     await waitForServer();
 
     await createDocument(
-      '采购协同平台-v1',
-      buildDocument('采购协同平台-v1', {
-        processName: '采购申请流程',
-        entityName: '采购申请单',
-        relationLabel: '同源申请',
+      '图书馆借阅管理-v1',
+      buildDocument('图书馆借阅管理-v1', {
+        processName: '借阅流程',
+        entityName: '借阅记录',
+        relationLabel: '关联借阅',
       }),
     );
     await createDocument(
-      '采购协同平台-v2',
-      buildDocument('采购协同平台-v2', {
-        processName: '采购审批流程',
-        entityName: '审批记录',
-        relationLabel: '审批引用',
+      '图书馆借阅管理-v2',
+      buildDocument('图书馆借阅管理-v2', {
+        processName: '归还流程',
+        entityName: '归还记录',
+        relationLabel: '关联归还',
       }),
     );
 
@@ -194,7 +198,7 @@ async function captureScreenshots() {
       path: path.join(screenshotDir, '05_open_dialog.png'),
     });
 
-    await page.locator('.file-list-item').filter({ hasText: '采购协同平台-v1' }).first().click();
+    await page.locator('.file-list-item').filter({ hasText: '图书馆借阅管理-v1' }).first().click();
     await page.screenshot({
       path: path.join(screenshotDir, '06_workspace_editor.png'),
       fullPage: true,
