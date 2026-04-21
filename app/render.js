@@ -351,6 +351,7 @@ function renderSidebar() {
       const sdCollapsed=S.ui.sbCollapse[sdKey];
       h+=`<div class="sb-grp-head" data-subdomain="${esc(sdLabel)}" onclick="toggleCollapse('${sdKey}')">
         <button class="sb-caret">${sdCollapsed?'▸':'▾'}</button>
+        <span class="sb-grp-badge">业务子域</span>
         <span class="sb-name" title="${esc(sdLabel)}">${esc(sdLabel)}</span>
         ${_renderSbCount(sdProcs.length)}
         <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="\u5728\u6b64\u5b50\u57df\u65b0\u5efa\u6d41\u7a0b">＋</button>
@@ -406,6 +407,7 @@ function renderSidebar() {
         const collapsed=S.ui.sbCollapse[grpKey];
         h+=`<div class="sb-grp-head" data-group="${esc(grp)}" onclick="toggleCollapse('${grpKey}')">
           <button class="sb-caret">${collapsed?'▶':'▾'}</button>
+          <span class="sb-grp-badge">主题域</span>
           <span class="sb-name" title="${esc(grp)}">${esc(grp)}</span>
           ${_renderSbCount(grpEntities.length)}
           <button class="sb-add-btn" onclick="event.stopPropagation();addEntity('${esc(grp)}')" title="在此主题域新建实体">＋</button>

@@ -148,6 +148,35 @@ test('流程组层级样式弱于业务子域并显示流程组标签', async ({
   expect(metrics.badgeRadius).not.toBe('0px');
 });
 
+test('业务子域和主题域显示轻量标签且标签字体弱于名称', async ({ page, request }) => {
+  const documentName = `sidebar-badge-${Date.now()}`;
+  const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程');
+
+  await createDocument(request, documentName, doc);
+  await page.goto('/');
+  await openDocument(page, documentName);
+
+  const metrics = await page.evaluate(() => {
+    const subdomainHead = document.querySelector('[data-subdomain="仓储仓单管理"]');
+    const themeHead = document.querySelector('[data-group="仓储仓单管理主题域"]');
+    const subdomainBadge = subdomainHead?.querySelector('.sb-grp-badge');
+    const themeBadge = themeHead?.querySelector('.sb-grp-badge');
+    const subdomainName = subdomainHead?.querySelector('.sb-name');
+    return {
+      subdomainBadgeText: subdomainBadge?.textContent?.trim() || '',
+      themeBadgeText: themeBadge?.textContent?.trim() || '',
+      badgeFontSize: parseFloat(window.getComputedStyle(subdomainBadge).fontSize || '0'),
+      nameFontSize: parseFloat(window.getComputedStyle(subdomainName).fontSize || '0'),
+      badgeRadius: window.getComputedStyle(themeBadge).borderRadius,
+    };
+  });
+
+  expect(metrics.subdomainBadgeText).toBe('业务子域');
+  expect(metrics.themeBadgeText).toBe('主题域');
+  expect(metrics.badgeFontSize).toBeLessThan(metrics.nameFontSize);
+  expect(metrics.badgeRadius).not.toBe('0px');
+});
+
 test('左侧目录悬停显示移动按钮时不应把目录项挤成两行', async ({ page, request }) => {
   const documentName = `sidebar-hover-${Date.now()}`;
   const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程名称很长用于验证悬停后不要换行');

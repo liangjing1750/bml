@@ -1609,12 +1609,39 @@ input.step-type-custom { width: 80px; flex-shrink: 0; font-size: 12px; }
 }
 .sb-grp-head:hover { color: var(--text); }
 .sb-grp-head .sb-add-btn { margin-left: 0; flex-shrink: 0; }
+.sb-grp-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+}
+.sb-grp-head .sb-name {
+  color: inherit;
+}
 
 /* 流程区内的业务子域分组头（稍偏暖色调与实体主题域区分） */
 .sb-section:first-child .sb-grp-head {
   background: #faf8f5; color: #7a6a55;
 }
 .sb-section:first-child .sb-grp-head:hover { color: #4a3a25; }
+.sb-section:first-child .sb-grp-badge {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+.sb-section:nth-child(2) .sb-grp-badge {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  color: #0f766e;
+}
 
 .sb-subgrp-head {
   display: flex; align-items: center; gap: 6px;
