@@ -97,6 +97,7 @@ def create_empty_document(name: str) -> dict:
                     "flowGroup": "",
                     "trigger": "",
                     "outcome": "",
+                    "prototypeFiles": [],
                     "nodes": [],
                 }
             ],
@@ -337,6 +338,23 @@ def _normalize_processes(processes: list[dict], roles: list[dict]) -> None:
         process.setdefault("outcome", "")
         process.setdefault("subDomain", "")
         process.setdefault("flowGroup", "")
+        normalized_prototypes = []
+        prototype_sources = process.get("prototypeFiles", [])
+        if not isinstance(prototype_sources, list):
+            prototype_sources = []
+        for prototype_index, prototype in enumerate(prototype_sources, start=1):
+            normalized = prototype if isinstance(prototype, dict) else {"name": str(prototype or "").strip()}
+            _ensure_uid(normalized)
+            normalized_name = str(normalized.get("name", "")).strip() or f"原型{prototype_index}.html"
+            normalized_prototypes.append(
+                {
+                    "uid": normalized["uid"],
+                    "name": normalized_name,
+                    "content": str(normalized.get("content", "")),
+                    "contentType": str(normalized.get("contentType", "text/html")).strip() or "text/html",
+                }
+            )
+        process["prototypeFiles"] = normalized_prototypes
         legacy_nodes = process.pop("tasks", None)
         if "nodes" not in process:
             process["nodes"] = legacy_nodes or []
@@ -416,6 +434,7 @@ def migrate_document(document: dict | None) -> dict:
                 "flowGroup": legacy_process.get("flowGroup", ""),
                 "trigger": legacy_process.get("trigger", ""),
                 "outcome": legacy_process.get("outcome", ""),
+                "prototypeFiles": legacy_process.get("prototypeFiles", []),
                 "nodes": legacy_process.get("nodes", legacy_process.get("tasks", [])),
             }
         ]

@@ -62,6 +62,7 @@ const S = {
     sidebarW: 240,
     procView: 'card',  // 'list' | 'card' | 'role'
     nodePerspective: 'user',
+    procEditorFocusSelector: '',
     procDrawerW: 480,
     entityDrawerW: 480,
   }
@@ -170,6 +171,9 @@ function nextId(prefix, items) {
   let i=1; while(used.has(`${prefix}${i}`))i++;
   return `${prefix}${i}`;
 }
+function createUiUid(prefix = 'uid') {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -222,6 +226,30 @@ function getNodeUserSteps(node) {
 function getNodeOrchestrationTasks(node) {
   return Array.isArray(node?.orchestrationTasks) ? node.orchestrationTasks : [];
 }
+function normalizePrototypeFileEntry(file, index = 1) {
+  const fallbackName = `原型${index}.html`;
+  if (!file || typeof file !== 'object') {
+    return {
+      uid: createUiUid('proto'),
+      name: fallbackName,
+      content: '',
+      contentType: 'text/html',
+    };
+  }
+  const normalizedName = String(file.name || '').trim() || fallbackName;
+  return {
+    uid: String(file.uid || '').trim() || createUiUid('proto'),
+    name: normalizedName,
+    content: String(file.content || ''),
+    contentType: String(file.contentType || 'text/html').trim() || 'text/html',
+  };
+}
+function getProcPrototypeFiles(proc) {
+  if (!proc || typeof proc !== 'object') return [];
+  if (!Array.isArray(proc.prototypeFiles)) proc.prototypeFiles = [];
+  proc.prototypeFiles = proc.prototypeFiles.map((file, index) => normalizePrototypeFileEntry(file, index + 1));
+  return proc.prototypeFiles;
+}
 function defineUiAlias(target, aliasKey, actualKey) {
   if (!target || typeof target !== 'object') return;
   const existing = Object.getOwnPropertyDescriptor(target, aliasKey);
@@ -244,6 +272,7 @@ function hydrateDocumentForUi(doc) {
     if (!Array.isArray(proc.nodes)) proc.nodes = [];
     defineUiAlias(proc, 'tasks', 'nodes');
     proc.flowGroup = String(proc.flowGroup || '');
+    getProcPrototypeFiles(proc);
     proc.nodes.forEach((node) => {
       if (!Array.isArray(node.userSteps) && Array.isArray(node.steps)) node.userSteps = node.steps;
       if (!Array.isArray(node.userSteps)) node.userSteps = [];

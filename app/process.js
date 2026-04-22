@@ -353,7 +353,7 @@ function moveGrpGroup(grp, dir, e) {
 function addProcess(subDomain) {
   const id  = nextId('P', S.doc.processes);
   const pos = _nextFreePos(S.doc.processes, null); /* 自动填补空缺格子 */
-  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:subDomain||'', flowGroup:'', trigger:'', outcome:'', nodes:[], pos});
+  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:subDomain||'', flowGroup:'', trigger:'', outcome:'', prototypeFiles:[], nodes:[], pos});
   hydrateDocumentForUi(S.doc);
   markModified();
   navigate('process',{procId:id, taskId:null});
@@ -367,6 +367,76 @@ function removeProcess(id) {
 function setProc(procId,key,val) {
   const p=S.doc.processes.find(p=>p.id===procId);
   if(p){p[key]=val; markModified();}
+}
+
+function formatPrototypeInputId(procId) {
+  return `proc-prototype-input-${String(procId || '').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+function findProcessPrototypeFile(proc, prototypeUid) {
+  return getProcPrototypeFiles(proc).find((file) => file.uid === prototypeUid) || null;
+}
+
+async function addProcessPrototypeFiles(procId, inputId) {
+  const proc = S.doc.processes.find((item) => item.id === procId);
+  const input = document.getElementById(inputId);
+  if (!proc || !input?.files?.length) return;
+
+  const selectedFiles = Array.from(input.files);
+  const invalidFiles = selectedFiles.filter((file) => {
+    const fileName = String(file?.name || '');
+    return !/\.html?$/i.test(fileName) && String(file?.type || '').toLowerCase() !== 'text/html';
+  });
+  if (invalidFiles.length) {
+    alert(`仅支持上传 HTML 原型文件：${invalidFiles.map((file) => file.name).join('、')}`);
+    input.value = '';
+    return;
+  }
+
+  const uploadedFiles = await Promise.all(selectedFiles.map(async (file) => ({
+    uid: createUiUid('proto'),
+    name: String(file.name || '').trim() || '未命名原型.html',
+    content: await file.text(),
+    contentType: String(file.type || 'text/html').trim() || 'text/html',
+  })));
+  const prototypeFiles = getProcPrototypeFiles(proc);
+  const fileByName = new Map(prototypeFiles.map((file) => [file.name, file]));
+  for (const file of uploadedFiles) fileByName.set(file.name, file);
+  proc.prototypeFiles = Array.from(fileByName.values());
+  input.value = '';
+  S.ui.procEditorFocusSelector = '[data-testid="proc-prototype-upload-button"]';
+  markModified();
+  rerenderProcessEditor({ focusSelector: '[data-testid="proc-prototype-upload-button"]' });
+}
+
+function removeProcessPrototypeFile(procId, prototypeUid) {
+  const proc = S.doc.processes.find((item) => item.id === procId);
+  if (!proc) return;
+  const prototypeFiles = getProcPrototypeFiles(proc);
+  const nextFiles = prototypeFiles.filter((file) => file.uid !== prototypeUid);
+  if (nextFiles.length === prototypeFiles.length) return;
+  proc.prototypeFiles = nextFiles;
+  S.ui.procEditorFocusSelector = '[data-testid="proc-prototype-upload-button"]';
+  markModified();
+  rerenderProcessEditor({ focusSelector: '[data-testid="proc-prototype-upload-button"]' });
+}
+
+function openProcessPrototypeFile(procId, prototypeUid) {
+  const proc = S.doc.processes.find((item) => item.id === procId);
+  const prototypeFile = findProcessPrototypeFile(proc, prototypeUid);
+  if (!prototypeFile) return;
+  const contentType = String(prototypeFile.contentType || 'text/html').trim() || 'text/html';
+  const blob = new Blob([prototypeFile.content || ''], {
+    type: /charset=/i.test(contentType) ? contentType : `${contentType};charset=utf-8`,
+  });
+  const objectUrl = URL.createObjectURL(blob);
+  const popup = window.open(objectUrl, '_blank');
+  if (!popup) {
+    URL.revokeObjectURL(objectUrl);
+    alert('浏览器拦截了原型预览窗口，请允许弹窗后重试。');
+    return;
+  }
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1240,6 +1310,8 @@ function renderProcessTab() {
 
     } else {
       /* ── 流程信息 ── */
+      const prototypeFiles = getProcPrototypeFiles(proc);
+      const prototypeInputId = formatPrototypeInputId(proc.id);
       h+=`<div class="form-grid">
         <div class="field-group">
           <label>流程名称</label>
@@ -1268,10 +1340,47 @@ function renderProcessTab() {
             oninput="setProc('${esc(proc.id)}','outcome',this.value)">
         </div>
       </div>
+      <div class="form-section">
+        <div class="section-toolbar">
+          <h4>流程原型${prototypeFiles.length ? `<span class="section-count">${prototypeFiles.length}项</span>` : ''}</h4>
+        </div>
+        ${prototypeFiles.length ? `<div class="prototype-file-list" data-testid="proc-prototype-list">
+          ${prototypeFiles.map((file) => `<div class="prototype-file-item" data-testid="proc-prototype-item">
+            <div class="prototype-file-meta">
+              <strong class="prototype-file-name">${esc(file.name || '')}</strong>
+              <span class="prototype-file-kind">HTML 原型</span>
+            </div>
+            <div class="prototype-file-actions">
+              <button class="btn btn-ghost-sm" type="button" data-testid="proc-prototype-open"
+                onclick="openProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}')">打开</button>
+              <button class="btn btn-ghost-sm prototype-file-remove" type="button" data-testid="proc-prototype-remove"
+                onclick="removeProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}')">删除</button>
+            </div>
+          </div>`).join('')}
+        </div>` : `<p class="no-refs" style="margin-bottom:8px">尚未上传流程原型文件</p>`}
+        <div class="prototype-upload-row" data-testid="proc-prototype-upload">
+          <input type="file" id="${prototypeInputId}" data-testid="proc-prototype-input" accept=".html,.htm,text/html" multiple>
+          <button class="btn btn-outline btn-sm" type="button" data-testid="proc-prototype-upload-button"
+            onclick="addProcessPrototypeFiles('${esc(proc.id)}','${prototypeInputId}')">上传 HTML 原型</button>
+        </div>
+        <p class="prototype-upload-hint">支持同一流程上传多个 HTML 原型文件，文件内容会随当前文档一起保存。</p>
+      </div>
       <p style="margin-top:14px;font-size:12px;color:var(--text-m)">
         点击上方流程图中的任务节点可直接进入任务编辑
       </p>`;
-      setTimeout(()=>document.getElementById('proc-name-input')?.focus(),40);
+      const procFocusSelector = S.ui.procEditorFocusSelector || '#proc-name-input';
+      setTimeout(() => {
+        const field = document.querySelector(procFocusSelector);
+        if (!field) return;
+        if (typeof field.focus === 'function') {
+          try {
+            field.focus({ preventScroll: true });
+          } catch (error) {
+            field.focus();
+          }
+        }
+      },40);
+      S.ui.procEditorFocusSelector = '';
     }
 
     h+=`</div>`; /* end drawer-body */

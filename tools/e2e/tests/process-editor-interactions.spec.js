@@ -219,6 +219,57 @@ test('节点关联实体后保持抽屉滚动位置', async ({ page, request }) 
   expect(Math.abs(afterSelectTop - beforeSelectTop)).toBeLessThanOrEqual(4);
 });
 
+async function openProcessEditor(page, name) {
+  await page.goto('/');
+  await openDocument(page, name);
+  await page.getByTestId('tab-process').click();
+  await page.getByTestId('process-switch-overview').click();
+  await page.locator('.ovc-body').first().click();
+  await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('缁熶竴鐧诲綍');
+}
+
+test('流程支持上传多个 HTML 原型并在保存后保留', async ({ page, request }) => {
+  const documentName = `process-prototypes-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openProcessEditor(page, documentName);
+  await page.getByTestId('proc-prototype-input').setInputFiles([
+    {
+      name: 'login-a.html',
+      mimeType: 'text/html',
+      buffer: Buffer.from('<!doctype html><html><body><h1>原型A</h1><p>登录页</p></body></html>'),
+    },
+    {
+      name: 'login-b.html',
+      mimeType: 'text/html',
+      buffer: Buffer.from('<!doctype html><html><body><h1>原型B</h1><p>审核页</p></body></html>'),
+    },
+  ]);
+  await page.getByTestId('proc-prototype-upload-button').click();
+
+  await expect(page.getByTestId('proc-prototype-item')).toHaveCount(2);
+  await expect(page.locator('.prototype-file-name').nth(0)).toHaveText('login-a.html');
+  await expect(page.locator('.prototype-file-name').nth(1)).toHaveText('login-b.html');
+
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByTestId('proc-prototype-open').first().click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState('domcontentloaded');
+  await expect(popup.locator('h1')).toHaveText('原型A');
+  await popup.close();
+
+  await page.getByTestId('proc-prototype-remove').nth(1).click();
+  await expect(page.getByTestId('proc-prototype-item')).toHaveCount(1);
+  await expect(page.locator('.prototype-file-name').first()).toHaveText('login-a.html');
+
+  await page.keyboard.press('Control+S');
+  await expect(page.getByTestId('modified-badge')).toBeHidden();
+
+  await openProcessEditor(page, documentName);
+  await expect(page.getByTestId('proc-prototype-item')).toHaveCount(1);
+  await expect(page.locator('.prototype-file-name').first()).toHaveText('login-a.html');
+});
+
 async function openTaskEditorByTask(page, name, taskId, taskName) {
   await page.goto('/');
   await openDocument(page, name);

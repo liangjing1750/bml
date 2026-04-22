@@ -246,6 +246,13 @@ class MarkdownExporter:
             process_meta.append(
                 f"**\u89e6\u53d1**: {trigger}  \u2192  **\u9884\u671f\u7ed3\u679c**: {outcome}"
             )
+        prototype_files = process.get("prototypeFiles", [])
+        if prototype_files:
+            prototype_names = "、".join(
+                str(item.get("name", "")).strip() for item in prototype_files if str(item.get("name", "")).strip()
+            )
+            if prototype_names:
+                process_meta.append(f"**\u6d41\u7a0b\u539f\u578b**: {prototype_names}")
         if process_meta:
             for item in process_meta:
                 line(item)

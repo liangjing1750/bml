@@ -24,7 +24,7 @@ function createLocalDocument(name) {
     meta: { title: name, domain: name, author: '', date: '' },
     roles: [],
     language: [],
-    processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', trigger: '', outcome: '', nodes: [] }],
+    processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', trigger: '', outcome: '', prototypeFiles: [], nodes: [] }],
     entities: [],
     relations: [],
     rules: [],
@@ -740,6 +740,7 @@ function createDocUiState(doc) {
     sidebarW: getUiPrefNumber('sidebarW', 240),
     procView: 'card',
     nodePerspective: 'user',
+    procEditorFocusSelector: '',
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     entityDrawerW: getUiPrefNumber('entityDrawerW', 480),
   };

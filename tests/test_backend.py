@@ -20,6 +20,7 @@ class CreateEmptyDocumentTests(unittest.TestCase):
         self.assertEqual(document["meta"]["domain"], "")
         self.assertEqual(document["processes"][0]["id"], "P1")
         self.assertEqual(document["processes"][0]["flowGroup"], "")
+        self.assertEqual(document["processes"][0]["prototypeFiles"], [])
         self.assertEqual(document["processes"][0]["nodes"], [])
         self.assertEqual(document["entities"], [])
 
@@ -171,6 +172,10 @@ class MarkdownExporterTests(unittest.TestCase):
                     "flowGroup": "Borrow Management",
                     "trigger": "Reader wants a book",
                     "outcome": "Loan created",
+                    "prototypeFiles": [
+                        {"name": "borrow-form.html", "content": "<html><body>Borrow</body></html>"},
+                        {"name": "quota-check.html", "content": "<html><body>Quota</body></html>"},
+                    ],
                     "tasks": [
                         {
                             "id": "T1",
@@ -235,6 +240,8 @@ class MarkdownExporterTests(unittest.TestCase):
         self.assertIn("P1: Borrow", markdown)
         self.assertIn("流程组", markdown)
         self.assertIn("Borrow Management", markdown)
+        self.assertIn("borrow-form.html", markdown)
+        self.assertIn("quota-check.html", markdown)
         self.assertIn("```mermaid", markdown)
         self.assertIn("T1", markdown)
         self.assertIn("Reader", markdown)

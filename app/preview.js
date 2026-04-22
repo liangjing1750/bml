@@ -202,12 +202,14 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
   return `<h2 id="preview-processes">流程建模</h2>
     ${processes.map((proc) => {
       const nodes = getProcNodes(proc);
+      const prototypeFiles = getProcPrototypeFiles(proc);
       return `<h3 id="${previewAnchorId('proc', proc.id || proc.name || 'process')}">${esc(proc.id)}: ${esc(proc.name||'')}</h3>
         <p class="pv-note">
           <strong>业务子域</strong>: ${esc(proc.subDomain || '—')}
           ${proc.flowGroup ? ` | <strong>流程组</strong>: ${esc(proc.flowGroup)}` : ''}
         </p>
         ${proc.trigger || proc.outcome ? `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>` : ''}
+        ${prototypeFiles.length ? `<p class="pv-note"><strong>流程原型</strong>: ${prototypeFiles.map((file) => esc(file.name || '')).join('、')}</p>` : ''}
         <div id="pv-proc-${proc.id}" class="pv-diag"></div>
         ${nodes.length ? `<div class="pv-tasks">
           ${nodes.map((node) => {
@@ -319,10 +321,12 @@ function appendPreviewLanguageMd(add, languageItems) {
 function appendPreviewProcessesMd(add, processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   for (const proc of processes) {
     const nodes = getProcNodes(proc);
+    const prototypeFiles = getProcPrototypeFiles(proc);
     add(`### ${proc.id}: ${proc.name||''}`);
     add('');
     add(`**业务子域**: ${proc.subDomain||'—'}`);
     if(proc.flowGroup) add(`**流程组**: ${proc.flowGroup}`);
+    if(prototypeFiles.length) add(`**流程原型**: ${prototypeFiles.map((file) => file.name || '').join('、')}`);
     add('');
     if(proc.trigger||proc.outcome){
       add(`**触发**: ${proc.trigger||'—'}  →  **预期结果**: ${proc.outcome||'—'}`);
