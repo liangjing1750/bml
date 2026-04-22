@@ -258,13 +258,10 @@ function _renderSbMetrics(metrics) {
 }
 
 function _renderSbProc(p) {
-  const procKey=`proc-${p.id}`;
-  const collapsed=S.ui.sbCollapse[procKey];
   const procActive=S.ui.tab==='process'&&S.ui.procId===p.id&&!S.ui.taskId;
   const taskCount=getProcNodes(p).length;
-  let h=`<div class="sb-proc-head ${procActive?'active':''}" data-process-id="${esc(p.id)}"
+  return `<div class="sb-proc-head ${procActive?'active':''}" data-process-id="${esc(p.id)}"
     onclick="navigate('process',{procId:'${p.id}',taskId:null})">
-    <button class="sb-caret" onclick="event.stopPropagation();toggleCollapse('${procKey}')">${collapsed?'▶':'▾'}</button>
     <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'proc','${p.id}')" title="点击编辑ID">${esc(p.id)}</span>
     <span class="sb-name" title="${esc(p.name||'未命名')}">${esc(p.name||'未命名')}</span>
     ${_renderSbCount(taskCount)}
@@ -273,18 +270,6 @@ function _renderSbProc(p) {
       <button class="sb-move-btn sb-move-down" onclick="moveProcInSd('${esc(p.id)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
     </span>
   </div>`;
-  if(!collapsed) {
-    for(const t of getProcNodes(p)) {
-      const tActive=S.ui.tab==='process'&&S.ui.taskId===t.id;
-      h+=`<div class="sb-task-item ${tActive?'active':''}"
-        onclick="navigate('process',{procId:'${p.id}',taskId:'${t.id}'})">
-        <span class="sb-id editable-id" onclick="event.stopPropagation();startEditId(this,'task','${p.id}','${t.id}')" title="点击编辑ID">${esc(t.id)}</span>
-        <span class="sb-name" title="${esc(t.name||'未命名')}">${esc(t.name||'未命名')}</span>
-        ${t.repeatable?'<span class="sb-repeat" title="可重复">↺</span>':''}
-      </div>`;
-    }
-  }
-  return h;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -357,7 +342,7 @@ function renderSidebar() {
       const sdKey=`sd-${sd}`;
       const sdCollapsed=S.ui.sbCollapse[sdKey];
       h+=`<div class="sb-grp-head" data-subdomain="${esc(sdLabel)}" onclick="toggleCollapse('${sdKey}')">
-        <button class="sb-caret">${sdCollapsed?'▸':'▾'}</button>
+        <button type="button" class="sb-caret ${sdCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
         <span class="sb-grp-badge">业务子域</span>
         <span class="sb-name" title="${esc(sdLabel)}">${esc(sdLabel)}</span>
         ${_renderSbCount(sdProcs.length)}
@@ -375,8 +360,8 @@ function renderSidebar() {
         const groupLabel = flowGroup || '\u672a\u5206\u7ec4\u6d41\u7a0b';
         const fgKey=`fg-${sd}::${flowGroup}`;
         const fgCollapsed = !!flowGroup && S.ui.sbCollapse[fgKey];
-        h+=`<div class="sb-subgrp-head" onclick="${flowGroup ? `toggleCollapse('${fgKey}')` : ''}">
-          ${flowGroup ? `<button class="sb-caret">${fgCollapsed?'▸':'▾'}</button>` : '<span class="sb-subgrp-dot"></span>'}
+        h+=`<div class="sb-subgrp-head" data-flow-group="${esc(groupLabel)}" onclick="${flowGroup ? `toggleCollapse('${fgKey}')` : ''}">
+          ${flowGroup ? `<button type="button" class="sb-caret ${fgCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>` : '<span class="sb-subgrp-dot"></span>'}
           <span class="sb-subgrp-badge">\u6d41\u7a0b\u7ec4</span>
           <span class="sb-name" title="${esc(groupLabel)}">${esc(groupLabel)}</span>
           ${_renderSbCount(groupProcs.length)}
@@ -413,7 +398,7 @@ function renderSidebar() {
         const grpKey=`grp-${grp}`;
         const collapsed=S.ui.sbCollapse[grpKey];
         h+=`<div class="sb-grp-head" data-group="${esc(grp)}" onclick="toggleCollapse('${grpKey}')">
-          <button class="sb-caret">${collapsed?'▶':'▾'}</button>
+          <button type="button" class="sb-caret ${collapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
           <span class="sb-grp-badge">主题域</span>
           <span class="sb-name" title="${esc(grp)}">${esc(grp)}</span>
           ${_renderSbCount(grpEntities.length)}

@@ -148,6 +148,70 @@ test('流程组层级样式弱于业务子域并显示流程组标签', async ({
   expect(metrics.badgeRadius).not.toBe('0px');
 });
 
+test('目录层级三角与对应标题等大等色且切换状态不改变大小，流程层不再展开步骤', async ({ page, request }) => {
+  const documentName = `sidebar-hierarchy-${Date.now()}`;
+  const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程');
+  doc.processes[0].flowGroup = '基础展示层';
+
+  await createDocument(request, documentName, doc);
+  await page.goto('/');
+  await openDocument(page, documentName);
+
+  await page.locator('[data-subdomain="仓储仓单管理"]').click();
+
+  const expandedMetrics = await page.evaluate(() => {
+    function readLevel(head) {
+      const name = head?.querySelector('.sb-name');
+      const caret = head?.querySelector('.sb-caret');
+      return {
+        nameFontSize: parseFloat(window.getComputedStyle(name).fontSize || '0'),
+        caretFontSize: parseFloat(window.getComputedStyle(caret).fontSize || '0'),
+        nameColor: window.getComputedStyle(name).color,
+        caretColor: window.getComputedStyle(caret).color,
+      };
+    }
+
+    const subdomainHead = document.querySelector('[data-subdomain="仓储仓单管理"]');
+    const flowGroupHead = document.querySelector('[data-flow-group="基础展示层"]');
+    const processHead = document.querySelector('[data-process-id="P1"]');
+    const processTaskItem = document.querySelector('.sb-task-item');
+    return {
+      subdomain: readLevel(subdomainHead),
+      flowGroup: readLevel(flowGroupHead),
+      processNameFontSize: parseFloat(window.getComputedStyle(processHead?.querySelector('.sb-name')).fontSize || '0'),
+      processPaddingLeft: parseFloat(window.getComputedStyle(processHead).paddingLeft || '0'),
+      processCaretCount: processHead?.querySelectorAll('.sb-caret').length || 0,
+      processTaskItemCount: processTaskItem ? 1 : 0,
+      flowGroupPaddingLeft: parseFloat(window.getComputedStyle(flowGroupHead).paddingLeft || '0'),
+    };
+  });
+
+  await page.locator('[data-subdomain="仓储仓单管理"]').click();
+  const subdomainCollapsedCaretSize = await page.evaluate(() => {
+    const caret = document.querySelector('[data-subdomain="仓储仓单管理"] .sb-caret');
+    return parseFloat(window.getComputedStyle(caret).fontSize || '0');
+  });
+
+  await page.locator('[data-subdomain="仓储仓单管理"]').click();
+  await page.locator('[data-flow-group="基础展示层"]').click();
+  const flowGroupCollapsedCaretSize = await page.evaluate(() => {
+    const caret = document.querySelector('[data-flow-group="基础展示层"] .sb-caret');
+    return parseFloat(window.getComputedStyle(caret).fontSize || '0');
+  });
+
+  expect(expandedMetrics.processPaddingLeft).toBeGreaterThan(expandedMetrics.flowGroupPaddingLeft);
+  expect(expandedMetrics.subdomain.nameFontSize).toBeGreaterThan(expandedMetrics.flowGroup.nameFontSize);
+  expect(expandedMetrics.flowGroup.nameFontSize).toBeGreaterThan(expandedMetrics.processNameFontSize);
+  expect(expandedMetrics.subdomain.caretFontSize).toBe(expandedMetrics.subdomain.nameFontSize);
+  expect(expandedMetrics.flowGroup.caretFontSize).toBe(expandedMetrics.flowGroup.nameFontSize);
+  expect(expandedMetrics.subdomain.caretColor).toBe(expandedMetrics.subdomain.nameColor);
+  expect(expandedMetrics.flowGroup.caretColor).toBe(expandedMetrics.flowGroup.nameColor);
+  expect(expandedMetrics.processCaretCount).toBe(0);
+  expect(expandedMetrics.processTaskItemCount).toBe(0);
+  expect(subdomainCollapsedCaretSize).toBe(expandedMetrics.subdomain.caretFontSize);
+  expect(flowGroupCollapsedCaretSize).toBe(expandedMetrics.flowGroup.caretFontSize);
+});
+
 test('业务子域和主题域显示轻量标签且标签字体弱于名称', async ({ page, request }) => {
   const documentName = `sidebar-badge-${Date.now()}`;
   const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程');
@@ -179,6 +243,38 @@ test('业务子域和主题域显示轻量标签且标签字体弱于名称', as
   expect(metrics.badgeFontSize).toBeLessThan(metrics.nameFontSize);
   expect(metrics.nameFontSize).toBeGreaterThan(metrics.processNameFontSize);
   expect(metrics.badgeRadius).not.toBe('0px');
+});
+
+test('数据目录主题域三角与标题等大等色且切换状态不改变大小', async ({ page, request }) => {
+  const documentName = `sidebar-entity-caret-${Date.now()}`;
+  const doc = buildSidebarDoc(documentName, '仓储入库预约与仓单联动流程');
+
+  await createDocument(request, documentName, doc);
+  await page.goto('/');
+  await openDocument(page, documentName);
+
+  const themeHead = page.locator('[data-group]').first();
+
+  const expandedMetrics = await themeHead.evaluate((head) => {
+    const name = head.querySelector('.sb-name');
+    const caret = head.querySelector('.sb-caret');
+    return {
+      nameFontSize: parseFloat(window.getComputedStyle(name).fontSize || '0'),
+      caretFontSize: parseFloat(window.getComputedStyle(caret).fontSize || '0'),
+      nameColor: window.getComputedStyle(name).color,
+      caretColor: window.getComputedStyle(caret).color,
+    };
+  });
+
+  await themeHead.click();
+  const collapsedCaretSize = await themeHead.evaluate((head) => {
+    const caret = head.querySelector('.sb-caret');
+    return parseFloat(window.getComputedStyle(caret).fontSize || '0');
+  });
+
+  expect(expandedMetrics.caretFontSize).toBe(expandedMetrics.nameFontSize);
+  expect(expandedMetrics.caretColor).toBe(expandedMetrics.nameColor);
+  expect(collapsedCaretSize).toBe(expandedMetrics.caretFontSize);
 });
 
 test('左侧目录悬停显示移动按钮时不应把目录项挤成两行', async ({ page, request }) => {
