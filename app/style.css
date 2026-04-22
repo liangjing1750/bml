@@ -342,6 +342,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .entity-state-editor-head {
   display: flex;
   align-items: flex-start;
+  position: relative;
+  position: relative;
+  position: relative;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
@@ -383,7 +386,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--text);
 }
 .entity-state-card-subtitle {
-  margin-top: 4px;
+  margin-top: calc(4px + var(--pf-return-top-gap));
   font-size: 12px;
   color: var(--text-m);
 }
@@ -551,11 +554,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
 /* ── 自定义流程图（HTML，任务横线 + 实体正下方） ── */
 .pf-wrap {
+  --pf-return-top-gap: 0px;
   display: flex;
   align-items: flex-start;
   width: max-content;   /* 防止横向被压缩，确保水平滚动条出现 */
   flex-shrink: 0;
-  padding: 14px 16px 10px;
+  padding: 16px 16px 12px;
   min-width: max-content;
   gap: 0;
 }
@@ -584,6 +588,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
+  z-index: 1;
+  padding-top: var(--pf-return-top-gap);
 }
 /* 任务节点框 */
 .pf-task {
@@ -603,7 +610,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .pf-task.pf-clickable:hover { filter: brightness(0.93); }
 .pf-tn { font-size: 13px; font-weight: 500; line-height: 1.3; word-break: break-all; }
 .pf-tr { font-size: 11px; opacity: .75; white-space: nowrap; }
-.pf-repeat { font-size: 11px; }
 /* 垂直虚线 */
 .pf-vline {
   width: 0;
@@ -625,6 +631,25 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   color: #64748b;
   white-space: nowrap;
+}
+.pf-wrap.pf-wrap-has-return { --pf-return-top-gap: 26px; }
+.pf-wrap { position: relative; }
+.pf-se { margin-top: calc(4px + var(--pf-return-top-gap)); }
+.pf-arrow { margin-top: calc(9px + var(--pf-return-top-gap)); }
+.pf-return-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: visible;
+}
+.pf-return-line {
+  stroke: #94a3b8;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 6 4;
 }
 
 /* 缩放控件 */
@@ -921,7 +946,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-weight: 700;
 }
 
-/* 可重复任务勾选 */
+/* 可退回节点勾选 */
 .repeat-toggle {
   display: flex; align-items: center; gap: 4px; cursor: pointer;
   font-size: 12px; color: var(--text-m); font-weight: 400;

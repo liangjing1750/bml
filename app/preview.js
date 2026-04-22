@@ -217,7 +217,7 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
             const orchestrationTasks = getNodeOrchestrationTasks(node);
             return `<div class="pv-task-detail">
               <h4>${esc(node.id)}: ${esc(node.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>
-              ${node.repeatable ? '<p class="pv-note">↺ 可重复节点</p>' : ''}
+              ${node.repeatable ? '<p class="pv-note">可退回节点</p>' : ''}
               ${userSteps.length ? `<table><thead><tr><th>#</th><th>用户操作步骤</th><th>类型</th><th>条件/备注</th></tr></thead><tbody>
                 ${userSteps.map((step, index) => `<tr><td>${index + 1}</td><td>${esc(step.name||'')}</td><td>${esc(stepLabels[step.type]||step.type||'')}</td><td>${esc(step.note||'')}</td></tr>`).join('')}
               </tbody></table>` : ''}
@@ -340,7 +340,7 @@ function appendPreviewProcessesMd(add, processes, entityMap, stepLabels, orchest
       add(`#### ${node.id}. ${node.name||''}（角色：${getTaskRoleName(node)}）`);
       add('');
       if(node.repeatable) {
-        add('> ↺ 可重复节点');
+        add('> 可退回节点');
         add('');
       }
       const userSteps = getNodeUserSteps(node);

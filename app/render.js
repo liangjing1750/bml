@@ -39,6 +39,12 @@ function applyZoom(id) {
     requestAnimationFrame(() => drawEfLines(id, relations));
     return;
   }
+  /* 自定义 HTML 流程图（pf-wrap / ptf-wrap），优先整体缩放容器，避免命中内部回退线 SVG */
+  const wrap = el.querySelector('.pf-wrap, .ptf-wrap');
+  if(wrap) {
+    wrap.style.zoom = String(s);
+    return;
+  }
   /* Mermaid SVG（实体关系图等）— only when no ef-canvas present */
   const svg = el.querySelector('svg');
   if(svg && !el.querySelector('.ef-canvas')) {
@@ -47,9 +53,6 @@ function applyZoom(id) {
     svg.setAttribute('height', Math.round(svg._zH * s));
     return;
   }
-  /* 自定义 HTML 流程图（pf-wrap / ptf-wrap），用 CSS zoom 属性（影响布局，容器会出现滚动条） */
-  const wrap = el.querySelector('.pf-wrap, .ptf-wrap');
-  if(wrap) wrap.style.zoom = String(s);
 }
 
 function zoomBy(id, delta) {
@@ -61,9 +64,10 @@ function resetZoom(id) { ZOOM[id] = 1; applyZoom(id); }
 function initZoom(id) {
   const el  = document.getElementById(id);
   if(!el) return;
+  const wrap = el.querySelector('.pf-wrap, .ptf-wrap');
   /* 每次渲染后刷新 SVG 自然尺寸（SVG DOM 已替换；跳过 ef-canvas overlay SVG） */
   const svg = el.querySelector('svg');
-  if(svg && !el.querySelector('.ef-canvas')) _captureSvgSize(svg);
+  if(svg && !wrap && !el.querySelector('.ef-canvas')) _captureSvgSize(svg);
   /* 只绑定一次 wheel 监听（el 不变时复用） */
   if(el._zoomBound) return;
   el._zoomBound = true;

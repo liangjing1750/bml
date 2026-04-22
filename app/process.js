@@ -20,14 +20,16 @@ function buildProcMermaid(proc) {
   lines.push('  classDef entTag fill:#f8fafc,stroke:#cbd5e1,color:#64748b,font-size:11px');
   lines.push('  Start([开始]):::startEnd');
 
-  for(const t of tasks) {
+  for(const [index, t] of tasks.entries()) {
     const name = (t.name||'').replace(/"/g,"'");
-    const repeat = t.repeatable ? ' ↺' : '';
     const roleName = getTaskRoleName(t);
-    let label = `${name}${repeat}`;
+    let label = `${name}`;
     if(roleName) label += `\\n(${roleName})`;
     const ci = roleMap[roleName];
     lines.push(`  ${t.id}["${label}"]:::rc${ci}`);
+    if(t.repeatable && index > 0) {
+      lines.push(`  ${t.id} -.-> ${tasks[index - 1].id}`);
+    }
     /* 实体标签：横向附注（MD 导出用，不影响 app 内实时图） */
     const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
     if(eops.length) {
@@ -40,6 +42,128 @@ function buildProcMermaid(proc) {
   lines.push('  End([结束]):::startEnd');
   lines.push('  '+['Start',...tasks.map(t=>t.id),'End'].join(' --> '));
   return lines.join('\n');
+}
+
+const PROC_RETURN_LINE_OFFSET = 20;
+const PROC_RETURN_START_RATIO = 0.25;
+const PROC_RETURN_END_RATIO = 0.75;
+
+function renderProcReturnLines(wrap, tasks, overlayKey) {
+  if(!wrap) return;
+  const hasReturn = tasks.some((task, index) => index > 0 && task?.repeatable);
+  if(!hasReturn) {
+    wrap.classList.remove('pf-wrap-has-return');
+    return;
+  }
+  wrap.classList.add('pf-wrap-has-return');
+  const wrapRect = wrap.getBoundingClientRect();
+  if(!wrapRect.width || !wrapRect.height) return;
+
+  const cols = Array.from(wrap.querySelectorAll('.pf-col[data-id]'));
+  const returnSpecs = [];
+
+  for(let index = 1; index < tasks.length; index++) {
+    const task = tasks[index];
+    if(!task?.repeatable) continue;
+    const currentCol = cols[index];
+    const prevCol = cols[index - 1];
+    const currentTask = currentCol?.querySelector('.pf-task');
+    const prevTask = prevCol?.querySelector('.pf-task');
+    if(!currentTask || !prevTask) continue;
+
+    const currentRect = currentTask.getBoundingClientRect();
+    const prevRect = prevTask.getBoundingClientRect();
+    const startX = currentRect.left - wrapRect.left + currentRect.width * PROC_RETURN_START_RATIO;
+    const startY = currentRect.top - wrapRect.top;
+    const endX = prevRect.left - wrapRect.left + prevRect.width * PROC_RETURN_END_RATIO;
+    const endY = prevRect.top - wrapRect.top;
+    const laneY = Math.max(10, Math.min(startY, endY) - PROC_RETURN_LINE_OFFSET);
+    returnSpecs.push({
+      from: task.id,
+      to: tasks[index - 1].id,
+      points: [
+        `${startX},${startY}`,
+        `${startX},${laneY}`,
+        `${endX},${laneY}`,
+        `${endX},${endY}`,
+      ].join(' '),
+    });
+  }
+
+  if(!returnSpecs.length) {
+    wrap.classList.remove('pf-wrap-has-return');
+    return;
+  }
+
+  const markerId = `pf-return-arrow-${String(overlayKey || 'default').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const overlay = document.createElementNS(svgNs, 'svg');
+  overlay.setAttribute('class', 'pf-return-overlay');
+  overlay.setAttribute('width', String(wrap.scrollWidth));
+  overlay.setAttribute('height', String(wrap.scrollHeight));
+  overlay.setAttribute('viewBox', `0 0 ${wrap.scrollWidth} ${wrap.scrollHeight}`);
+  overlay.setAttribute('aria-hidden', 'true');
+
+  const defs = document.createElementNS(svgNs, 'defs');
+  const marker = document.createElementNS(svgNs, 'marker');
+  marker.setAttribute('id', markerId);
+  marker.setAttribute('markerWidth', '10');
+  marker.setAttribute('markerHeight', '8');
+  marker.setAttribute('refX', '8');
+  marker.setAttribute('refY', '4');
+  marker.setAttribute('orient', 'auto');
+  marker.setAttribute('markerUnits', 'strokeWidth');
+  const arrowPath = document.createElementNS(svgNs, 'path');
+  arrowPath.setAttribute('d', 'M0,0 L8,4 L0,8');
+  arrowPath.setAttribute('fill', 'none');
+  arrowPath.setAttribute('stroke', '#94a3b8');
+  arrowPath.setAttribute('stroke-width', '1.7');
+  arrowPath.setAttribute('stroke-linecap', 'round');
+  arrowPath.setAttribute('stroke-linejoin', 'round');
+  marker.appendChild(arrowPath);
+  defs.appendChild(marker);
+  overlay.appendChild(defs);
+
+  for(const spec of returnSpecs) {
+    const line = document.createElementNS(svgNs, 'polyline');
+    line.setAttribute('class', 'pf-return-line');
+    line.setAttribute('data-from', spec.from);
+    line.setAttribute('data-to', spec.to);
+    line.setAttribute('points', spec.points);
+    line.setAttribute('fill', 'none');
+    line.setAttribute('marker-end', `url(#${markerId})`);
+    overlay.appendChild(line);
+  }
+
+  wrap.appendChild(overlay);
+}
+
+function syncTaskReturnableToggle(root = document) {
+  const toggle = root.querySelector('[data-testid="task-returnable-toggle"]');
+  if(!toggle) return;
+  const label = toggle.closest('label');
+  if(!label) return;
+
+  for(const node of Array.from(label.childNodes)) {
+    if(node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      node.textContent = ' ';
+    }
+  }
+
+  let title = label.querySelector('.task-returnable-label');
+  if(!title) {
+    title = document.createElement('span');
+    title.className = 'task-returnable-label';
+    label.insertBefore(title, toggle);
+  }
+  title.textContent = '\u53ef\u9000\u56de';
+
+  const helper = Array.from(label.querySelectorAll('span'))
+    .find((item) => !item.classList.contains('task-returnable-label'));
+  if(helper) {
+    helper.classList.add('task-returnable-hint');
+    helper.textContent = '\u5f53\u524d\u8282\u70b9\u5141\u8bb8\u9000\u56de\u4e0a\u4e00\u8282\u70b9\u91cd\u65b0\u5904\u7406';
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -68,7 +192,6 @@ function renderProcFlow(containerId, proc, onClickMap) {
     const idx = roleMap[roleName];
     const c   = ROLE_COLORS[idx];
     const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
-    const repeat = t.repeatable ? `<span class="pf-repeat"> ↺</span>` : '';
     const clickable = onClickMap?.[t.id] ? ' pf-clickable' : '';
 
     h += `<div class="pf-arrow">→</div>`;
@@ -76,7 +199,7 @@ function renderProcFlow(containerId, proc, onClickMap) {
     /* 任务节点 */
     h += `<div class="pf-task${clickable}" data-id="${t.id}"
       style="background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
-    h += `<div class="pf-tn">${esc(t.name||'')}${repeat}</div>`;
+    h += `<div class="pf-tn">${esc(t.name||'')}</div>`;
     if(roleName) h += `<div class="pf-tr">(${esc(roleName)})</div>`;
     h += `</div>`;
     /* 实体标签（正下方） */
@@ -98,6 +221,8 @@ function renderProcFlow(containerId, proc, onClickMap) {
   h += '</div>';
 
   el.innerHTML = h;
+  const wrap = el.querySelector('.pf-wrap');
+  renderProcReturnLines(wrap, tasks, containerId);
 
   /* 绑定点击 */
   if(onClickMap) {
@@ -290,6 +415,7 @@ function rerenderProcessEditor(options = {}) {
   renderProcessTab();
   requestAnimationFrame(() => {
     const drawerBody = document.querySelector('.proc-drawer .drawer-body');
+    if (typeof initAutoResize === 'function') initAutoResize();
     let finalScrollTop = options.drawerScrollTop ?? drawerScrollTop;
     if (drawerBody) drawerBody.scrollTop = finalScrollTop;
     if (options.focusSelector) {
@@ -1053,10 +1179,10 @@ function renderProcessTab() {
       h+=`</div>
         <div class="field-group" style="grid-column:1/-1">
           <label style="display:flex;align-items:center;gap:8px">
-            可重复
-            <input type="checkbox" ${task.repeatable?'checked':''}
-              onchange="setTask('${esc(proc.id)}','${esc(task.id)}','repeatable',this.checked);render()">
-            <span style="font-size:11px;color:var(--text-m);font-weight:400">同一流程中可被执行多次 ↺</span>
+            可退回
+            <input type="checkbox" data-testid="task-returnable-toggle" ${task.repeatable?'checked':''}
+              onchange="setTask('${esc(proc.id)}','${esc(task.id)}','repeatable',this.checked);rerenderProcessEditor({ focusSelector: '[data-testid=&quot;task-returnable-toggle&quot;]' })">
+            <span style="font-size:11px;color:var(--text-m);font-weight:400">当前节点允许退回上一节点重新处理</span>
           </label>
         </div>
       </div>`;
@@ -1158,6 +1284,7 @@ function renderProcessTab() {
 
   const tabContent = document.getElementById('tab-content');
   tabContent.innerHTML = h;
+  syncTaskReturnableToggle(tabContent);
 
   /* 渲染流程图 */
   if(proc) {

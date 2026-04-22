@@ -155,6 +155,25 @@ test('用户操作步骤支持行内插入并可上下调整顺序', async ({ pa
   expect(names).toEqual(['选择认证方式', '输入账号密码', '校验登录环境']);
 });
 
+test('切换可退回后保持用户步骤备注框自动高度', async ({ page, request }) => {
+  const documentName = `process-returnable-note-height-${Date.now()}`;
+  const doc = buildProcessEditorDoc(documentName);
+  doc.processes[0].tasks[0].steps[0].note = '第一行说明\\n第二行说明\\n第三行说明\\n第四行说明';
+
+  await createDocument(request, documentName, doc);
+  await openTaskEditor(page, documentName);
+
+  const note = page.locator('.step-note').first();
+  const beforeHeight = await note.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  expect(beforeHeight).toBeGreaterThan(60);
+
+  await page.getByTestId('task-returnable-toggle').check();
+
+  const afterHeight = await note.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  expect(afterHeight).toBeGreaterThan(60);
+  expect(Math.abs(afterHeight - beforeHeight)).toBeLessThanOrEqual(4);
+});
+
 test('节点关联实体后保持抽屉滚动位置', async ({ page, request }) => {
   const documentName = `process-entity-op-scroll-${Date.now()}`;
   const doc = buildProcessEditorDoc(documentName);
@@ -198,4 +217,154 @@ test('节点关联实体后保持抽屉滚动位置', async ({ page, request }) 
   expect(afterScrollTop).toBeGreaterThan(0);
   expect(afterSelectTop).not.toBeNull();
   expect(Math.abs(afterSelectTop - beforeSelectTop)).toBeLessThanOrEqual(4);
+});
+
+async function openTaskEditorByTask(page, name, taskId, taskName) {
+  await page.goto('/');
+  await openDocument(page, name);
+  await page.getByTestId('tab-process').click();
+  await page.getByTestId('process-switch-overview').click();
+  await page.locator('.ovc-body').first().click();
+  await page.locator(`#proc-diagram .pf-task[data-id="${taskId}"]`).click();
+  await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText(taskName);
+}
+
+test('可退回节点显示上方回退折线并抬高流程图高度', async ({ page, request }) => {
+  const documentName = `process-return-line-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openTaskEditorByTask(page, documentName, 'T2', 'T2');
+
+  const label = page.locator('.proc-drawer label').filter({ has: page.getByTestId('task-returnable-toggle') });
+  await expect(label).toContainText(/\u53ef\u9000\u56de/);
+  await expect(label).not.toContainText(/\u53ef\u91cd\u590d/);
+
+  const wrapHeightBefore = await page.locator('#proc-diagram .pf-wrap').evaluate((node) => node.getBoundingClientRect().height);
+
+  await page.getByTestId('task-returnable-toggle').check();
+  await expect(page.locator('#proc-diagram .pf-return-line')).toHaveCount(1);
+  await expect(page.locator('#proc-diagram .pf-repeat')).toHaveCount(0);
+
+  const lineMeta = await page.locator('#proc-diagram .pf-return-line').evaluate((node) => {
+    const wrap = node.closest('.pf-wrap');
+    const task = wrap?.querySelector('.pf-task[data-id="T2"]');
+    const prevTask = wrap?.querySelector('.pf-task[data-id="T1"]');
+    const wrapRect = wrap?.getBoundingClientRect();
+    const taskRect = task?.getBoundingClientRect();
+    const prevTaskRect = prevTask?.getBoundingClientRect();
+    const points = String(node.getAttribute('points') || '').trim().split(/\s+/).map((pair) => pair.split(',').map(Number));
+    return {
+      from: node.getAttribute('data-from'),
+      to: node.getAttribute('data-to'),
+      pointCount: points.length,
+      startX: points[0]?.[0] ?? null,
+      startY: points[0]?.[1] ?? null,
+      endX: points[3]?.[0] ?? null,
+      laneStartY: points[1]?.[1] ?? null,
+      laneEndY: points[2]?.[1] ?? null,
+      endY: points[3]?.[1] ?? null,
+      taskLeft: taskRect && wrapRect ? taskRect.left - wrapRect.left : null,
+      taskWidth: taskRect?.width ?? 0,
+      prevTaskLeft: prevTaskRect && wrapRect ? prevTaskRect.left - wrapRect.left : null,
+      prevTaskWidth: prevTaskRect?.width ?? 0,
+      taskTop: taskRect && wrapRect ? taskRect.top - wrapRect.top : null,
+      wrapHeight: node.closest('.pf-wrap')?.getBoundingClientRect().height ?? 0,
+      wrapPosition: wrap ? window.getComputedStyle(wrap).position : '',
+    };
+  });
+
+  expect(lineMeta.from).toBe('T2');
+  expect(lineMeta.to).toBe('T1');
+  expect(lineMeta.pointCount).toBe(4);
+  expect(lineMeta.laneStartY).toBe(lineMeta.laneEndY);
+  expect(lineMeta.laneStartY).toBeLessThan(lineMeta.startY);
+  expect(lineMeta.laneEndY).toBeLessThan(lineMeta.endY);
+  expect(Math.abs(lineMeta.startX - (lineMeta.taskLeft + lineMeta.taskWidth * 0.25))).toBeLessThanOrEqual(2);
+  expect(Math.abs(lineMeta.endX - (lineMeta.prevTaskLeft + lineMeta.prevTaskWidth * 0.75))).toBeLessThanOrEqual(2);
+  expect(Math.abs(lineMeta.startY - lineMeta.taskTop)).toBeLessThanOrEqual(2);
+  expect(lineMeta.wrapPosition).toBe('relative');
+  expect(lineMeta.wrapHeight).toBeGreaterThan(wrapHeightBefore);
+});
+
+test('连续可退回节点的回退线锚点错开避免重叠', async ({ page, request }) => {
+  const documentName = `process-return-line-stagger-${Date.now()}`;
+  const doc = buildProcessEditorDoc(documentName);
+  doc.processes[0].tasks[1].repeatable = true;
+  doc.processes[0].tasks[2].repeatable = true;
+  await createDocument(request, documentName, doc);
+
+  await page.goto('/');
+  await openDocument(page, documentName);
+  await page.getByTestId('tab-process').click();
+  await page.getByTestId('process-switch-overview').click();
+  await page.locator('.ovc-body').first().click();
+  await expect(page.locator('#proc-diagram .pf-return-line')).toHaveCount(2);
+
+  const anchors = await page.evaluate(() => {
+    const wrap = document.querySelector('#proc-diagram .pf-wrap');
+    const wrapRect = wrap?.getBoundingClientRect();
+    const taskRect = (id) => wrap?.querySelector(`.pf-task[data-id="${id}"]`)?.getBoundingClientRect();
+    const current = taskRect('T2');
+    const pointsByPair = new Map(
+      [...document.querySelectorAll('#proc-diagram .pf-return-line')].map((node) => {
+        const pair = `${node.getAttribute('data-from')}->${node.getAttribute('data-to')}`;
+        const points = String(node.getAttribute('points') || '').trim().split(/\s+/).map((pair) => pair.split(',').map(Number));
+        return [pair, points];
+      }),
+    );
+    return {
+      taskLeft: current && wrapRect ? current.left - wrapRect.left : null,
+      taskWidth: current?.width ?? 0,
+      outgoingStartX: pointsByPair.get('T2->T1')?.[0]?.[0] ?? null,
+      incomingEndX: pointsByPair.get('T3->T2')?.[3]?.[0] ?? null,
+    };
+  });
+
+  expect(Math.abs(anchors.outgoingStartX - (anchors.taskLeft + anchors.taskWidth * 0.25))).toBeLessThanOrEqual(2);
+  expect(Math.abs(anchors.incomingEndX - (anchors.taskLeft + anchors.taskWidth * 0.75))).toBeLessThanOrEqual(2);
+  expect(anchors.incomingEndX - anchors.outgoingStartX).toBeGreaterThan(anchors.taskWidth * 0.35);
+});
+
+test('可退回节点状态下按钮缩放和滚轮缩放作用于整个流程图', async ({ page, request }) => {
+  const documentName = `process-return-line-zoom-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openTaskEditorByTask(page, documentName, 'T2', 'T2');
+  await page.getByTestId('task-returnable-toggle').check();
+  await expect(page.locator('#proc-diagram .pf-return-line')).toHaveCount(1);
+
+  const readMetrics = () => page.evaluate(() => {
+    const wrap = document.querySelector('#proc-diagram .pf-wrap');
+    const task = document.querySelector('#proc-diagram .pf-task[data-id="T2"]');
+    const line = document.querySelector('#proc-diagram .pf-return-line');
+    return {
+      zoom: Number.parseFloat(wrap?.style.zoom || '1'),
+      taskWidth: task?.getBoundingClientRect().width || 0,
+      lineWidth: line?.getBoundingClientRect().width || 0,
+    };
+  });
+
+  const before = await readMetrics();
+  expect(before.zoom).toBeCloseTo(1, 2);
+
+  await page.locator('.drawer-diag:not(.taskflow-mode) .zoom-btn').first().click();
+
+  const afterButton = await readMetrics();
+  expect(afterButton.zoom).toBeCloseTo(1.2, 2);
+  expect(afterButton.taskWidth).toBeGreaterThan(before.taskWidth + 5);
+  expect(afterButton.lineWidth).toBeGreaterThan(before.lineWidth + 5);
+
+  await page.locator('#proc-diagram').evaluate((node) => {
+    node.dispatchEvent(new WheelEvent('wheel', {
+      deltaY: -120,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+
+  const afterWheel = await readMetrics();
+  expect(afterWheel.zoom).toBeCloseTo(1.35, 2);
+  expect(afterWheel.taskWidth).toBeGreaterThan(afterButton.taskWidth + 5);
+  expect(afterWheel.lineWidth).toBeGreaterThan(afterButton.lineWidth + 5);
 });
