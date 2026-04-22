@@ -277,19 +277,49 @@ function setTask(procId,taskId,key,val) {
 }
 
 function rerenderProcessEditor(options = {}) {
-  const drawerScrollTop = document.querySelector('.proc-drawer .drawer-body')?.scrollTop || 0;
+  const currentDrawerBody = document.querySelector('.proc-drawer .drawer-body');
+  const drawerScrollTop = currentDrawerBody?.scrollTop || 0;
+  const anchorSelector = options.anchorSelector || null;
+  const anchorViewportTop = currentDrawerBody && anchorSelector
+    ? (() => {
+        const anchor = currentDrawerBody.querySelector(anchorSelector);
+        if (!anchor) return null;
+        return anchor.getBoundingClientRect().top - currentDrawerBody.getBoundingClientRect().top;
+      })()
+    : null;
   renderProcessTab();
   requestAnimationFrame(() => {
     const drawerBody = document.querySelector('.proc-drawer .drawer-body');
-    if (drawerBody) drawerBody.scrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    let finalScrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    if (drawerBody) drawerBody.scrollTop = finalScrollTop;
     if (options.focusSelector) {
       const field = document.querySelector(options.focusSelector);
       if (field) {
-        field.focus();
-        if (typeof field.select === 'function') field.select();
-        field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        if (typeof field.focus === 'function') {
+          try {
+            field.focus({ preventScroll: true });
+          } catch (error) {
+            field.focus();
+          }
+        }
+        if (options.selectText !== false && typeof field.select === 'function') field.select();
+        if (options.revealFocus) {
+          field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
       }
     }
+    if (drawerBody && anchorSelector && anchorViewportTop !== null) {
+      const anchor = drawerBody.querySelector(anchorSelector);
+      if (anchor) {
+        const nextAnchorViewportTop = anchor.getBoundingClientRect().top - drawerBody.getBoundingClientRect().top;
+        finalScrollTop = Math.max(0, finalScrollTop + (nextAnchorViewportTop - anchorViewportTop));
+        drawerBody.scrollTop = finalScrollTop;
+      }
+    }
+    requestAnimationFrame(() => {
+      const latestDrawerBody = document.querySelector('.proc-drawer .drawer-body');
+      if (latestDrawerBody) latestDrawerBody.scrollTop = finalScrollTop;
+    });
   });
 }
 
@@ -341,12 +371,20 @@ function addEntityOp(procId,taskId,entityId) {
   if(!t.entity_ops) t.entity_ops=[];
   if(t.entity_ops.some(eo=>eo.entity_id===entityId)) return;
   t.entity_ops.push({entity_id:entityId, ops:['R']});
-  markModified(); render();
+  markModified();
+  rerenderProcessEditor({
+    anchorSelector: `#eop-sel-${taskId}`,
+    focusSelector: `#eop-sel-${taskId}`,
+  });
 }
 function removeEntityOp(procId,taskId,entityId) {
   const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);
   if(!t) return; t.entity_ops=(t.entity_ops||[]).filter(eo=>eo.entity_id!==entityId);
-  markModified(); render();
+  markModified();
+  rerenderProcessEditor({
+    anchorSelector: `#eop-sel-${taskId}`,
+    focusSelector: `#eop-sel-${taskId}`,
+  });
 }
 function toggleEntityOp(procId,taskId,entityId,op,checked) {
   const t=getProcNodes(S.doc.processes.find(p=>p.id===procId)).find(t=>t.id===taskId);

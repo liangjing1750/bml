@@ -909,13 +909,27 @@ function rerenderEntityEditor(options = {}) {
   renderDataTab();
   requestAnimationFrame(() => {
     const drawerBody = document.querySelector('.entity-drawer .drawer-body');
-    if (drawerBody) drawerBody.scrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    const nextScrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    if (drawerBody) drawerBody.scrollTop = nextScrollTop;
     if (options.focusSelector) {
       const field = document.querySelector(options.focusSelector);
       if (field) {
-        field.focus();
-        if (typeof field.select === 'function') field.select();
-        field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        if (typeof field.focus === 'function') {
+          try {
+            field.focus({ preventScroll: true });
+          } catch (error) {
+            field.focus();
+          }
+        }
+        if (options.selectText !== false && typeof field.select === 'function') field.select();
+        if (options.revealFocus) {
+          field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+        if (drawerBody) drawerBody.scrollTop = nextScrollTop;
+        requestAnimationFrame(() => {
+          const latestDrawerBody = document.querySelector('.entity-drawer .drawer-body');
+          if (latestDrawerBody) latestDrawerBody.scrollTop = nextScrollTop;
+        });
       }
     }
   });
@@ -1185,22 +1199,27 @@ function renderEntityFieldsSection(entity) {
 
 function renderEntityRelationsSection(entity, entities, scopedRelations) {
   return `<div class="form-section">
-    <h4>实体关系 <button class="btn btn-outline btn-sm" onclick="addRelation('${esc(entity.id)}')">＋</button></h4>
+    <h4>实体关系 <button class="btn btn-outline btn-sm" data-testid="entity-relation-add-button" onclick="addRelation('${esc(entity.id)}')">＋</button></h4>
     <p class="rel-scope-tip">仅显示与当前实体直接相关的关系，减少全局噪音。</p>
     ${scopedRelations.length ? `<div class="rel-list" data-testid="entity-relation-list">
-      ${scopedRelations.map(({ relation, index }) => `<div class="rel-row">
-        <select onchange="setRelation(${index},'from',this.value)">
+      ${scopedRelations.map(({ relation, index }, localIndex) => `<div class="rel-row" data-relation-row="${localIndex}">
+        <select onchange="setRelation('${esc(entity.id)}',${index},'from',this.value)">
           ${entities.map((item) => `<option value="${item.id}" ${relation.from===item.id?'selected':''}>${item.id} ${esc(item.name)}</option>`).join('')}
         </select>
-        <select style="width:76px" onchange="setRelation(${index},'type',this.value)">
+        <select style="width:76px" onchange="setRelation('${esc(entity.id)}',${index},'type',this.value)">
           ${['1:1','1:N','N:N'].map((type) => `<option ${relation.type===type?'selected':''}>${type}</option>`).join('')}
         </select>
-        <select onchange="setRelation(${index},'to',this.value)">
+        <select onchange="setRelation('${esc(entity.id)}',${index},'to',this.value)">
           ${entities.map((item) => `<option value="${item.id}" ${relation.to===item.id?'selected':''}>${item.id} ${esc(item.name)}</option>`).join('')}
         </select>
-        <input type="text" value="${esc(relation.label||'')}" placeholder="关系说明"
-          oninput="setRelation(${index},'label',this.value)" style="width:90px">
-        <button class="btn-icon" onclick="removeRelation(${index})">✕</button>
+        <input type="text" data-testid="entity-relation-label-${localIndex}" class="rel-label-input" value="${esc(relation.label||'')}" placeholder="关系说明"
+          oninput="setRelation('${esc(entity.id)}',${index},'label',this.value)" style="width:90px">
+        <div class="rel-actions">
+          <button class="rel-action rel-add-after" type="button" data-testid="entity-relation-add-after-${localIndex}" title="在下方插入关系" onclick="addRelation('${esc(entity.id)}',${index})">+</button>
+          <button class="rel-action rel-move-up" type="button" data-testid="entity-relation-move-up-${localIndex}" title="上移" ${localIndex === 0 ? 'disabled' : ''} onclick="moveRelation('${esc(entity.id)}',${index},-1)">↑</button>
+          <button class="rel-action rel-move-down" type="button" data-testid="entity-relation-move-down-${localIndex}" title="下移" ${localIndex === scopedRelations.length - 1 ? 'disabled' : ''} onclick="moveRelation('${esc(entity.id)}',${index},1)">↓</button>
+          <button class="field-del" type="button" data-testid="entity-relation-delete-${localIndex}" onclick="removeRelation('${esc(entity.id)}',${index})">✕</button>
+        </div>
       </div>`).join('')}
     </div>` : '<p class="no-refs">当前实体暂无关系</p>'}
   </div>`;
@@ -1255,18 +1274,53 @@ function renderEntityDrawer(showEntityDrawer, entity, entities, drawerW) {
   return markup;
 }
 
-function addRelation(entityId) {
+function addRelation(entityId, afterIdx) {
   const ents=S.doc.entities||[];
   if(ents.length<2){alert('至少需要2个实体才能建立关系');return;}
-  const baseEntityId = entityId || ents[0].id;
+  const baseEntityId = entityId || S.ui.entityId || ents[0].id;
   const targetEntity = ents.find(e => e.id !== baseEntityId);
   if(!targetEntity) { alert('至少需要2个实体才能建立关系'); return; }
   S.doc.relations=S.doc.relations||[];
-  S.doc.relations.push({from:baseEntityId,to:targetEntity.id,type:'1:N',label:''});
-  markModified(); render();
+  const scopedIndices = getRelationsForEntity(baseEntityId).map(({ index }) => index);
+  const insertIndex = Number.isInteger(afterIdx)
+    ? afterIdx + 1
+    : (scopedIndices.length ? scopedIndices[scopedIndices.length - 1] + 1 : S.doc.relations.length);
+  S.doc.relations.splice(insertIndex, 0, {from:baseEntityId,to:targetEntity.id,type:'1:N',label:''});
+  markModified();
+  rerenderEntityEditor();
 }
-function removeRelation(idx){S.doc.relations.splice(idx,1);markModified();render();}
-function setRelation(idx,key,val){if(S.doc.relations[idx]){S.doc.relations[idx][key]=val;markModified();}}
+function removeRelation(entityId, idx){
+  const localIndex = getRelationsForEntity(entityId).findIndex((item) => item.index === idx);
+  S.doc.relations.splice(idx,1);
+  markModified();
+  const nextLocalIndex = Math.min(localIndex, getRelationsForEntity(entityId).length - 1);
+  rerenderEntityEditor({
+    focusSelector: nextLocalIndex >= 0
+      ? `[data-testid="entity-relation-label-${nextLocalIndex}"]`
+      : '[data-testid="entity-relation-add-button"]',
+  });
+}
+function moveRelation(entityId, idx, dir) {
+  const scopedIndices = getRelationsForEntity(entityId).map(({ index }) => index);
+  const localIndex = scopedIndices.indexOf(idx);
+  const targetLocalIndex = localIndex + dir;
+  if(localIndex < 0 || targetLocalIndex < 0 || targetLocalIndex >= scopedIndices.length) return;
+  const targetIdx = scopedIndices[targetLocalIndex];
+  [S.doc.relations[idx], S.doc.relations[targetIdx]] = [S.doc.relations[targetIdx], S.doc.relations[idx]];
+  markModified();
+  rerenderEntityEditor({
+    focusSelector: `[data-testid="entity-relation-label-${targetLocalIndex}"]`,
+  });
+}
+function setRelation(entityId, idx, key, val){
+  if(S.doc.relations[idx]){
+    S.doc.relations[idx][key]=val;
+    markModified();
+    if ((key === 'from' || key === 'to') && entityId && S.doc.relations[idx].from !== entityId && S.doc.relations[idx].to !== entityId) {
+      rerenderEntityEditor();
+    }
+  }
+}
 
 function renderDataTab() {
   const entities=S.doc.entities||[];

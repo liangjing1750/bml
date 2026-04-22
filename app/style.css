@@ -1510,6 +1510,53 @@ input.step-type-custom { width: 88px; flex-shrink: 0; font-size: 12px; }
   background: var(--bg); border-radius: var(--radius); padding: 6px 8px;
 }
 .rel-row select, .rel-row input { flex: 1; }
+.rel-row .rel-label-input {
+  flex: 0 0 110px;
+  min-width: 90px;
+}
+.rel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+.rel-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-m);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.rel-action:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--accent);
+}
+.rel-action:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+.rel-actions .field-del {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
 .rel-sym { color: var(--text-m); white-space: nowrap; font-size: 13px; padding: 0 4px; }
 .rel-scope-tip {
   font-size: 12px;

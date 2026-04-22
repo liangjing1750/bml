@@ -154,3 +154,48 @@ test('用户操作步骤支持行内插入并可上下调整顺序', async ({ pa
   names = await page.locator('.step-name').evaluateAll((nodes) => nodes.map((node) => node.value));
   expect(names).toEqual(['选择认证方式', '输入账号密码', '校验登录环境']);
 });
+
+test('节点关联实体后保持抽屉滚动位置', async ({ page, request }) => {
+  const documentName = `process-entity-op-scroll-${Date.now()}`;
+  const doc = buildProcessEditorDoc(documentName);
+  doc.entities = [
+    { id: 'E1', name: '账号', group: '用户主题域', fields: [] },
+    { id: 'E2', name: '会话', group: '用户主题域', fields: [] },
+    { id: 'E3', name: '登录日志', group: '审计主题域', fields: [] },
+  ];
+  doc.processes[0].tasks[0].steps = Array.from({ length: 16 }, (_, index) => ({
+    name: `步骤${index + 1}`,
+    type: 'Query',
+    note: `说明${index + 1}`,
+  }));
+
+  await createDocument(request, documentName, doc);
+  await openTaskEditor(page, documentName);
+
+  const drawerBody = page.locator('.proc-drawer .drawer-body');
+  await drawerBody.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  const beforeScrollTop = await drawerBody.evaluate((node) => node.scrollTop);
+  const beforeSelectTop = await page.evaluate(() => {
+    const body = document.querySelector('.proc-drawer .drawer-body');
+    const select = body?.querySelector('.add-eop-row select');
+    if (!body || !select) return null;
+    return select.getBoundingClientRect().top - body.getBoundingClientRect().top;
+  });
+  expect(beforeScrollTop).toBeGreaterThan(0);
+  expect(beforeSelectTop).not.toBeNull();
+
+  await page.locator('.add-eop-row select').selectOption('E1');
+  await page.locator('.add-eop-row .btn').click();
+
+  await expect(page.locator('.eop-tag')).toHaveCount(1);
+  const afterScrollTop = await drawerBody.evaluate((node) => node.scrollTop);
+  const afterSelectTop = await page.evaluate(() => {
+    const body = document.querySelector('.proc-drawer .drawer-body');
+    const select = body?.querySelector('.add-eop-row select');
+    if (!body || !select) return null;
+    return select.getBoundingClientRect().top - body.getBoundingClientRect().top;
+  });
+  expect(afterScrollTop).toBeGreaterThan(0);
+  expect(afterSelectTop).not.toBeNull();
+  expect(Math.abs(afterSelectTop - beforeSelectTop)).toBeLessThanOrEqual(4);
+});
