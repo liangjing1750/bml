@@ -1456,9 +1456,52 @@ input.step-type-custom { width: 88px; flex-shrink: 0; font-size: 12px; }
 .field-table tr:hover td { background: var(--hover); }
 .field-table input[type=text] { padding: 4px 8px; }
 .field-table input[type=checkbox] { cursor: pointer; width: 15px; height: 15px; }
+.field-actions-cell { width: 116px; white-space: nowrap; text-align: right; }
+.field-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.field-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-m);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.field-action:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--accent);
+}
+.field-action:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  background: #f8fafc;
+  color: #94a3b8;
+}
 .field-del { background: none; border: none; cursor: pointer; color: var(--text-m);
              padding: 2px 5px; border-radius: 4px; }
 .field-del:hover { background: #fee2e2; color: var(--danger); }
+.field-actions .field-del {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
 
 /* ─── 关系行 ─────────────────────────────────────────────── */
 .rel-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }

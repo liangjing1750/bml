@@ -36,6 +36,55 @@ test('数据页支持编辑实体主状态字段并生成状态图', async ({ pa
   await expect(page.locator('.preview-rendered')).toContainText('提交审核');
 });
 
+test('数据页字段支持行内新增删除和上下移动', async ({ page }) => {
+  const documentName = `entity-field-actions-${Date.now()}`;
+
+  await createNewDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-add-entity').click();
+
+  await page.getByTestId('entity-name-input').fill('预约单');
+  await page.getByTestId('entity-field-add-button').click();
+  await page.getByTestId('entity-field-name-0').fill('预约编号');
+
+  const actionCounts = await page.locator('.field-table tbody tr').evaluateAll((rows) =>
+    rows.map((row) => row.querySelectorAll('.field-actions button').length),
+  );
+  expect(actionCounts).toEqual([4]);
+
+  await page.getByTestId('entity-field-add-after-0').click();
+  await expect(page.locator('.field-table tbody tr')).toHaveCount(2);
+  await page.getByTestId('entity-field-name-1').fill('预约状态');
+
+  let names = await page.locator('[data-testid^="entity-field-name-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value),
+  );
+  expect(names).toEqual(['预约编号', '预约状态']);
+
+  await page.getByTestId('entity-field-move-down-0').click();
+  names = await page.locator('[data-testid^="entity-field-name-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value),
+  );
+  expect(names).toEqual(['预约状态', '预约编号']);
+
+  await page.getByTestId('entity-field-move-up-1').click();
+  names = await page.locator('[data-testid^="entity-field-name-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value),
+  );
+  expect(names).toEqual(['预约编号', '预约状态']);
+
+  await page.getByTestId('entity-field-add-after-1').click();
+  await expect(page.locator('.field-table tbody tr')).toHaveCount(3);
+  await page.getByTestId('entity-field-name-2').fill('申请日期');
+
+  await page.getByTestId('entity-field-delete-1').click();
+  await expect(page.locator('.field-table tbody tr')).toHaveCount(2);
+  names = await page.locator('[data-testid^="entity-field-name-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value),
+  );
+  expect(names).toEqual(['预约编号', '申请日期']);
+});
+
 test('旧文档中写在公式约束里的状态串会自动进入状态编辑', async ({ page, request }) => {
   const documentName = `entity-state-note-${Date.now()}`;
   await createDocument(request, documentName, {

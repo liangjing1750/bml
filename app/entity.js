@@ -904,15 +904,53 @@ function startEditId(spanEl, type, ...args) {
 /* ═══════════════════════════════════════════════════════════
    MUTATIONS — Fields
 ═══════════════════════════════════════════════════════════ */
-function addField(entityId) {
+function rerenderEntityEditor(options = {}) {
+  const drawerScrollTop = document.querySelector('.entity-drawer .drawer-body')?.scrollTop || 0;
+  renderDataTab();
+  requestAnimationFrame(() => {
+    const drawerBody = document.querySelector('.entity-drawer .drawer-body');
+    if (drawerBody) drawerBody.scrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    if (options.focusSelector) {
+      const field = document.querySelector(options.focusSelector);
+      if (field) {
+        field.focus();
+        if (typeof field.select === 'function') field.select();
+        field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+  });
+}
+function addField(entityId,afterIdx) {
   const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
   ensureEntityStateShape(e);
-  e.fields.push({name:'',type:'string',is_key:false,is_status:false,state_values:'',note:''});
-  markModified(); render();
+  const insertIndex = Number.isInteger(afterIdx) ? afterIdx + 1 : e.fields.length;
+  e.fields.splice(insertIndex, 0, {name:'',type:'string',is_key:false,is_status:false,state_values:'',note:''});
+  markModified();
+  rerenderEntityEditor({
+    focusSelector: `[data-testid="entity-field-name-${insertIndex}"]`,
+  });
 }
 function removeField(entityId,idx) {
   const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
-  e.fields.splice(idx,1); markModified(); render();
+  if(e.fields[idx]===undefined) return;
+  e.fields.splice(idx,1);
+  markModified();
+  const focusIndex = Math.min(idx, e.fields.length - 1);
+  rerenderEntityEditor({
+    focusSelector: focusIndex >= 0
+      ? `[data-testid="entity-field-name-${focusIndex}"]`
+      : '[data-testid="entity-field-add-button"]',
+  });
+}
+function moveField(entityId,idx,dir) {
+  const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
+  const targetIdx = idx + dir;
+  if(idx < 0 || targetIdx < 0 || targetIdx >= e.fields.length) return;
+  [e.fields[idx], e.fields[targetIdx]] = [e.fields[targetIdx], e.fields[idx]];
+  markModified();
+  rerenderEntityEditor({
+    focusSelector: `[data-testid="entity-field-name-${targetIdx}"]`,
+  });
 }
 function setField(entityId,idx,key,val) {
   const e=S.doc.entities.find(e=>e.id===entityId);
@@ -1118,7 +1156,7 @@ function renderEntityFieldsSection(entity) {
   return `<div class="form-section">
     <h4>字段 <button class="btn btn-outline btn-sm" data-testid="entity-field-add-button" onclick="addField('${esc(entity.id)}')">＋</button></h4>
     ${entity.fields?.length ? `<table class="field-table">
-      <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>字段规则</th><th></th></tr></thead>
+      <thead><tr><th>字段名</th><th>类型</th><th title="主键">主键</th><th title="主状态字段">状态</th><th>字段规则</th><th>操作</th></tr></thead>
       <tbody>
         ${entity.fields.map((field, index) => `<tr>
           <td class="field-td-name"><input type="text" data-testid="entity-field-name-${index}" value="${esc(field.name||'')}" placeholder="字段名"
@@ -1133,7 +1171,12 @@ function renderEntityFieldsSection(entity) {
           <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="字段规则"
             oninput="setField('${esc(entity.id)}',${index},'note',this.value);autoResize(this)"
             >${esc(field.note||'')}</textarea></td>
-          <td><button class="field-del" onclick="removeField('${esc(entity.id)}',${index})">✕</button></td>
+          <td class="field-actions-cell"><div class="field-actions">
+            <button class="field-action field-add-after" type="button" data-testid="entity-field-add-after-${index}" title="在下方插入字段" onclick="addField('${esc(entity.id)}',${index})">+</button>
+            <button class="field-action field-move-up" type="button" data-testid="entity-field-move-up-${index}" title="上移" ${index === 0 ? 'disabled' : ''} onclick="moveField('${esc(entity.id)}',${index},-1)">↑</button>
+            <button class="field-action field-move-down" type="button" data-testid="entity-field-move-down-${index}" title="下移" ${index === entity.fields.length - 1 ? 'disabled' : ''} onclick="moveField('${esc(entity.id)}',${index},1)">↓</button>
+            <button class="field-del" type="button" data-testid="entity-field-delete-${index}" onclick="removeField('${esc(entity.id)}',${index})">✕</button>
+          </div></td>
         </tr>`).join('')}
       </tbody>
     </table>` : '<p class="no-refs">暂无字段</p>'}
