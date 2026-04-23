@@ -48,7 +48,7 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
     },
     "entity_op": {"scalars": ["entity_id"], "set_lists": ["ops"], "lists": {}},
     "entity": {"scalars": ["id", "name", "group", "note", "pos"], "lists": {"fields": "field", "state_transitions": "transition"}},
-    "field": {"scalars": ["name", "type", "is_key", "is_status", "state_values", "note"], "lists": {}},
+    "field": {"scalars": ["name", "type", "is_key", "is_status", "status_role", "state_values", "note"], "lists": {}},
     "transition": {"scalars": ["from", "to", "action", "note", "field_name"], "lists": {}},
     "relation": {"scalars": ["from", "to", "type", "label"], "lists": {}},
     "rule": {"scalars": ["id", "name", "type", "applies_to", "description", "formula"], "lists": {}},

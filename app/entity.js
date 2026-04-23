@@ -684,6 +684,7 @@ function setStateEntity(entityId) {
 function setStateFieldView(entityId, fieldName) {
   const entity = S.doc.entities.find((item) => item.id === entityId);
   if (!entity) return;
+  ensureEntityStateShape(entity);
   S.ui.stateFieldName = getEntityStatusField(entity, fieldName)?.name || '';
   renderDataTab();
 }
@@ -694,11 +695,49 @@ function setEntityPrimaryStatusField(entityId, fieldIndex) {
   ensureEntityStateShape(entity);
   const nextIndex = fieldIndex === '' ? -1 : Number(fieldIndex);
   entity.fields.forEach((field, index) => {
-    field.is_status = index === nextIndex;
+    syncFieldStatusRole(field);
+    if (index === nextIndex) {
+      syncFieldStatusRole(field, 'primary');
+    } else if (getFieldStatusRole(field) === 'primary') {
+      syncFieldStatusRole(field, 'secondary');
+    }
   });
-  S.ui.stateFieldName = entity.fields[nextIndex]?.name || '';
+  S.ui.stateFieldName = getEntityStatusField(entity, entity.fields[nextIndex]?.name || '')?.name || '';
   markModified();
   renderDataTab();
+}
+
+function applyEntityFieldStatusRole(entity, fieldIndex, nextRole) {
+  if (!entity || !entity.fields?.[fieldIndex]) return;
+  ensureEntityStateShape(entity);
+  entity.fields.forEach((field) => syncFieldStatusRole(field));
+  if (normalizeStatusRole(nextRole) === 'primary') {
+    entity.fields.forEach((field, index) => {
+      if (index !== fieldIndex && getFieldStatusRole(field) === 'primary') {
+        syncFieldStatusRole(field, 'secondary');
+      }
+    });
+  }
+  const targetField = entity.fields[fieldIndex];
+  syncFieldStatusRole(targetField, nextRole);
+  if (getFieldStatusRole(targetField)) {
+    const inferredStateValueText = inferStateValuesFromNote(targetField.note || '').join('/');
+    if (inferredStateValueText) {
+      targetField.state_values = inferredStateValueText;
+    }
+  }
+  const preferredFieldName = normalizeStatusRole(nextRole) === 'primary'
+    ? targetField.name
+    : (S.ui.stateFieldName || targetField.name);
+  S.ui.stateFieldName = getEntityStatusField(entity, preferredFieldName)?.name || '';
+}
+
+function updateFieldStatusRole(entityId, idx, role) {
+  setField(entityId, idx, 'status_role', role);
+  rerenderEntityEditor({
+    focusSelector: `[data-testid="entity-status-role-${idx}"]`,
+    selectText: false,
+  });
 }
 
 function getStateTone(state) {
@@ -938,7 +977,7 @@ function addField(entityId,afterIdx) {
   const e=S.doc.entities.find(e=>e.id===entityId); if(!e) return;
   ensureEntityStateShape(e);
   const insertIndex = Number.isInteger(afterIdx) ? afterIdx + 1 : e.fields.length;
-  e.fields.splice(insertIndex, 0, {name:'',type:'string',is_key:false,is_status:false,state_values:'',note:''});
+  e.fields.splice(insertIndex, 0, {name:'',type:'string',is_key:false,is_status:false,status_role:'',state_values:'',note:''});
   markModified();
   rerenderEntityEditor({
     focusSelector: `[data-testid="entity-field-name-${insertIndex}"]`,
@@ -970,19 +1009,12 @@ function setField(entityId,idx,key,val) {
   const e=S.doc.entities.find(e=>e.id===entityId);
   if(e?.fields[idx]===undefined) return;
   ensureEntityStateShape(e);
-  if(key === 'is_status') {
-    e.fields.forEach((field, fieldIndex) => {
-      field.is_status = fieldIndex === idx ? !!val : false;
-    });
-    if (val) {
-      const inferredStateValueText = inferStateValuesFromNote(e.fields[idx].note || '').join('/');
-      if (inferredStateValueText) {
-        e.fields[idx].state_values = inferredStateValueText;
-      }
-    }
+  if(key === 'is_status' || key === 'status_role') {
+    const nextRole = key === 'is_status' ? (val ? 'primary' : '') : val;
+    applyEntityFieldStatusRole(e, idx, nextRole);
   } else {
     e.fields[idx][key]=val;
-    if(key === 'note' && e.fields[idx].is_status) {
+    if(key === 'note' && getFieldStatusRole(e.fields[idx])) {
       const inferredStateValueText = inferStateValuesFromNote(val).join('/');
       if (inferredStateValueText || !String(val || '').trim()) {
         e.fields[idx].state_values = inferredStateValueText;
@@ -1046,21 +1078,60 @@ function renderStateEntityBrowser(groupedEntities, activeEntity) {
   `).join('');
 }
 
+function renderStateFieldScope(entity, activeField) {
+  if (!entity) return '';
+  const primaryField = getEntityPrimaryStatusField(entity);
+  const secondaryFields = getEntitySecondaryStatusFields(entity);
+  const lines = [];
+  if (primaryField) {
+    const prefix = activeField?.name === primaryField.name ? '当前主状态字段' : '主状态字段';
+    lines.push(`${prefix}：${esc(primaryField.name || '')}`);
+  }
+  if (secondaryFields.length) {
+    lines.push(`子状态字段：${secondaryFields.map((field) => esc(field.name || '')).join(' / ')}`);
+  }
+  if (!primaryField && secondaryFields.length) {
+    lines.unshift('当前还未指定主状态字段，先按子状态分别维护。');
+  }
+  if (!lines.length) return '';
+  return `<div class="entity-state-card-meta">${lines.map((line) => `<div>${line}</div>`).join('')}</div>`;
+}
+
+function getStateFieldOptionLabel(field) {
+  const roleLabel = getFieldStatusRoleLabel(field, 'short');
+  const fieldName = field?.name || '未命名字段';
+  return roleLabel ? `${roleLabel}：${fieldName}` : fieldName;
+}
+
+function renderFieldStatusRoleControl(entity, field, index) {
+  const value = getFieldStatusRole(field);
+  const currentRole = value || 'none';
+  return `<div class="field-status-role-wrap field-status-role-wrap-${currentRole}" data-value="${esc(currentRole)}">
+    <select class="field-status-role-select field-status-role-select-${currentRole}" data-testid="entity-status-role-${index}" aria-label="字段状态角色"
+      onchange="updateFieldStatusRole('${esc(entity.id)}',${index},this.value)">
+      <option value="" ${!value ? 'selected' : ''}>否</option>
+      <option value="primary" ${value==='primary' ? 'selected' : ''}>主</option>
+      <option value="secondary" ${value==='secondary' ? 'selected' : ''}>子</option>
+    </select>
+  </div>`;
+}
+
 function renderStateDiagramCard(entity, stateField, stateValues) {
   if (!entity) {
     return '<div class="diag-empty" data-testid="entity-state-empty">请选择一个实体查看状态图。</div>';
   }
   if (!stateField) {
-    return '<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义主状态字段，请先在下方选择一个状态字段，再在字段规则中填写状态值。</div>';
+    return '<div class="diag-empty" data-testid="entity-state-empty">当前实体还未定义状态字段，请先在下方字段表中标记主状态或子状态，再在字段规则中填写状态值。</div>';
   }
   if (!stateValues.length) {
-    return `<div class="diag-empty" data-testid="entity-state-empty">主状态字段“${esc(stateField.name || '')}”尚未在字段规则中填写状态值，请先补充例如：草稿/待审核/已完成。</div>`;
+    return `<div class="diag-empty" data-testid="entity-state-empty">${getFieldStatusRoleLabel(stateField) || '状态'}字段“${esc(stateField.name || '')}”尚未在字段规则中填写状态值，请先补充例如：草稿/待审核/已完成。</div>`;
   }
   return `<div class="entity-state-card" data-testid="entity-state-diagram">
     <div class="entity-state-card-head">
       <div>
         <div class="entity-state-card-title">${esc(entity.name || entity.id)}</div>
-        <div class="entity-state-card-subtitle">主状态字段：${esc(stateField.name || '')}</div>
+        <div class="entity-state-card-subtitle">${esc(getFieldStatusRoleLabel(stateField) || '状态')}字段：${esc(stateField.name || '')}</div>
+        ${renderStateFieldScope(entity, stateField)}
       </div>
       <div class="entity-state-card-values">${stateValues.map((value) => `<span class="entity-state-value-chip">${esc(value)}</span>`).join('')}</div>
     </div>
@@ -1068,28 +1139,25 @@ function renderStateDiagramCard(entity, stateField, stateValues) {
   </div>`;
 }
 
-function renderStateFieldSelector(entity, statusFields, stateField, stateFieldIndex) {
+function renderStateFieldSelector(entity, statusFields, stateField) {
   if (!entity) return '';
-  if (statusFields.length > 1) {
+  if (!statusFields.length) {
     return `<label class="field-group">
       <span>状态字段</span>
-      <select data-testid="entity-state-field-select" onchange="setStateFieldView('${esc(entity.id)}', this.value)">
-        ${statusFields.map((field) => `<option value="${esc(field.name)}" ${stateField?.name===field.name?'selected':''}>${esc(field.name || '未命名字段')}</option>`).join('')}
-      </select>
+      <div class="entity-state-values-readonly" data-testid="entity-state-field-empty">请先在下方字段表中把字段标记为主状态或子状态。</div>
     </label>`;
   }
   return `<label class="field-group">
-    <span>主状态字段</span>
-    <select data-testid="entity-state-field-select" onchange="setEntityPrimaryStatusField('${esc(entity.id)}', this.value)">
-      <option value="">未设置</option>
-      ${entity.fields.map((field, index) => `<option value="${index}" ${stateFieldIndex===index?'selected':''}>${esc(field.name || `字段${index + 1}`)}</option>`).join('')}
+    <span>状态字段</span>
+    <select data-testid="entity-state-field-select" onchange="setStateFieldView('${esc(entity.id)}', this.value)">
+      ${statusFields.map((field) => `<option value="${esc(field.name)}" ${stateField?.name===field.name?'selected':''}>${esc(getStateFieldOptionLabel(field))}</option>`).join('')}
     </select>
   </label>`;
 }
 
 function renderStateTransitionList(entity, stateField, stateValues, stateTransitionRows) {
   if (!stateField) {
-    return '<p class="no-refs">先选择一个主状态字段，再在字段规则中填写状态值，然后维护流转边。</p>';
+    return '<p class="no-refs">先在下方字段表中设置主状态或子状态字段，再在字段规则中填写状态值，然后维护流转边。</p>';
   }
   if (!stateTransitionRows.length) {
     return '<p class="no-refs">暂无状态流转，先添加一条边，例如：草稿 → 待审核。</p>';
@@ -1112,7 +1180,7 @@ function renderStateTransitionList(entity, stateField, stateValues, stateTransit
   </div>`;
 }
 
-function renderStateEditor(entity, statusFields, stateField, stateFieldIndex, stateValueText, stateValues, stateTransitionRows) {
+function renderStateEditor(entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows) {
   if (!entity) return '';
   return `<div class="entity-state-editor">
     <div class="entity-state-editor-head">
@@ -1123,7 +1191,7 @@ function renderStateEditor(entity, statusFields, stateField, stateFieldIndex, st
       <button class="btn btn-outline btn-sm" data-testid="entity-transition-add-button" onclick="addStateTransition('${esc(entity.id)}')" ${stateField ? '' : 'disabled'}>＋ 添加流转</button>
     </div>
     <div class="entity-state-config-row">
-      ${renderStateFieldSelector(entity, statusFields, stateField, stateFieldIndex)}
+      ${renderStateFieldSelector(entity, statusFields, stateField)}
       <label class="field-group entity-state-values-field">
         <span>状态值来源 <span class="inline-help" tabindex="0" data-tip="请在下方字段表的“字段规则”中填写状态值，并用 / 分隔，例如：草稿/待审核/审核通过/已作废。">?</span></span>
         <div class="entity-state-values-readonly" data-testid="entity-state-values-text">${esc(stateValueText || '请在下方“字段规则”中填写，例如：草稿/待审核/审核通过/已作废')}</div>
@@ -1134,14 +1202,14 @@ function renderStateEditor(entity, statusFields, stateField, stateFieldIndex, st
   </div>`;
 }
 
-function renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateFieldIndex, stateTransitionRows) {
+function renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows) {
   return `<div class="entity-state-workbench">
     <div class="entity-state-browser">
       ${renderStateEntityBrowser(groupedEntities, entity)}
     </div>
     <div class="entity-state-stage">
       ${renderStateDiagramCard(entity, stateField, stateValues)}
-      ${renderStateEditor(entity, statusFields, stateField, stateFieldIndex, stateValueText, stateValues, stateTransitionRows)}
+      ${renderStateEditor(entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows)}
     </div>
   </div>`;
 }
@@ -1180,8 +1248,7 @@ function renderEntityFieldsSection(entity) {
           </select></td>
           <td style="text-align:center"><input type="checkbox" ${field.is_key?'checked':''}
             onchange="setField('${esc(entity.id)}',${index},'is_key',this.checked)"></td>
-          <td style="text-align:center"><input type="checkbox" data-testid="entity-status-toggle-${index}" ${field.is_status?'checked':''}
-            onchange="setField('${esc(entity.id)}',${index},'is_status',this.checked);renderDataTab()"></td>
+          <td class="field-status-cell">${renderFieldStatusRoleControl(entity, field, index)}</td>
           <td class="field-td-note"><textarea class="auto-resize" rows="1" placeholder="字段规则"
             oninput="setField('${esc(entity.id)}',${index},'note',this.value);autoResize(this)"
             >${esc(field.note||'')}</textarea></td>
@@ -1343,7 +1410,6 @@ function renderDataTab() {
   const stateField = entity ? getEntityStatusField(entity, S.ui.stateFieldName) : null;
   const stateValueText = stateField ? getFieldStateValueText(stateField) : '';
   const stateValues = stateField ? getFieldStateValues(stateField) : [];
-  const stateFieldIndex = entity ? entity.fields.findIndex((field) => field?.is_status) : -1;
   const stateTransitionRows = entity ? getEntityStateTransitions(entity, stateField?.name || '') : [];
   const showEntityDrawer = dataView === 'relation';
 
@@ -1367,7 +1433,7 @@ function renderDataTab() {
     </div>
     ${dataView === 'relation'
       ? `<div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>`
-      : renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateFieldIndex, stateTransitionRows)
+      : renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows)
     }
   </div>`;
 

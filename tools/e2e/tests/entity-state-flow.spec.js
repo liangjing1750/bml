@@ -13,9 +13,10 @@ test('数据页支持编辑实体主状态字段并生成状态图', async ({ pa
   await page.getByTestId('entity-field-add-button').click();
   await page.getByTestId('entity-field-name-0').fill('预约状态');
   await page.getByTestId('entity-field-type-0').selectOption('enum');
+  await page.getByTestId('entity-status-role-0').selectOption('primary');
   await page.locator('.field-td-note textarea').first().fill('草稿/待审核/审核通过/已作废');
   await page.getByTestId('data-switch-state').click();
-  await page.getByTestId('entity-state-field-select').selectOption('0');
+  await expect(page.getByTestId('entity-state-field-select')).toHaveValue('预约状态');
   await expect(page.getByTestId('entity-state-values-text')).toContainText('草稿/待审核/审核通过/已作废');
   await page.getByTestId('entity-transition-add-button').click();
   await page.getByTestId('entity-transition-from-0').selectOption('草稿');
@@ -34,6 +35,55 @@ test('数据页支持编辑实体主状态字段并生成状态图', async ({ pa
   await page.getByTestId('tab-preview').click();
   await expect(page.locator('.preview-rendered')).toContainText('状态流转');
   await expect(page.locator('.preview-rendered')).toContainText('提交审核');
+});
+
+test('数据页允许一个主状态加多个子状态且不增加列', async ({ page }) => {
+  const documentName = `entity-status-roles-${Date.now()}`;
+
+  await createNewDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-add-entity').click();
+
+  await page.getByTestId('entity-name-input').fill('出库单');
+  await page.getByTestId('entity-field-add-button').click();
+  await page.getByTestId('entity-field-name-0').fill('主状态');
+  await page.getByTestId('entity-field-type-0').selectOption('enum');
+  await page.getByTestId('entity-status-role-0').selectOption('primary');
+  await page.locator('.field-td-note textarea').nth(0).fill('草稿/待审核/已完成');
+
+  await page.getByTestId('entity-field-add-after-0').click();
+  await page.getByTestId('entity-field-name-1').fill('同步状态');
+  await page.getByTestId('entity-field-type-1').selectOption('enum');
+  await page.getByTestId('entity-status-role-1').selectOption('secondary');
+  await page.locator('.field-td-note textarea').nth(1).fill('未同步/同步中/已同步');
+
+  await page.getByTestId('entity-field-add-after-1').click();
+  await page.getByTestId('entity-field-name-2').fill('通知状态');
+  await page.getByTestId('entity-field-type-2').selectOption('enum');
+  await page.getByTestId('entity-status-role-2').selectOption('primary');
+  await page.locator('.field-td-note textarea').nth(2).fill('待通知/通知中/已通知');
+
+  await page.getByTestId('entity-status-role-0').selectOption('');
+  await page.getByTestId('entity-status-role-0').selectOption('secondary');
+
+  const statusRoles = await page.locator('[data-testid^="entity-status-role-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value || 'none'),
+  );
+  expect(statusRoles).toEqual(['secondary', 'secondary', 'primary']);
+
+  const headerCount = await page.locator('.field-table thead th').count();
+  expect(headerCount).toBe(6);
+
+  await page.getByTestId('data-switch-state').click();
+  const options = await page.getByTestId('entity-state-field-select').locator('option').evaluateAll((nodes) =>
+    nodes.map((node) => ({ value: node.value, text: node.textContent.trim() })),
+  );
+  expect(options).toEqual([
+    { value: '通知状态', text: '主：通知状态' },
+    { value: '主状态', text: '子：主状态' },
+    { value: '同步状态', text: '子：同步状态' },
+  ]);
+  await expect(page.getByTestId('entity-state-diagram')).toContainText('主状态字段');
 });
 
 test('数据页字段支持行内新增删除和上下移动', async ({ page }) => {

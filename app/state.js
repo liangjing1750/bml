@@ -354,6 +354,37 @@ function normalizeSlashList(value) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
+function normalizeStatusRole(value, fallbackIsStatus = false) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'primary' || raw === 'main' || raw === 'master') return 'primary';
+  if (raw === 'secondary' || raw === 'sub' || raw === 'child') return 'secondary';
+  return fallbackIsStatus ? 'primary' : '';
+}
+function getFieldStatusRole(field) {
+  return normalizeStatusRole(field?.status_role, !!field?.is_status);
+}
+function syncFieldStatusRole(field, preferredRole) {
+  if (!field || typeof field !== 'object') return '';
+  const hasPreferredRole = arguments.length >= 2;
+  const nextRole = hasPreferredRole
+    ? normalizeStatusRole(preferredRole, false)
+    : normalizeStatusRole(field.status_role, !!field.is_status);
+  field.status_role = nextRole;
+  field.is_status = !!nextRole;
+  if (!Object.prototype.hasOwnProperty.call(field, 'state_values')) {
+    field.state_values = '';
+  }
+  return nextRole;
+}
+function isStatusField(field) {
+  return !!getFieldStatusRole(field);
+}
+function getFieldStatusRoleLabel(field, mode = 'long') {
+  const role = getFieldStatusRole(field);
+  if (role === 'primary') return mode === 'short' ? '主' : '主状态';
+  if (role === 'secondary') return mode === 'short' ? '子' : '子状态';
+  return '';
+}
 function inferStateValuesFromNote(note) {
   const values = normalizeSlashList(note);
   if (!values.length) return [];
@@ -369,7 +400,7 @@ function getFieldStateValueText(field) {
 function getFieldRuleText(field) {
   const noteText = String(field?.note || '').trim();
   const stateValueText = getFieldStateValueText(field);
-  if (!field?.is_status) return noteText;
+  if (!isStatusField(field)) return noteText;
   const inferredText = inferStateValuesFromNote(noteText).join('/');
   const noteOnly = noteText && noteText !== stateValueText && inferredText !== stateValueText ? noteText : '';
   if (stateValueText && noteOnly) return `${stateValueText}；${noteOnly}`;
@@ -379,13 +410,25 @@ function getFieldStateValues(field) {
   return normalizeSlashList(getFieldStateValueText(field));
 }
 function getEntityStatusFields(entity) {
-  return (entity?.fields || []).filter((field) => field?.is_status);
+  return (entity?.fields || [])
+    .filter(isStatusField)
+    .sort((left, right) => {
+      const leftPriority = getFieldStatusRole(left) === 'primary' ? 0 : 1;
+      const rightPriority = getFieldStatusRole(right) === 'primary' ? 0 : 1;
+      return leftPriority - rightPriority;
+    });
+}
+function getEntityPrimaryStatusField(entity) {
+  return getEntityStatusFields(entity).find((field) => getFieldStatusRole(field) === 'primary') || null;
+}
+function getEntitySecondaryStatusFields(entity) {
+  return getEntityStatusFields(entity).filter((field) => getFieldStatusRole(field) === 'secondary');
 }
 function getEntityStatusField(entity, preferredFieldName = '') {
   const statusFields = getEntityStatusFields(entity);
   if (!statusFields.length) return null;
   const preferred = String(preferredFieldName || '').trim();
-  return statusFields.find((field) => field.name === preferred) || statusFields[0];
+  return statusFields.find((field) => field.name === preferred) || getEntityPrimaryStatusField(entity) || statusFields[0];
 }
 function getEntityStatusValues(entity, preferredFieldName = '') {
   return getFieldStateValues(getEntityStatusField(entity, preferredFieldName));
@@ -403,9 +446,15 @@ function ensureEntityStateShape(entity) {
   if (!entity) return entity;
   if (!Array.isArray(entity.fields)) entity.fields = [];
   if (!Array.isArray(entity.state_transitions)) entity.state_transitions = [];
+  let primaryAssigned = false;
   entity.fields.forEach((field) => {
-    if (!Object.prototype.hasOwnProperty.call(field, 'state_values')) {
-      field.state_values = '';
+    const role = syncFieldStatusRole(field);
+    if (role === 'primary') {
+      if (primaryAssigned) {
+        syncFieldStatusRole(field, 'secondary');
+      } else {
+        primaryAssigned = true;
+      }
     }
   });
   entity.state_transitions = entity.state_transitions.map((transition) => ({

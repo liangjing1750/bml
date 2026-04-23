@@ -262,7 +262,7 @@ function renderPreviewEntitiesHtml(entities, fieldLabels) {
           <td>${esc(field.name||'')}</td>
           <td>${esc(fieldLabels[field.type]||field.type||'')}</td>
           <td style="text-align:center">${field.is_key?'✓':''}</td>
-          <td style="text-align:center">${field.is_status?'✓':''}</td>
+          <td style="text-align:center">${esc(getFieldStatusRoleLabel(field, 'long') || '')}</td>
           <td>${esc(getFieldRuleText(field) || '')}</td>
         </tr>`).join('')}
       </tbody></table>` : ''}
@@ -409,7 +409,7 @@ function appendPreviewEntitiesMd(add, doc, entities, fieldLabels) {
     if(entity.fields?.length){
       add('| 字段 | 类型 | 主键 | 状态字段 | 字段规则 |');
       add('|------|------|------|---------|---------|');
-      entity.fields.forEach((field) => add(`| ${field.name||''} | ${fieldLabels[field.type]||field.type||''} | ${field.is_key?'✓':''} | ${field.is_status?'✓':''} | ${getFieldRuleText(field)||''} |`));
+      entity.fields.forEach((field) => add(`| ${field.name||''} | ${fieldLabels[field.type]||field.type||''} | ${field.is_key?'✓':''} | ${getFieldStatusRoleLabel(field, 'long') || ''} | ${getFieldRuleText(field)||''} |`));
       add('');
     }
     if(entity.state_transitions?.length){

@@ -105,8 +105,40 @@ def get_role_subdomains(role) -> str:
     return ""
 
 
+def get_field_status_role(field: dict) -> str:
+    raw = str(field.get("status_role", "")).strip().casefold()
+    if raw in {"primary", "main", "master"}:
+        return "primary"
+    if raw in {"secondary", "sub", "child"}:
+        return "secondary"
+    return "primary" if field.get("is_status") else ""
+
+
+def get_field_status_role_label(field: dict) -> str:
+    role = get_field_status_role(field)
+    if role == "primary":
+        return "主状态"
+    if role == "secondary":
+        return "子状态"
+    return ""
+
+
+def is_status_field(field: dict) -> bool:
+    return bool(get_field_status_role(field))
+
+
 def get_entity_status_field(entity: dict) -> dict | None:
-    return next((field for field in entity.get("fields", []) if field.get("is_status")), None)
+    primary_field = next(
+        (field for field in entity.get("fields", []) if get_field_status_role(field) == "primary"),
+        None,
+    )
+    if primary_field:
+        return primary_field
+    return next((field for field in entity.get("fields", []) if is_status_field(field)), None)
+
+
+def get_entity_status_fields(entity: dict) -> list[dict]:
+    return [field for field in entity.get("fields", []) if is_status_field(field)]
 
 
 def get_entity_state_values(entity: dict) -> str:
@@ -125,7 +157,7 @@ def get_entity_state_values(entity: dict) -> str:
 
 def get_field_rule_text(field: dict) -> str:
     note_text = str(field.get("note", "")).strip()
-    if not field.get("is_status"):
+    if not is_status_field(field):
         return note_text
     state_value_text = str(field.get("state_values", "")).strip()
     if not state_value_text:
@@ -223,7 +255,7 @@ class MarkdownExporter:
                     for field in fields:
                         field_type = FIELD_LABELS.get(field.get("type", ""), field.get("type", ""))
                         is_key = "✓" if field.get("is_key") else ""
-                        is_status = "✓" if field.get("is_status") else ""
+                        is_status = get_field_status_role_label(field)
                         line(
                             f"| {field.get('name', '')} | {field_type} | {is_key} | {is_status} | {get_field_rule_text(field)} |"
                         )

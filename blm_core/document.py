@@ -141,6 +141,15 @@ def normalize_field_type(field_type: str) -> str:
     return FIELD_TYPE_ALIASES.get(field_type.strip().casefold(), field_type.casefold())
 
 
+def normalize_status_role(status_role: str, fallback_is_status: bool = False) -> str:
+    raw = str(status_role or "").strip().casefold()
+    if raw in {"primary", "main", "master"}:
+        return "primary"
+    if raw in {"secondary", "sub", "child"}:
+        return "secondary"
+    return "primary" if fallback_is_status else ""
+
+
 def normalize_role_name(role_name: str) -> str:
     return str(role_name or "").strip()
 
@@ -359,20 +368,40 @@ def _normalize_entities(entities: list[dict]) -> None:
         entity.setdefault("fields", [])
         entity.setdefault("state_transitions", [])
 
+        primary_status_assigned = False
         for field in entity["fields"]:
             _ensure_uid(field)
             is_key = bool(field.pop("pk", field.get("is_key", False)))
-            is_status = bool(field.pop("status", field.get("is_status", False)))
+            legacy_is_status = bool(field.pop("status", field.get("is_status", False)))
+            status_role = normalize_status_role(
+                field.pop("statusRole", field.get("status_role", "")),
+                legacy_is_status,
+            )
+            if status_role == "primary":
+                if primary_status_assigned:
+                    status_role = "secondary"
+                else:
+                    primary_status_assigned = True
             field.setdefault("name", "")
             field.setdefault("note", "")
             field["type"] = normalize_field_type(field.get("type", "string"))
             field["is_key"] = is_key
-            field["is_status"] = is_status
+            field["status_role"] = status_role
+            field["is_status"] = bool(status_role)
             field.setdefault("state_values", "")
 
         normalized_transitions = []
         status_fields = [field.get("name", "") for field in entity["fields"] if field.get("is_status")]
-        default_field_name = status_fields[0] if len(status_fields) == 1 else ""
+        primary_status_fields = [
+            field.get("name", "")
+            for field in entity["fields"]
+            if field.get("status_role") == "primary"
+        ]
+        default_field_name = (
+            primary_status_fields[0]
+            if primary_status_fields
+            else (status_fields[0] if len(status_fields) == 1 else "")
+        )
         for transition in entity["state_transitions"]:
             transition_uid = str(transition.get("uid", "")).strip() or _new_uid()
             normalized_transitions.append(

@@ -224,6 +224,7 @@ class MigrateDocumentTests(unittest.TestCase):
 
         self.assertEqual(status_field["state_values"], "")
         self.assertTrue(status_field["is_status"])
+        self.assertEqual(status_field["status_role"], "primary")
         self.assertEqual(note_field["state_values"], "")
         self.assertEqual(transition["from"], "草稿")
         self.assertEqual(transition["to"], "待审核")
@@ -231,6 +232,39 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(transition["note"], "")
         self.assertEqual(transition["field_name"], "预约状态")
         self.assertNotIn("role_id", transition)
+
+
+    def test_migrate_document_normalizes_primary_and_secondary_status_fields(self):
+        document = {
+            "meta": {"title": "Status roles"},
+            "roles": [],
+            "processes": [],
+            "entities": [
+                {
+                    "id": "E1",
+                    "name": "Delivery",
+                    "fields": [
+                        {"name": "MainStatus", "type": "enum", "is_status": True},
+                        {"name": "SyncStatus", "type": "enum", "status_role": "secondary"},
+                        {"name": "NotifyStatus", "type": "enum", "status_role": "primary"},
+                    ],
+                    "state_transitions": [],
+                }
+            ],
+            "relations": [],
+            "rules": [],
+            "language": [],
+        }
+
+        migrated = migrate_document(document)
+        fields = migrated["entities"][0]["fields"]
+
+        self.assertEqual(fields[0]["status_role"], "primary")
+        self.assertTrue(fields[0]["is_status"])
+        self.assertEqual(fields[1]["status_role"], "secondary")
+        self.assertTrue(fields[1]["is_status"])
+        self.assertEqual(fields[2]["status_role"], "secondary")
+        self.assertTrue(fields[2]["is_status"])
 
 
 class MarkdownExporterTests(unittest.TestCase):
