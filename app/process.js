@@ -330,15 +330,18 @@ function renderTaskRolePicker(proc, task) {
   const groupedRoles = getGroupedRoles();
   const collapsed = isTaskRolePickerCollapsed(proc.id, task);
   return `<div class="task-role-picker" data-testid="task-role-picker" data-task-role-picker="${esc(task.id)}">
-    <button class="task-role-toggle" type="button" data-testid="task-role-toggle" data-task-role-toggle="${esc(task.id)}"
-      aria-expanded="${collapsed ? 'false' : 'true'}"
-      onclick="toggleTaskRolePicker('${esc(proc.id)}','${esc(task.id)}')">
-      <span class="task-role-toggle-main">
+    <div class="task-role-head">
+      <div class="task-role-toggle-main" data-testid="task-role-summary">
         <span class="task-role-toggle-label">执行角色</span>
         <span class="task-role-toggle-count">${selectedRoleNames.length ? `已选 ${selectedRoleNames.length} 个` : '未选择'}</span>
-      </span>
-      <span class="task-role-toggle-caret ${collapsed ? 'is-collapsed' : 'is-expanded'}">▾</span>
-    </button>
+      </div>
+      <button class="task-role-toggle" type="button" data-testid="task-role-toggle" data-task-role-toggle="${esc(task.id)}"
+        aria-expanded="${collapsed ? 'false' : 'true'}"
+        onclick="toggleTaskRolePicker('${esc(proc.id)}','${esc(task.id)}')">
+        <span class="task-role-toggle-text">${collapsed ? '展开角色' : '收起角色'}</span>
+        <span class="task-role-toggle-caret ${collapsed ? 'is-collapsed' : 'is-expanded'}">▾</span>
+      </button>
+    </div>
     <div class="task-role-collapsed-preview${collapsed ? '' : ' hidden'}" data-testid="task-role-collapsed-preview">
       ${renderTaskRoleCollapsedSummary(selectedRoleNames)}
     </div>

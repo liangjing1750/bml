@@ -172,16 +172,20 @@ test('节点角色支持多选且切换后保持编辑区位置', async ({ page,
   const drawerBody = page.locator('.proc-drawer .drawer-body');
   const picker = page.getByTestId('task-role-picker');
   const toggle = page.getByTestId('task-role-toggle');
+  const summary = page.getByTestId('task-role-summary');
   const pickerBody = page.getByTestId('task-role-picker-body');
   const secondRoleOption = page.locator('[data-task-role-id="R2"]').first();
 
-  await expect(toggle).toContainText('已选 1 个');
+  await expect(toggle).toContainText('展开角色');
   await expect(page.getByTestId('task-role-collapsed-preview')).toBeVisible();
   await expect(pickerBody).not.toBeVisible();
 
   const collapsedHeight = await picker.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  await summary.click();
+  await expect(pickerBody).not.toBeVisible();
   await toggle.click();
   await expect(pickerBody).toBeVisible();
+  await expect(toggle).toContainText('收起角色');
   const expandedHeight = await picker.evaluate((node) => Math.round(node.getBoundingClientRect().height));
   expect(expandedHeight).toBeGreaterThan(collapsedHeight + 80);
 
@@ -223,6 +227,7 @@ test('节点角色支持多选且切换后保持编辑区位置', async ({ page,
 
   await toggle.click();
   await expect(pickerBody).not.toBeVisible();
+  await expect(toggle).toContainText('展开角色');
   const recollapsedHeight = await picker.evaluate((node) => Math.round(node.getBoundingClientRect().height));
   expect(recollapsedHeight).toBeLessThan(expandedHeight - 80);
 });

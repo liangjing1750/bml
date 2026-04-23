@@ -3203,17 +3203,37 @@ input.step-type-custom { width: 88px; flex-shrink: 0; font-size: 12px; }
   border-radius: 14px;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
 }
-.task-role-toggle {
-  width: 100%;
+.task-role-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  text-align: left;
+}
+.task-role-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
   cursor: pointer;
+  flex-shrink: 0;
+}
+.task-role-toggle:hover {
+  background: #eff6ff;
+  border-color: #60a5fa;
+}
+.task-role-toggle:focus-visible {
+  outline: 2px solid #bfdbfe;
+  outline-offset: 2px;
 }
 .task-role-toggle-main {
   display: flex;
@@ -3221,6 +3241,8 @@ input.step-type-custom { width: 88px; flex-shrink: 0; font-size: 12px; }
   gap: 10px;
   min-width: 0;
   flex-wrap: wrap;
+  cursor: default;
+  flex: 1;
 }
 .task-role-toggle-label {
   font-size: 13px;
@@ -3239,10 +3261,13 @@ input.step-type-custom { width: 88px; flex-shrink: 0; font-size: 12px; }
   font-size: 12px;
   font-weight: 600;
 }
+.task-role-toggle-text {
+  white-space: nowrap;
+}
 .task-role-toggle-caret {
   flex-shrink: 0;
-  color: var(--text-m);
-  font-size: 14px;
+  color: currentColor;
+  font-size: 12px;
   line-height: 1;
   transition: transform .15s ease;
 }
