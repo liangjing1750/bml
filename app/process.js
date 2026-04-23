@@ -1,32 +1,65 @@
 'use strict';
 
+const DEFAULT_PROC_ROLE_COLOR = {
+  fill: '#ffffff',
+  stroke: '#cbd5e1',
+  color: '#334155',
+};
+
+function buildTaskRoleColorMap(tasks) {
+  const roleMap = {};
+  let colorIdx = 0;
+  for(const task of tasks) {
+    for(const roleName of getTaskRoleNames(task)) {
+      if(roleName && !(roleName in roleMap)) {
+        roleMap[roleName] = colorIdx % ROLE_COLORS.length;
+        colorIdx += 1;
+      }
+    }
+  }
+  return roleMap;
+}
+
+function getTaskPrimaryRoleStyle(task, roleMap) {
+  const primaryRoleName = getTaskRoleNames(task)[0] || '';
+  if(primaryRoleName && roleMap[primaryRoleName] !== undefined) {
+    return ROLE_COLORS[roleMap[primaryRoleName]];
+  }
+  return DEFAULT_PROC_ROLE_COLOR;
+}
+
+function renderTaskRoleChips(roleNames, roleMap, className = 'pf-role-chip') {
+  return roleNames.map((roleName) => {
+    const color = roleMap[roleName] !== undefined ? ROLE_COLORS[roleMap[roleName]] : DEFAULT_PROC_ROLE_COLOR;
+    return `<span class="${className}"
+      style="background:${color.fill};border-color:${color.stroke};color:${color.color}">${esc(roleName)}</span>`;
+  }).join('');
+}
+
 function buildProcMermaid(proc) {
   const tasks = getProcNodes(proc);
   if(!tasks.length) return null;
 
-  const roleMap = {};
-  let colorIdx = 0;
-  for(const t of tasks) {
-    const r = getTaskRoleName(t);
-    if(!(r in roleMap)) { roleMap[r] = colorIdx % ROLE_COLORS.length; colorIdx++; }
-  }
+  const roleMap = buildTaskRoleColorMap(tasks);
 
   const lines = ['flowchart LR'];
   Object.values(roleMap).forEach(idx => {
     const c = ROLE_COLORS[idx];
     lines.push(`  classDef rc${idx} fill:${c.fill},stroke:${c.stroke},color:${c.color},stroke-width:2px`);
   });
+  lines.push(`  classDef rcDefault fill:${DEFAULT_PROC_ROLE_COLOR.fill},stroke:${DEFAULT_PROC_ROLE_COLOR.stroke},color:${DEFAULT_PROC_ROLE_COLOR.color},stroke-width:2px`);
   lines.push('  classDef startEnd fill:#f1f5f9,stroke:#94a3b8,color:#475569');
   lines.push('  classDef entTag fill:#f8fafc,stroke:#cbd5e1,color:#64748b,font-size:11px');
   lines.push('  Start([开始]):::startEnd');
 
   for(const [index, t] of tasks.entries()) {
     const name = (t.name||'').replace(/"/g,"'");
-    const roleName = getTaskRoleName(t);
+    const roleNames = getTaskRoleNames(t);
     let label = `${name}`;
-    if(roleName) label += `\\n(${roleName})`;
-    const ci = roleMap[roleName];
-    lines.push(`  ${t.id}["${label}"]:::rc${ci}`);
+    if(roleNames.length) label += `\\n(${roleNames.join(' / ')})`;
+    const primaryRoleName = roleNames[0] || '';
+    const ci = primaryRoleName ? roleMap[primaryRoleName] : undefined;
+    lines.push(`  ${t.id}["${label}"]:::${ci === undefined ? 'rcDefault' : `rc${ci}`}`);
     if(t.repeatable && index > 0) {
       lines.push(`  ${t.id} -.-> ${tasks[index - 1].id}`);
     }
@@ -177,30 +210,27 @@ function renderProcFlow(containerId, proc, onClickMap) {
   if(!tasks.length) { el.innerHTML=`<div class="diag-empty">暂无任务，点击上方"添加任务"</div>`; initZoom(containerId); return; }
 
   /* 角色→颜色 */
-  const roleMap = {};
-  let ci = 0;
-  for(const t of tasks) {
-    const r = getTaskRoleName(t);
-    if(!(r in roleMap)) roleMap[r] = ci++ % ROLE_COLORS.length;
-  }
+  const roleMap = buildTaskRoleColorMap(tasks);
 
   let h = '<div class="pf-wrap">';
   h += `<div class="pf-se">开始</div>`;
 
   for(const t of tasks) {
-    const roleName = getTaskRoleName(t);
-    const idx = roleMap[roleName];
-    const c   = ROLE_COLORS[idx];
+    const roleNames = getTaskRoleNames(t);
+    const c = getTaskPrimaryRoleStyle(t, roleMap);
     const eops = (t.entity_ops||[]).filter(eo=>eo.ops?.length);
     const clickable = onClickMap?.[t.id] ? ' pf-clickable' : '';
+    const multiRoleClass = roleNames.length > 1 ? ' pf-task-multi-role' : '';
 
     h += `<div class="pf-arrow">→</div>`;
     h += `<div class="pf-col" data-id="${t.id}">`;
     /* 任务节点 */
-    h += `<div class="pf-task${clickable}" data-id="${t.id}"
+    h += `<div class="pf-task${clickable}${multiRoleClass}" data-id="${t.id}"
       style="background:${c.fill};border-color:${c.stroke};color:${c.color}">`;
     h += `<div class="pf-tn">${esc(t.name||'')}</div>`;
-    if(roleName) h += `<div class="pf-tr">(${esc(roleName)})</div>`;
+    if(roleNames.length) {
+      h += `<div class="pf-role-list">${renderTaskRoleChips(roleNames, roleMap)}</div>`;
+    }
     h += `</div>`;
     /* 实体标签（正下方） */
     if(eops.length) {
@@ -241,6 +271,122 @@ function renderProcFlow(containerId, proc, onClickMap) {
 
   initZoom(containerId);
   if(ZOOM[containerId] && ZOOM[containerId]!==1) applyZoom(containerId);
+}
+
+function getTaskRolePickerCollapsedMap(procId) {
+  if (!S.ui.procRolePickerCollapsed || typeof S.ui.procRolePickerCollapsed !== 'object') {
+    S.ui.procRolePickerCollapsed = {};
+  }
+  const scopeKey = `${S.currentFile || 'draft'}:${procId}`;
+  if (!S.ui.procRolePickerCollapsed[scopeKey] || typeof S.ui.procRolePickerCollapsed[scopeKey] !== 'object') {
+    S.ui.procRolePickerCollapsed[scopeKey] = {};
+  }
+  return S.ui.procRolePickerCollapsed[scopeKey];
+}
+
+function isTaskRolePickerCollapsed(procId, task) {
+  const collapsedMap = getTaskRolePickerCollapsedMap(procId);
+  const explicit = collapsedMap[task?.id];
+  if (typeof explicit === 'boolean') return explicit;
+  return getTaskRoleIds(task).length > 0;
+}
+
+function toggleTaskRolePicker(procId, taskId) {
+  const collapsedMap = getTaskRolePickerCollapsedMap(procId);
+  const task = getProcNodes(S.doc?.processes?.find((item) => item.id === procId)).find((item) => item.id === taskId);
+  const currentCollapsed = typeof collapsedMap[taskId] === 'boolean'
+    ? collapsedMap[taskId]
+    : getTaskRoleIds(task).length > 0;
+  collapsedMap[taskId] = !currentCollapsed;
+  rerenderProcessEditor({
+    focusSelector: `[data-testid="task-role-toggle"][data-task-role-toggle="${String(taskId || '').replace(/"/g, '&quot;')}"]`,
+  });
+}
+
+function renderTaskRoleCollapsedSummary(selectedRoleNames) {
+  if(!selectedRoleNames.length) {
+    return `<span class="task-role-collapsed-empty">当前未选择角色</span>`;
+  }
+
+  const previewNames = selectedRoleNames.slice(0, 3);
+  const remainingCount = Math.max(0, selectedRoleNames.length - previewNames.length);
+  return `<div class="task-role-collapsed-list">
+    ${previewNames.map((roleName) => `<span class="task-role-collapsed-chip">${esc(roleName)}</span>`).join('')}
+    ${remainingCount ? `<span class="task-role-collapsed-more">+${remainingCount}</span>` : ''}
+  </div>`;
+}
+
+function renderTaskRolePicker(proc, task) {
+  const roles = getRoles();
+  if(!roles.length) {
+    return `<div class="task-role-picker-empty">
+      <span class="no-refs">暂无角色词典，请先到业务域页添加角色</span>
+      <button class="btn btn-outline btn-sm" type="button" onclick="navigate('domain')">前往角色管理</button>
+    </div>`;
+  }
+
+  const selectedRoleIds = getTaskRoleIds(task);
+  const selectedRoleNames = getTaskRoleNames(task);
+  const groupedRoles = getGroupedRoles();
+  const collapsed = isTaskRolePickerCollapsed(proc.id, task);
+  return `<div class="task-role-picker" data-testid="task-role-picker" data-task-role-picker="${esc(task.id)}">
+    <button class="task-role-toggle" type="button" data-testid="task-role-toggle" data-task-role-toggle="${esc(task.id)}"
+      aria-expanded="${collapsed ? 'false' : 'true'}"
+      onclick="toggleTaskRolePicker('${esc(proc.id)}','${esc(task.id)}')">
+      <span class="task-role-toggle-main">
+        <span class="task-role-toggle-label">执行角色</span>
+        <span class="task-role-toggle-count">${selectedRoleNames.length ? `已选 ${selectedRoleNames.length} 个` : '未选择'}</span>
+      </span>
+      <span class="task-role-toggle-caret ${collapsed ? 'is-collapsed' : 'is-expanded'}">▾</span>
+    </button>
+    <div class="task-role-collapsed-preview${collapsed ? '' : ' hidden'}" data-testid="task-role-collapsed-preview">
+      ${renderTaskRoleCollapsedSummary(selectedRoleNames)}
+    </div>
+    <div class="task-role-picker-body${collapsed ? ' hidden' : ''}" data-testid="task-role-picker-body">
+      <div class="task-role-group-list" data-testid="task-role-groups">
+        ${groupedRoles.map((group) => `<div class="task-role-group">
+          <div class="task-role-group-head">
+            <span class="task-role-group-name">${esc(group.name)}</span>
+            <span class="task-role-group-count">${group.roles.length}</span>
+          </div>
+          <div class="task-role-option-list">
+            ${group.roles.map((role) => {
+              const active = selectedRoleIds.includes(role.id);
+              return `<label class="task-role-option${active ? ' active' : ''}" data-task-role-id="${esc(role.id)}">
+                <input type="checkbox" data-testid="task-role-checkbox" data-role-id="${esc(role.id)}"
+                  ${active ? 'checked' : ''}
+                  onchange="toggleTaskRoleSelection('${esc(proc.id)}','${esc(task.id)}','${esc(role.id)}',this.checked)">
+                <span class="task-role-option-name">${esc(role.name)}</span>
+              </label>`;
+            }).join('')}
+          </div>
+        </div>`).join('')}
+      </div>
+      <div class="task-role-selected${selectedRoleNames.length ? '' : ' is-empty'}" data-testid="task-role-selected">
+        ${selectedRoleNames.length
+          ? `<span class="task-role-selected-count">已选 ${selectedRoleNames.length} 个角色</span>
+             <div class="task-role-selected-list">${selectedRoleNames.map((roleName) => `<span class="task-role-selected-chip">${esc(roleName)}</span>`).join('')}</div>`
+          : '<span class="task-role-selected-empty">可同时选择多个角色，流程图会按角色标签并排展示</span>'}
+      </div>
+      <div class="task-role-picker-actions">
+        <button class="btn btn-ghost-sm" type="button" onclick="navigate('domain')">管理角色</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleTaskRoleSelection(procId, taskId, roleId, checked) {
+  const proc = S.doc?.processes?.find((item) => item.id === procId);
+  const task = getProcNodes(proc).find((item) => item.id === taskId);
+  if(!task) return;
+
+  const nextRoleIds = getTaskRoleIds(task).filter((item) => item !== roleId);
+  if(checked) nextRoleIds.push(roleId);
+  setTaskRoles(procId, taskId, nextRoleIds);
+  renderSidebar();
+  rerenderProcessEditor({
+    anchorSelector: `[data-task-role-id="${String(roleId || '').replace(/"/g, '&quot;')}"]`,
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -536,7 +682,7 @@ function addTask(procId) {
   const proc=S.doc.processes.find(p=>p.id===procId); if(!proc) return;
   const allTasks=S.doc.processes.flatMap(p=>getProcNodes(p));
   const id=nextId('T',allTasks);
-  getProcNodes(proc).push({id, name:'\u65b0\u8282\u70b9', role_id:'', role:'', userSteps:[], orchestrationTasks:[], entity_ops:[], repeatable:false, rules_note:''});
+  getProcNodes(proc).push({id, name:'\u65b0\u8282\u70b9', role_ids:[], roles:[], role_id:'', role:'', userSteps:[], orchestrationTasks:[], entity_ops:[], repeatable:false, rules_note:''});
   hydrateDocumentForUi(S.doc);
   markModified();
   navigate('process',{procId, taskId:id});
@@ -1294,7 +1440,9 @@ function renderProcessTab() {
     const diagHint = task && (S.ui.nodePerspective || 'user') === 'engineering'
       ? '\u5c55\u793a\u6574\u4e2a\u6d41\u7a0b\u7684\u4efb\u52a1\u7ea7\u94fe\u8def\uff0c\u70b9\u51fb\u8282\u70b9\u53ef\u76f4\u63a5\u5207\u6362\u7f16\u8f91'
       : '\u70b9\u51fb\u8282\u70b9\u8fdb\u5165\u7f16\u8f91';
-    h+=`<div class="drawer-diag${diagMode}">
+    const maxProcDiagramHeight = Math.max(160, Math.min(Math.floor(window.innerHeight * 0.72), window.innerHeight - 360));
+    const procDiagramHeight = Math.max(140, Math.min(getProcessDiagramHeight(), maxProcDiagramHeight));
+    h+=`<div class="drawer-diag${diagMode}" style="height:${procDiagramHeight}px">
       <div class="drawer-diag-bar">
         <span class="live-diagram-hint">${diagHint}</span>
         <div class="zoom-controls">
@@ -1304,7 +1452,8 @@ function renderProcessTab() {
         </div>
       </div>
       <div id="proc-diagram" class="live-diagram" style="padding:6px 12px"></div>
-    </div>`;
+    </div>
+    <div class="diagram-resize-handle" data-testid="process-diagram-resize-handle" onmousedown="startProcessDiagramResize(event)" title="上下拖动可调整流程图高度"></div>`;
 
     /* 编辑表单 */
     h+=`<div class="drawer-body">`;
@@ -1316,35 +1465,18 @@ function renderProcessTab() {
           <label>\u8282\u70b9\u540d\u79f0</label>
           <input type="text" value="${esc(task.name||'')}" placeholder="\u5982\uff1a\u5f55\u5165\u91c7\u8d2d\u5355"
             oninput="setTask('${esc(proc.id)}','${esc(task.id)}','name',this.value);renderSidebar();renderProcDiagramNow()">
+          <label class="task-returnable-inline">
+            <span class="task-returnable-label">\u53ef\u9000\u56de</span>
+            <input type="checkbox" data-testid="task-returnable-toggle" ${task.repeatable?'checked':''}
+              onchange="setTask('${esc(proc.id)}','${esc(task.id)}','repeatable',this.checked);rerenderProcessEditor({ focusSelector: '[data-testid=&quot;task-returnable-toggle&quot;]' })">
+            <span class="task-returnable-note">\u5f53\u524d\u8282\u70b9\u5141\u8bb8\u9000\u56de\u4e0a\u4e00\u8282\u70b9\u91cd\u65b0\u5904\u7406</span>
+          </label>
         </div>
         <div class="field-group">
           <label>执行角色</label>`;
 
-      const taskRoleId = getTaskRoleId(task);
-      const roles = getRoles();
-      if(roles.length) {
-        h+=`<div class="task-role-picker">
-          <select data-testid="task-role-select" onchange="onRoleChange(this,'${esc(proc.id)}','${esc(task.id)}')">
-            <option value="">请选择...</option>
-            ${roles.map((role) => `<option value="${esc(role.id)}" ${taskRoleId===role.id?'selected':''}>${esc(role.name)}</option>`).join('')}
-          </select>
-          <button class="btn btn-ghost-sm" type="button" onclick="navigate('domain')">管理角色</button>
-        </div>`;
-      } else {
-        h+=`<div class="task-role-picker-empty">
-          <span class="no-refs">暂无角色词典，请先到业务域页添加角色</span>
-          <button class="btn btn-outline btn-sm" type="button" onclick="navigate('domain')">前往角色管理</button>
-        </div>`;
-      }
+      h+=renderTaskRolePicker(proc, task);
       h+=`</div>
-        <div class="field-group" style="grid-column:1/-1">
-          <label style="display:flex;align-items:center;gap:8px">
-            可退回
-            <input type="checkbox" data-testid="task-returnable-toggle" ${task.repeatable?'checked':''}
-              onchange="setTask('${esc(proc.id)}','${esc(task.id)}','repeatable',this.checked);rerenderProcessEditor({ focusSelector: '[data-testid=&quot;task-returnable-toggle&quot;]' })">
-            <span style="font-size:11px;color:var(--text-m);font-weight:400">当前节点允许退回上一节点重新处理</span>
-          </label>
-        </div>
       </div>`;
 
       /* 步骤 */
@@ -1537,7 +1669,10 @@ function renderProcDiagramNow() {
 
 function onRoleChange(sel, procId, taskId) {
   setTaskRole(procId, taskId, sel.value);
-  renderProcDiagramNow();
+  renderSidebar();
+  rerenderProcessEditor({
+    anchorSelector: `[data-task-role-picker="${String(taskId || '').replace(/"/g, '&quot;')}"]`,
+  });
 }
 
 function isCustomStepType(type) {

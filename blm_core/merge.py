@@ -34,6 +34,7 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
     },
     "node": {
         "scalars": ["id", "name", "role_id", "role", "repeatable", "rules_note"],
+        "set_lists": ["role_ids", "roles"],
         "lists": {
             "userSteps": "user_step",
             "entity_ops": "entity_op",
@@ -667,12 +668,24 @@ def validate_document(document: dict) -> list[dict]:
 
     for process in doc.get("processes", []):
         for node in process.get("nodes", []):
-            role_id = str(node.get("role_id", "")).strip()
-            if role_id and role_id not in role_ids:
+            referenced_role_ids = []
+            seen_role_ids = set()
+            for role_id in node.get("role_ids", []):
+                normalized_role_id = str(role_id or "").strip()
+                if not normalized_role_id or normalized_role_id in seen_role_ids:
+                    continue
+                seen_role_ids.add(normalized_role_id)
+                referenced_role_ids.append(normalized_role_id)
+            legacy_role_id = str(node.get("role_id", "")).strip()
+            if legacy_role_id and legacy_role_id not in seen_role_ids:
+                referenced_role_ids.insert(0, legacy_role_id)
+            for index, role_id in enumerate(referenced_role_ids):
+                if role_id in role_ids:
+                    continue
                 issues.append(
                     {
                         "level": "error",
-                        "path": f"processes.{process['id']}.nodes.{node['id']}.role_id",
+                        "path": f"processes.{process['id']}.nodes.{node['id']}.role_ids.{index}",
                         "message": f"任务 {node['id']} 引用了不存在的角色 {role_id}",
                     }
                 )

@@ -63,7 +63,9 @@ const S = {
     procView: 'card',  // 'list' | 'card' | 'role'
     nodePerspective: 'user',
     procPrototypeExpanded: {},
+    procRolePickerCollapsed: {},
     procEditorFocusSelector: '',
+    procDiagramH: 200,
     procDrawerW: 480,
     entityDrawerW: 480,
   }
@@ -102,6 +104,10 @@ function getDrawerWidth(kind) {
     : (S.ui.entityDrawerW || getUiPrefNumber('entityDrawerW', 480));
 }
 
+function getProcessDiagramHeight() {
+  return S.ui.procDiagramH || getUiPrefNumber('procDiagramH', 200);
+}
+
 function getSidebarWidth() {
   return S.ui.sidebarW || getUiPrefNumber('sidebarW', 240);
 }
@@ -119,6 +125,12 @@ function setDrawerWidth(kind, width) {
   }
   S.ui.entityDrawerW = width;
   saveUiPrefs({ entityDrawerW: width });
+}
+
+function setProcessDiagramHeight(height) {
+  const nextHeight = Math.round(Math.max(140, Number(height) || 0));
+  S.ui.procDiagramH = nextHeight;
+  saveUiPrefs({ procDiagramH: nextHeight });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -325,6 +337,7 @@ function hydrateDocumentForUi(doc) {
       if (!Array.isArray(node.userSteps)) node.userSteps = [];
       if (!Array.isArray(node.orchestrationTasks)) node.orchestrationTasks = [];
       defineUiAlias(node, 'steps', 'userSteps');
+      syncTaskRole(node);
     });
   });
   return doc;
@@ -460,20 +473,65 @@ function getRoleName(roleOrId) {
   }
   return normalizeRoleName(getRoleById(roleOrId)?.name || roleOrId);
 }
+function getTaskRoleIds(task) {
+  if (!task || typeof task !== 'object') return [];
+
+  const resolvedIds = [];
+  const seen = new Set();
+  const pushRoleId = (roleId) => {
+    const normalizedId = normalizeRoleName(roleId);
+    if (!normalizedId || seen.has(normalizedId) || !getRoleById(normalizedId)) return;
+    seen.add(normalizedId);
+    resolvedIds.push(normalizedId);
+  };
+
+  if (Array.isArray(task.role_ids)) {
+    task.role_ids.forEach(pushRoleId);
+  } else if (task.role_ids !== undefined && task.role_ids !== null) {
+    parseRoleTokens(task.role_ids).forEach(pushRoleId);
+  }
+
+  pushRoleId(task.role_id);
+  if (resolvedIds.length) return resolvedIds;
+
+  const roleTokens = [];
+  if (Array.isArray(task.roles)) roleTokens.push(...task.roles);
+  else if (task.roles !== undefined && task.roles !== null) roleTokens.push(...parseRoleTokens(task.roles));
+  roleTokens.push(...parseRoleTokens(task.role));
+
+  roleTokens
+    .map((token) => getRoleById(token) || getRoleByName(token))
+    .filter(Boolean)
+    .forEach((role) => pushRoleId(role.id));
+
+  return resolvedIds;
+}
+function getTaskRoleNames(task) {
+  const roleIds = getTaskRoleIds(task);
+  if (roleIds.length) return roleIds.map((roleId) => getRoleName(roleId)).filter(Boolean);
+
+  const names = [];
+  if (Array.isArray(task?.roles)) names.push(...task.roles);
+  else if (task?.roles !== undefined && task?.roles !== null) names.push(...parseRoleTokens(task.roles));
+  names.push(...parseRoleTokens(task?.role));
+  return Array.from(new Set(names.map((name) => normalizeRoleName(name)).filter(Boolean)));
+}
 function getTaskRoleId(task) {
-  const roleId = normalizeRoleName(task?.role_id);
-  if (roleId && getRoleById(roleId)) return roleId;
-  const roleName = normalizeRoleName(task?.role);
-  return getRoleByName(roleName)?.id || '';
+  return getTaskRoleIds(task)[0] || '';
 }
 function getTaskRoleName(task) {
-  return getRoleName(getTaskRoleId(task)) || normalizeRoleName(task?.role);
+  return getTaskRoleNames(task).join('、');
 }
 function syncTaskRole(task) {
   if (!task) return;
-  const roleId = getTaskRoleId(task);
-  task.role_id = roleId;
-  task.role = roleId ? getRoleName(roleId) : '';
+  const roleIds = getTaskRoleIds(task);
+  const roleNames = roleIds.length
+    ? roleIds.map((roleId) => getRoleName(roleId)).filter(Boolean)
+    : getTaskRoleNames(task);
+  task.role_ids = roleIds;
+  task.roles = roleNames;
+  task.role_id = roleIds[0] || '';
+  task.role = roleNames.join('、');
 }
 function syncAllTaskRoles() {
   for (const proc of (S.doc?.processes || [])) {
@@ -613,21 +671,30 @@ function parseRoleTokens(value) {
   ));
 }
 
-function setTaskRole(procId, taskId, roleId) {
+function setTaskRoles(procId, taskId, roleIds) {
   const proc = S.doc?.processes?.find((item) => item.id === procId);
   const task = getProcNodes(proc).find((item) => item.id === taskId);
   if (!task) return;
-  const normalizedRoleId = normalizeRoleName(roleId);
-  task.role_id = normalizedRoleId;
-  task.role = normalizedRoleId ? getRoleName(normalizedRoleId) : '';
+  const nextRoleIds = Array.from(new Set(
+    (Array.isArray(roleIds) ? roleIds : [roleIds])
+      .map((roleId) => normalizeRoleName(roleId))
+      .filter((roleId) => roleId && getRoleById(roleId)),
+  ));
+  task.role_ids = nextRoleIds;
+  task.roles = nextRoleIds.map((roleId) => getRoleName(roleId)).filter(Boolean);
+  task.role_id = nextRoleIds[0] || '';
+  task.role = task.roles.join('、');
   markModified();
+}
+function setTaskRole(procId, taskId, roleId) {
+  setTaskRoles(procId, taskId, roleId ? [roleId] : []);
 }
 function getRoleUsage(roleId) {
   const normalizedRoleId = normalizeRoleName(roleId);
   const usage = [];
   for (const proc of (S.doc?.processes || [])) {
     for (const task of getProcNodes(proc)) {
-      if (getTaskRoleId(task) !== normalizedRoleId) continue;
+      if (!getTaskRoleIds(task).includes(normalizedRoleId)) continue;
       usage.push({ proc, task });
     }
   }

@@ -155,6 +155,44 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(migrated["processes"][0]["nodes"][1]["role"], "监管员")
         self.assertEqual(migrated["processes"][0]["nodes"][1]["role_id"], "R9")
 
+    def test_migrate_document_normalizes_multi_role_nodes(self):
+        document = {
+            "meta": {"title": "Multi roles"},
+            "roles": [
+                {"id": "R1", "name": "Maker"},
+                {"id": "R2", "name": "Checker"},
+            ],
+            "processes": [
+                {
+                    "id": "P1",
+                    "name": "Joint review",
+                    "subDomain": "Operations",
+                    "nodes": [
+                        {
+                            "id": "T1",
+                            "name": "Review task",
+                            "role_ids": ["R1", "R2"],
+                            "role": "Maker, Checker",
+                        }
+                    ],
+                }
+            ],
+            "entities": [],
+            "relations": [],
+            "rules": [],
+            "language": [],
+        }
+
+        migrated = migrate_document(document)
+        node = migrated["processes"][0]["nodes"][0]
+
+        self.assertEqual(node["role_ids"], ["R1", "R2"])
+        self.assertEqual(node["roles"], ["Maker", "Checker"])
+        self.assertEqual(node["role_id"], "R1")
+        self.assertEqual(node["role"], "Maker、Checker")
+        self.assertEqual(migrated["roles"][0]["subDomains"], ["Operations"])
+        self.assertEqual(migrated["roles"][1]["subDomains"], ["Operations"])
+
     def test_migrate_document_adds_state_flow_defaults_for_entities(self):
         document = {
             "meta": {"title": "状态流转"},

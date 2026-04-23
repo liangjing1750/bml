@@ -524,6 +524,49 @@ function startDiagramResize(e) {
   document.addEventListener('mouseup', onUp);
 }
 
+function startProcessDiagramResize(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const handle = e.currentTarget;
+  const drawer = handle?.closest('.proc-drawer');
+  const diagram = drawer?.querySelector('.drawer-diag');
+  if (!drawer || !diagram) return;
+
+  const head = drawer.querySelector('.drawer-head');
+  const startY = e.clientY;
+  const startH = diagram.offsetHeight;
+  const bodyMinHeight = 240;
+  handle.classList.add('dragging');
+  document.body.style.cursor = 'ns-resize';
+  document.body.style.userSelect = 'none';
+
+  function clampHeight(rawHeight) {
+    const headHeight = head?.offsetHeight || 0;
+    const handleHeight = handle.offsetHeight || 0;
+    const maxByDrawer = drawer.clientHeight - headHeight - handleHeight - bodyMinHeight;
+    const maxByViewport = Math.floor(window.innerHeight * 0.72);
+    const maxHeight = Math.max(160, Math.min(maxByDrawer, maxByViewport));
+    return Math.max(140, Math.min(maxHeight, rawHeight));
+  }
+
+  function onMove(ev) {
+    const newH = clampHeight(startH + ev.clientY - startY);
+    diagram.style.height = `${newH}px`;
+    setProcessDiagramHeight(newH);
+  }
+
+  function onUp() {
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
 function toggleDiagramExpand() {
   const wrap = document.getElementById('diagram-wrap');
   const btn  = document.getElementById('expand-diagram-btn');

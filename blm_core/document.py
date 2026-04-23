@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from uuid import uuid4
 
@@ -81,6 +82,14 @@ def _normalize_text_list(values: list[str] | None) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _parse_role_tokens(value) -> list[str]:
+    if isinstance(value, list):
+        sources = value
+    else:
+        sources = re.split(r"[，,、;；/\n]+", str(value or ""))
+    return _normalize_text_list(sources)
 
 
 def create_empty_document(name: str) -> dict:
@@ -421,23 +430,59 @@ def _normalize_processes(processes: list[dict], roles: list[dict]) -> None:
             _ensure_uid(node)
             node.setdefault("id", f"T{node_index}")
             node.setdefault("name", "")
-            node_role_name = normalize_role_name(node.get("role", ""))
-            node_role = _ensure_role(
-                roles,
-                roles_by_id,
-                roles_by_name,
-                role_id=node.get("role_id", ""),
-                role_name=node_role_name,
-            )
-            if node_role:
-                node["role_id"] = node_role["id"]
-                node["role"] = node_role["name"]
-                process_sub_domain = normalize_role_name(process.get("subDomain", ""))
+            node_roles: list[dict] = []
+            seen_role_ids: set[str] = set()
+
+            def push_node_role(role: dict | None) -> None:
+                if not role or role["id"] in seen_role_ids:
+                    return
+                seen_role_ids.add(role["id"])
+                node_roles.append(role)
+
+            raw_role_ids = []
+            if isinstance(node.get("role_ids"), list):
+                raw_role_ids.extend(node.get("role_ids", []))
+            else:
+                raw_role_ids.extend(_parse_role_tokens(node.get("role_ids", "")))
+            if node.get("role_id"):
+                raw_role_ids.append(node.get("role_id", ""))
+
+            for raw_role_id in raw_role_ids:
+                push_node_role(
+                    _ensure_role(
+                        roles,
+                        roles_by_id,
+                        roles_by_name,
+                        role_id=raw_role_id,
+                    )
+                )
+
+            raw_role_names = []
+            if isinstance(node.get("roles"), list):
+                raw_role_names.extend(node.get("roles", []))
+            else:
+                raw_role_names.extend(_parse_role_tokens(node.get("roles", "")))
+            raw_role_names.extend(_parse_role_tokens(node.get("role", "")))
+
+            for raw_role_name in raw_role_names:
+                push_node_role(
+                    _ensure_role(
+                        roles,
+                        roles_by_id,
+                        roles_by_name,
+                        role_name=raw_role_name,
+                    )
+                )
+
+            process_sub_domain = normalize_role_name(process.get("subDomain", ""))
+            for node_role in node_roles:
                 if process_sub_domain and process_sub_domain not in node_role["subDomains"]:
                     node_role["subDomains"].append(process_sub_domain)
-            else:
-                node["role_id"] = ""
-                node["role"] = node_role_name
+
+            node["role_ids"] = [role["id"] for role in node_roles]
+            node["roles"] = [role["name"] for role in node_roles]
+            node["role_id"] = node["role_ids"][0] if node["role_ids"] else ""
+            node["role"] = "、".join(node["roles"])
             node.setdefault("repeatable", False)
             legacy_steps = node.pop("steps", None)
             if "userSteps" not in node:
@@ -558,9 +603,24 @@ def renumber_document_ids(document: dict | None) -> dict:
                 node_map[old_node_id] = new_node_id
             if node.get("role_id") in role_map:
                 node["role_id"] = role_map[node["role_id"]]
-            if node.get("role_id"):
-                role = next((item for item in doc["roles"] if item["id"] == node["role_id"]), None)
-                node["role"] = role["name"] if role else node.get("role", "")
+            role_ids = []
+            seen_role_ids: set[str] = set()
+            for role_id in node.get("role_ids", []):
+                normalized_role_id = role_map.get(role_id, role_id)
+                if normalized_role_id and normalized_role_id not in seen_role_ids:
+                    seen_role_ids.add(normalized_role_id)
+                    role_ids.append(normalized_role_id)
+            if node.get("role_id") and node["role_id"] not in seen_role_ids:
+                role_ids.insert(0, node["role_id"])
+            node["role_ids"] = role_ids
+            node["roles"] = [
+                role["name"]
+                for role_id in role_ids
+                for role in doc["roles"]
+                if role["id"] == role_id
+            ]
+            node["role_id"] = role_ids[0] if role_ids else ""
+            node["role"] = "、".join(node["roles"])
 
     entity_map: dict[str, str] = {}
     for entity_index, entity in enumerate(doc["entities"], start=1):

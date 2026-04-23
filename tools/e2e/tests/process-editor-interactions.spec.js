@@ -12,6 +12,8 @@ function buildProcessEditorDoc(name) {
     },
     roles: [
       { id: 'R1', name: '用户', desc: '' },
+      { id: 'R2', name: '审核员', desc: '' },
+      { id: 'R3', name: '运营专员', desc: '' },
     ],
     language: [],
     processes: [
@@ -153,6 +155,108 @@ test('用户操作步骤支持行内插入并可上下调整顺序', async ({ pa
   await page.locator('.step-row').nth(1).locator('.step-move-down').click();
   names = await page.locator('.step-name').evaluateAll((nodes) => nodes.map((node) => node.value));
   expect(names).toEqual(['选择认证方式', '输入账号密码', '校验登录环境']);
+});
+
+test('节点角色支持多选且切换后保持编辑区位置', async ({ page, request }) => {
+  const documentName = `process-multi-role-${Date.now()}`;
+  const doc = buildProcessEditorDoc(documentName);
+  doc.processes[0].tasks[0].steps = Array.from({ length: 16 }, (_, index) => ({
+    name: `步骤${index + 1}`,
+    type: 'Query',
+    note: `说明${index + 1}`,
+  }));
+
+  await createDocument(request, documentName, doc);
+  await openTaskEditor(page, documentName);
+
+  const drawerBody = page.locator('.proc-drawer .drawer-body');
+  const picker = page.getByTestId('task-role-picker');
+  const toggle = page.getByTestId('task-role-toggle');
+  const pickerBody = page.getByTestId('task-role-picker-body');
+  const secondRoleOption = page.locator('[data-task-role-id="R2"]').first();
+
+  await expect(toggle).toContainText('已选 1 个');
+  await expect(page.getByTestId('task-role-collapsed-preview')).toBeVisible();
+  await expect(pickerBody).not.toBeVisible();
+
+  const collapsedHeight = await picker.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  await toggle.click();
+  await expect(pickerBody).toBeVisible();
+  const expandedHeight = await picker.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  expect(expandedHeight).toBeGreaterThan(collapsedHeight + 80);
+
+  await drawerBody.evaluate((node) => { node.scrollTop = 72; });
+  const beforeScrollTop = await drawerBody.evaluate((node) => node.scrollTop);
+  const beforeRoleOptionTop = await secondRoleOption.evaluate((node) => {
+    const drawerBodyNode = node.closest('.drawer-body');
+    if (!drawerBodyNode) return node.getBoundingClientRect().top;
+    return node.getBoundingClientRect().top - drawerBodyNode.getBoundingClientRect().top;
+  });
+
+  await page.getByTestId('task-role-checkbox').nth(1).check();
+  await expect(page.locator('.task-role-selected-chip')).toHaveCount(2);
+  const afterSecondRoleOptionTop = await secondRoleOption.evaluate((node) => {
+    const drawerBodyNode = node.closest('.drawer-body');
+    if (!drawerBodyNode) return node.getBoundingClientRect().top;
+    return node.getBoundingClientRect().top - drawerBodyNode.getBoundingClientRect().top;
+  });
+
+  await page.getByTestId('task-role-checkbox').nth(2).check();
+  await expect(page.locator('.task-role-selected-chip')).toHaveCount(3);
+
+  const afterScrollTop = await drawerBody.evaluate((node) => node.scrollTop);
+  await expect(picker).toContainText('已选 3 个角色');
+  expect(Math.abs(afterScrollTop - beforeScrollTop)).toBeLessThanOrEqual(24);
+  expect(Math.abs(afterSecondRoleOptionTop - beforeRoleOptionTop)).toBeLessThanOrEqual(4);
+
+  const diagramRoles = await page.locator('#proc-diagram .pf-task[data-id="T1"] .pf-role-list').evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      chips: Array.from(node.querySelectorAll('.pf-role-chip')).map((item) => item.textContent.trim()),
+      flexWrap: style.flexWrap,
+      justifyContent: style.justifyContent,
+    };
+  });
+  expect(diagramRoles.chips).toEqual(['用户', '审核员', '运营专员']);
+  expect(diagramRoles.flexWrap).toBe('wrap');
+  expect(diagramRoles.justifyContent).toBe('center');
+
+  await toggle.click();
+  await expect(pickerBody).not.toBeVisible();
+  const recollapsedHeight = await picker.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  expect(recollapsedHeight).toBeLessThan(expandedHeight - 80);
+});
+
+test('流程图区域支持拖拽增高且局部重绘后保持高度', async ({ page, request }) => {
+  const documentName = `process-diagram-resize-${Date.now()}`;
+  const doc = buildProcessEditorDoc(documentName);
+  doc.processes[0].tasks[0].steps = Array.from({ length: 10 }, (_, index) => ({
+    name: `步骤${index + 1}`,
+    type: 'Query',
+    note: `说明${index + 1}`,
+  }));
+
+  await createDocument(request, documentName, doc);
+  await openTaskEditor(page, documentName);
+
+  const diagram = page.locator('.proc-drawer .drawer-diag');
+  const handle = page.getByTestId('process-diagram-resize-handle');
+  const beforeHeight = await diagram.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+
+  const box = await handle.boundingBox();
+  if (!box) throw new Error('流程图拖拽分隔条未渲染');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 96, { steps: 8 });
+  await page.mouse.up();
+
+  const afterDragHeight = await diagram.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  expect(afterDragHeight).toBeGreaterThan(beforeHeight + 60);
+
+  await page.getByTestId('task-returnable-toggle').check();
+
+  const afterRerenderHeight = await diagram.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+  expect(Math.abs(afterRerenderHeight - afterDragHeight)).toBeLessThanOrEqual(4);
 });
 
 test('切换可退回后保持用户步骤备注框自动高度', async ({ page, request }) => {

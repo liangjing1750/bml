@@ -739,7 +739,10 @@ function createDocUiState(doc) {
     sidebarW: getUiPrefNumber('sidebarW', 240),
     procView: 'card',
     nodePerspective: 'user',
+    procPrototypeExpanded: {},
+    procRolePickerCollapsed: {},
     procEditorFocusSelector: '',
+    procDiagramH: getUiPrefNumber('procDiagramH', 200),
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     entityDrawerW: getUiPrefNumber('entityDrawerW', 480),
   };
