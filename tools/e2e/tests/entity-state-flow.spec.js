@@ -209,6 +209,150 @@ test('数据页允许一个主状态加多个子状态且不增加列', async ({
   expect(intermediateTop).toBeLessThan(terminalTop);
 });
 
+test('多状态字段切换到下方卡片时会自动滚入可视区', async ({ page, request }) => {
+  const documentName = `entity-state-reveal-${Date.now()}`;
+
+  await createDocument(request, documentName, {
+    meta: { title: documentName, domain: documentName, author: '', date: '2026-04-23' },
+    roles: [],
+    language: [],
+    processes: [],
+    entities: [
+      {
+        id: 'E1',
+        name: 'Account',
+        group: 'Test',
+        fields: [
+          { name: 'PrimaryStatus', type: 'enum', is_key: false, is_status: true, status_role: 'primary', note: 'Draft/Review/Done', state_nodes: [
+            { name: 'Draft', kind: 'initial' },
+            { name: 'Review', kind: 'intermediate' },
+            { name: 'Done', kind: 'terminal' },
+          ] },
+          { name: 'SyncStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Pending/Running/Done', state_nodes: [
+            { name: 'Pending', kind: 'initial' },
+            { name: 'Running', kind: 'intermediate' },
+            { name: 'Done', kind: 'terminal' },
+          ] },
+          { name: 'NoticeStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Queued/Sending/Sent', state_nodes: [
+            { name: 'Queued', kind: 'initial' },
+            { name: 'Sending', kind: 'intermediate' },
+            { name: 'Sent', kind: 'terminal' },
+          ] },
+          { name: 'PublishStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Ready/Publishing/Published', state_nodes: [
+            { name: 'Ready', kind: 'initial' },
+            { name: 'Publishing', kind: 'intermediate' },
+            { name: 'Published', kind: 'terminal' },
+          ] },
+          { name: 'ArchiveStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Open/Archiving/Archived', state_nodes: [
+            { name: 'Open', kind: 'initial' },
+            { name: 'Archiving', kind: 'intermediate' },
+            { name: 'Archived', kind: 'terminal' },
+          ] },
+        ],
+        state_transitions: [],
+      },
+    ],
+    relations: [],
+    rules: [],
+  });
+
+  await page.setViewportSize({ width: 1200, height: 760 });
+  await page.goto('/');
+  await openDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-switch-state').click();
+
+  await page.locator('.entity-state-main-shell').evaluate((node) => {
+    node.scrollTop = 0;
+  });
+
+  await page.getByTestId('entity-state-overview-field-4').click();
+
+  const metrics = await page.evaluate(() => {
+    const shell = document.querySelector('.entity-state-main-shell');
+    const target = Array.from(document.querySelectorAll('.entity-state-field-panel'))
+      .find((node) => node.dataset.fieldName === 'ArchiveStatus');
+    if (!shell || !target) return null;
+    const shellRect = shell.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    return {
+      scrollTop: shell.scrollTop,
+      top: targetRect.top - shellRect.top,
+      bottom: targetRect.bottom - shellRect.top,
+      clientHeight: shell.clientHeight,
+    };
+  });
+
+  expect(metrics).not.toBeNull();
+  expect(metrics.scrollTop).toBeGreaterThan(0);
+  expect(metrics.top).toBeGreaterThanOrEqual(-1);
+  expect(metrics.bottom).toBeLessThanOrEqual(metrics.clientHeight + 1);
+  await expect(page.getByTestId('entity-state-field-select')).toHaveValue('ArchiveStatus');
+});
+
+test('当前状态字段卡片已可见时重复切换不会额外滚动', async ({ page, request }) => {
+  const documentName = `entity-state-reveal-stable-${Date.now()}`;
+
+  await createDocument(request, documentName, {
+    meta: { title: documentName, domain: documentName, author: '', date: '2026-04-23' },
+    roles: [],
+    language: [],
+    processes: [],
+    entities: [
+      {
+        id: 'E1',
+        name: 'Account',
+        group: 'Test',
+        fields: [
+          { name: 'PrimaryStatus', type: 'enum', is_key: false, is_status: true, status_role: 'primary', note: 'Draft/Review/Done', state_nodes: [
+            { name: 'Draft', kind: 'initial' },
+            { name: 'Review', kind: 'intermediate' },
+            { name: 'Done', kind: 'terminal' },
+          ] },
+          { name: 'SyncStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Pending/Running/Done', state_nodes: [
+            { name: 'Pending', kind: 'initial' },
+            { name: 'Running', kind: 'intermediate' },
+            { name: 'Done', kind: 'terminal' },
+          ] },
+          { name: 'NoticeStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Queued/Sending/Sent', state_nodes: [
+            { name: 'Queued', kind: 'initial' },
+            { name: 'Sending', kind: 'intermediate' },
+            { name: 'Sent', kind: 'terminal' },
+          ] },
+          { name: 'PublishStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Ready/Publishing/Published', state_nodes: [
+            { name: 'Ready', kind: 'initial' },
+            { name: 'Publishing', kind: 'intermediate' },
+            { name: 'Published', kind: 'terminal' },
+          ] },
+          { name: 'ArchiveStatus', type: 'enum', is_key: false, is_status: true, status_role: 'secondary', note: 'Open/Archiving/Archived', state_nodes: [
+            { name: 'Open', kind: 'initial' },
+            { name: 'Archiving', kind: 'intermediate' },
+            { name: 'Archived', kind: 'terminal' },
+          ] },
+        ],
+        state_transitions: [],
+      },
+    ],
+    relations: [],
+    rules: [],
+  });
+
+  await page.setViewportSize({ width: 1200, height: 760 });
+  await page.goto('/');
+  await openDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-switch-state').click();
+
+  await page.getByTestId('entity-state-overview-field-4').click();
+  const beforeScrollTop = await page.locator('.entity-state-main-shell').evaluate((node) => node.scrollTop);
+
+  await page.getByTestId('entity-state-overview-field-4').click();
+  const afterScrollTop = await page.locator('.entity-state-main-shell').evaluate((node) => node.scrollTop);
+
+  expect(beforeScrollTop).toBeGreaterThan(0);
+  expect(Math.abs(afterScrollTop - beforeScrollTop)).toBeLessThanOrEqual(2);
+});
+
 test('数据页字段支持行内新增删除和上下移动', async ({ page }) => {
   const documentName = `entity-field-actions-${Date.now()}`;
 

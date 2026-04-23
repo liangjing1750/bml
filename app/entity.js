@@ -678,7 +678,7 @@ function setDataView(view) {
 function setStateEntity(entityId) {
   S.ui.entityId = entityId;
   S.ui.stateFieldName = getEntityStatusField(currentEntity(), '')?.name || '';
-  rerenderStateWorkbenchView();
+  rerenderStateWorkbenchView({ revealActiveField: true });
 }
 
 function setStateFieldView(entityId, fieldName) {
@@ -686,7 +686,10 @@ function setStateFieldView(entityId, fieldName) {
   if (!entity) return;
   ensureEntityStateShape(entity);
   S.ui.stateFieldName = getEntityStatusField(entity, fieldName)?.name || '';
-  rerenderStateWorkbenchView('[data-testid="entity-state-field-select"]');
+  rerenderStateWorkbenchView({
+    focusSelector: '[data-testid="entity-state-field-select"]',
+    revealActiveField: true,
+  });
 }
 
 function setEntityPrimaryStatusField(entityId, fieldIndex) {
@@ -740,11 +743,57 @@ function updateFieldStatusRole(entityId, idx, role) {
   });
 }
 
+const STATE_FIELD_REVEAL_PADDING = 18;
+
+function getActiveStateOverviewFieldPanel(fieldName = S.ui.stateFieldName) {
+  const targetFieldName = String(fieldName || '').trim();
+  const panels = Array.from(document.querySelectorAll('.entity-state-field-panel'));
+  if (!panels.length) return null;
+  return panels.find((panel) => String(panel.dataset.fieldName || '') === targetFieldName)
+    || panels.find((panel) => panel.classList.contains('active'))
+    || panels[0];
+}
+
+function revealActiveStateOverviewFieldPanel(fieldName = S.ui.stateFieldName) {
+  const overview = document.querySelector('.entity-state-main-shell');
+  const targetPanel = getActiveStateOverviewFieldPanel(fieldName);
+  if (!overview || !targetPanel) return;
+  const maxScrollTop = Math.max(0, overview.scrollHeight - overview.clientHeight);
+  if (maxScrollTop <= 0) return;
+
+  const overviewRect = overview.getBoundingClientRect();
+  const panelRect = targetPanel.getBoundingClientRect();
+  const panelTop = panelRect.top - overviewRect.top + overview.scrollTop;
+  const panelBottom = panelTop + panelRect.height;
+  const visibleTop = overview.scrollTop;
+  const visibleBottom = visibleTop + overview.clientHeight;
+  const paddedTop = visibleTop + STATE_FIELD_REVEAL_PADDING;
+  const paddedBottom = visibleBottom - STATE_FIELD_REVEAL_PADDING;
+
+  let nextScrollTop = visibleTop;
+  if (panelRect.height + STATE_FIELD_REVEAL_PADDING * 2 >= overview.clientHeight) {
+    if (panelTop < paddedTop || panelBottom > paddedBottom) {
+      nextScrollTop = panelTop - STATE_FIELD_REVEAL_PADDING;
+    }
+  } else if (panelTop < paddedTop) {
+    nextScrollTop = panelTop - STATE_FIELD_REVEAL_PADDING;
+  } else if (panelBottom > paddedBottom) {
+    nextScrollTop = panelBottom - overview.clientHeight + STATE_FIELD_REVEAL_PADDING;
+  }
+
+  nextScrollTop = Math.max(0, Math.min(maxScrollTop, nextScrollTop));
+  if (Math.abs(nextScrollTop - visibleTop) > 1) {
+    overview.scrollTop = nextScrollTop;
+  }
+}
+
 function rerenderStateWorkbenchView(focusConfig = '') {
   const options = typeof focusConfig === 'string'
     ? { focusSelector: focusConfig }
     : (focusConfig || {});
   const focusSelector = String(options.focusSelector || '');
+  const revealActiveField = Boolean(options.revealActiveField);
+  const revealFieldName = String(options.revealFieldName || S.ui.stateFieldName || '').trim();
   const activeElement = document.activeElement;
   const selection = options.selection
     || (
@@ -793,6 +842,9 @@ function rerenderStateWorkbenchView(focusConfig = '') {
           focusTarget.setSelectionRange(start, end, selection.direction || 'none');
         }
       }
+    }
+    if (revealActiveField) {
+      revealActiveStateOverviewFieldPanel(revealFieldName);
     }
   });
 }
@@ -1529,7 +1581,10 @@ function setStateTransitionRows(entityId, fieldName) {
   const entity = S.doc.entities.find((item) => item.id === entityId);
   if (!entity) return;
   S.ui.stateFieldName = getEntityStatusField(entity, fieldName)?.name || '';
-  rerenderStateWorkbenchView('[data-testid="entity-state-field-select"]');
+  rerenderStateWorkbenchView({
+    focusSelector: '[data-testid="entity-state-field-select"]',
+    revealActiveField: true,
+  });
 }
 
 function clampStateDiagramZoom(zoom) {
