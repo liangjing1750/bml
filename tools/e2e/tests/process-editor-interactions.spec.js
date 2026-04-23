@@ -157,6 +157,28 @@ test('用户操作步骤支持行内插入并可上下调整顺序', async ({ pa
   expect(names).toEqual(['选择认证方式', '输入账号密码', '校验登录环境']);
 });
 
+test('用户操作步骤类型新增点击且排在最前面', async ({ page, request }) => {
+  const documentName = `process-step-types-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openTaskEditor(page, documentName);
+
+  const options = await page.locator('.step-row').first().locator('.step-type option').evaluateAll((nodes) => {
+    return nodes.map((node) => ({
+      value: node.value,
+      label: (node.textContent || '').trim(),
+    }));
+  });
+
+  expect(options[0]).toEqual({ value: 'Click', label: '点击' });
+  expect(options.slice(0, 4)).toEqual([
+    { value: 'Click', label: '点击' },
+    { value: 'Query', label: '查询' },
+    { value: 'Check', label: '校验' },
+    { value: 'Fill', label: '填写' },
+  ]);
+});
+
 test('节点角色支持多选且切换后保持编辑区位置', async ({ page, request }) => {
   const documentName = `process-multi-role-${Date.now()}`;
   const doc = buildProcessEditorDoc(documentName);
