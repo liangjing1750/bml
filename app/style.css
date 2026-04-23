@@ -277,6 +277,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .data-state-select-inline select {
   min-width: 180px;
 }
+.data-toolbar.state-mode [data-testid="data-add-entity"],
+.data-toolbar.state-mode .data-state-select-inline {
+  display: none;
+}
+.data-state-toolbar-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.data-state-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.data-state-zoom-reset {
+  min-width: 64px;
+}
 .entity-state-workbench {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -565,6 +583,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   overflow: auto;
   padding-bottom: 4px;
 }
+.entity-state-zoom-shell {
+  position: relative;
+}
+.entity-state-zoom-target {
+  position: relative;
+}
 .entity-state-canvas {
   position: relative;
   min-width: 100%;
@@ -599,13 +623,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   white-space: nowrap;
 }
 .entity-state-link-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   fill: #475569;
   paint-order: stroke;
   stroke: rgba(255, 255, 255, 0.92);
-  stroke-width: 3px;
+  stroke-width: 4px;
   stroke-linejoin: round;
+}
+.entity-state-link-label-group {
+  pointer-events: none;
+}
+.entity-state-link-label-box {
+  fill: none;
+  stroke: none;
+}
+.entity-state-link-label-legacy {
+  display: none;
 }
 .entity-state-node.kind-initial {
   border-color: #38bdf8;

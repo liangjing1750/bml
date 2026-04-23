@@ -873,6 +873,8 @@ function createDocUiState(doc) {
     procDiagramH: getUiPrefNumber('procDiagramH', 200),
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     entityDrawerW: getUiPrefNumber('entityDrawerW', 620),
+    stateDiagramZoom: 1,
+    stateEditorCollapsed: false,
   };
 }
 

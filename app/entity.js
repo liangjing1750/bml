@@ -846,6 +846,94 @@ function getStateNodeDisplayWidth(label) {
   return Math.max(72, Math.min(172, Math.round(22 + units * 15)));
 }
 
+function getStateLinkLabelMetrics(label) {
+  const text = String(label || '').trim() || '流转';
+  let units = 0;
+  for (const ch of text) {
+    if (/[\u3400-\u9fff\uf900-\ufaff]/u.test(ch)) units += 1.1;
+    else if (/[A-Z0-9]/.test(ch)) units += 0.72;
+    else if (/[a-z]/.test(ch)) units += 0.62;
+    else units += 0.9;
+  }
+  return {
+    text,
+    width: Math.max(34, Math.min(160, Math.round(18 + units * 12))),
+    height: 20,
+  };
+}
+
+function getStateLinkLabelPlacement(points, preferredX = null, preferredY = null, metrics = null) {
+  const segments = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const horizontal = Math.abs(dy) < 0.5;
+    const vertical = Math.abs(dx) < 0.5;
+    const axis = horizontal ? 'horizontal' : (vertical ? 'vertical' : 'diagonal');
+    const length = Math.hypot(dx, dy);
+    segments.push({
+      start,
+      end,
+      axis,
+      length,
+      midX: (start.x + end.x) / 2,
+      midY: (start.y + end.y) / 2,
+    });
+  }
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const centerX = Number.isFinite(preferredX) ? preferredX : ((Math.min(...xs) + Math.max(...xs)) / 2);
+  const centerY = Number.isFinite(preferredY) ? preferredY : ((Math.min(...ys) + Math.max(...ys)) / 2);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const rankedSegments = segments
+    .filter((segment) => segment.length > 0)
+    .sort((left, right) => {
+      const axisPenalty = (segment) => {
+        if (segment.axis === 'horizontal') return 0;
+        if (segment.axis === 'vertical') return 6;
+        return 999;
+      };
+      const edgePenalty = (segment) => {
+        if (segment.axis === 'diagonal') return 999;
+        const edgeGap = Math.min(Math.abs(segment.midX - minX), Math.abs(segment.midX - maxX));
+        return edgeGap < 16 ? 70 : 0;
+      };
+      const score = (segment) => (
+        Math.abs(segment.midX - centerX) * 1.6
+        + Math.abs(segment.midY - centerY) * 0.28
+        + axisPenalty(segment)
+        + edgePenalty(segment)
+        - Math.min(segment.length, 160) * 0.18
+      );
+      return score(left) - score(right);
+    });
+  const target = rankedSegments[0] || null;
+  if (!target) {
+    const fallback = points[0] || { x: 0, y: 0 };
+    return {
+      x: fallback.x,
+      y: fallback.y,
+      axis: 'horizontal',
+      lineX: fallback.x,
+      lineY: fallback.y,
+      angle: 0,
+    };
+  }
+  return {
+    x: target.axis === 'vertical'
+      ? target.midX + ((target.midX <= centerX ? 1 : -1) * Math.max(24, Math.min(34, Math.round(((metrics?.width || 60) / 2) - 2))))
+      : target.midX,
+    y: target.midY,
+    axis: target.axis,
+    lineX: target.midX,
+    lineY: target.midY,
+    angle: 0,
+  };
+}
+
 function renderEntityStateGraphMarkup(entity, fieldName = '') {
   const stateNodes = getEntityStateNodes(entity, fieldName);
   if (!stateNodes.length) return '<div class="diag-empty">暂无状态值</div>';
@@ -920,10 +1008,15 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
       isForwardDetour,
     };
   });
-  const leftDetourEstimate = transitionMetas.filter((meta) => meta.isBackward).length;
-  const rightDetourEstimate = transitionMetas.filter((meta) => meta.isSelfLoop || meta.isForwardDetour).length;
-  const leftRouteReserve = leftDetourEstimate ? 92 + Math.max(0, leftDetourEstimate - 1) * 18 : 0;
-  const rightRouteReserve = rightDetourEstimate ? 92 + Math.max(0, rightDetourEstimate - 1) * 18 : 0;
+  const specialTransitionMetas = transitionMetas.filter(
+    (meta) => meta.isSelfLoop || meta.isBackward || meta.isForwardDetour,
+  );
+  const sideChannelEstimate = specialTransitionMetas.length
+    ? Math.max(1, Math.ceil(specialTransitionMetas.length / 2))
+    : 0;
+  const sharedRouteReserve = sideChannelEstimate ? 92 + Math.max(0, sideChannelEstimate - 1) * 18 : 0;
+  const leftRouteReserve = sharedRouteReserve;
+  const rightRouteReserve = sharedRouteReserve;
   const topMarkerSpace = startNodes.length ? markerGap + startDotR * 2 : 0;
   const bottomMarkerSpace = terminalNodes.length ? markerGap + endOuterR * 2 : 0;
   const layoutBoardW = Math.max(360, padX * 2 + Math.max(...rowWidths, 0));
@@ -960,6 +1053,14 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
     left: Array.from({ length: rowGroups.length }, () => 0),
     right: Array.from({ length: rowGroups.length }, () => 0),
   };
+  const sideEndpointUsage = {
+    left: Array.from({ length: rowGroups.length }, () => 0),
+    right: Array.from({ length: rowGroups.length }, () => 0),
+  };
+  const sideAnchorUsage = {
+    left: Object.create(null),
+    right: Object.create(null),
+  };
   const getRowSpan = (fromRow, toRow) => {
     const safeFrom = Number.isFinite(fromRow) ? fromRow : 0;
     const safeTo = Number.isFinite(toRow) ? toRow : safeFrom;
@@ -972,8 +1073,20 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
       ? maxNodeRight + 28 + channelIndex * 18
       : minNodeLeft - 28 - channelIndex * 18
   );
-  transitionMetas
-    .filter((meta) => meta.isSelfLoop || meta.isBackward || meta.isForwardDetour)
+  const getTransitionPriority = (meta) => {
+    if (meta.isBackward) return 0;
+    if (meta.isForwardDetour) return 1;
+    return 2;
+  };
+  specialTransitionMetas
+    .slice()
+    .sort((left, right) => {
+      const spanDiff = getRowSpan(right.fromRow, right.toRow).length - getRowSpan(left.fromRow, left.toRow).length;
+      if (spanDiff) return spanDiff;
+      const priorityDiff = getTransitionPriority(left) - getTransitionPriority(right);
+      if (priorityDiff) return priorityDiff;
+      return left.index - right.index;
+    })
     .forEach((meta) => {
       const fromPos = posMap[meta.transition.from];
       const toPos = posMap[meta.transition.to];
@@ -987,20 +1100,32 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
           const sourceHookX = side === 'right' ? fromPos.x + fromPos.w : fromPos.x;
           const targetHookX = side === 'right' ? toPos.x + toPos.w : toPos.x;
           const distanceScore = Math.abs(sourceHookX - routeX) + Math.abs(targetHookX - routeX) + Math.abs(fromPos.cy - toPos.cy);
-          const crowdScore = spanRows.reduce((sum, row) => sum + (sideUsage[side][row] || 0), 0) * (meta.isBackward ? 90 : 48);
-          const preferencePenalty = preferredSides.indexOf(side) * (meta.isBackward ? 120 : 18);
+          const crowdScore = spanRows.reduce((sum, row) => sum + (sideUsage[side][row] || 0), 0) * (meta.isBackward ? 104 : 64);
+          const endpointRows = Array.from(new Set([meta.fromRow, meta.toRow].filter((row) => Number.isFinite(row))));
+          const endpointScore = endpointRows.reduce((sum, row) => sum + (sideEndpointUsage[side][row] || 0), 0) * 108;
+          const sourceAnchorKey = `${meta.transition.from || ''}:${meta.fromRow}`;
+          const targetAnchorKey = `${meta.transition.to || ''}:${meta.toRow}`;
+          const anchorScore = ((sideAnchorUsage[side][sourceAnchorKey] || 0) + (sideAnchorUsage[side][targetAnchorKey] || 0)) * 88;
+          const preferencePenalty = preferredSides.indexOf(side) * (meta.isBackward ? 36 : 14);
           return {
             side,
             channelIndex,
             routeX,
             spanRows,
-            score: distanceScore + crowdScore + preferencePenalty,
+            score: distanceScore + crowdScore + endpointScore + anchorScore + preferencePenalty,
           };
         })
         .sort((left, right) => left.score - right.score)[0];
       bestRoute.spanRows.forEach((row) => {
         sideUsage[bestRoute.side][row] = Math.max(sideUsage[bestRoute.side][row] || 0, bestRoute.channelIndex + 1);
       });
+      Array.from(new Set([meta.fromRow, meta.toRow].filter((row) => Number.isFinite(row)))).forEach((row) => {
+        sideEndpointUsage[bestRoute.side][row] = (sideEndpointUsage[bestRoute.side][row] || 0) + 1;
+      });
+      const sourceAnchorKey = `${meta.transition.from || ''}:${meta.fromRow}`;
+      const targetAnchorKey = `${meta.transition.to || ''}:${meta.toRow}`;
+      sideAnchorUsage[bestRoute.side][sourceAnchorKey] = (sideAnchorUsage[bestRoute.side][sourceAnchorKey] || 0) + 1;
+      sideAnchorUsage[bestRoute.side][targetAnchorKey] = (sideAnchorUsage[bestRoute.side][targetAnchorKey] || 0) + 1;
       detourRouteByIndex.set(meta.index, bestRoute);
     });
   const markerMarkup = `<marker id="entity-state-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto">
@@ -1020,12 +1145,10 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
     const channelIndex = channelCount[channelKey] || 0;
     channelCount[channelKey] = channelIndex + 1;
     let pathD = '';
-    let labelX = (fromPos.cx + toPos.cx) / 2;
-    let labelY = (fromPos.cy + toPos.cy) / 2 - 10;
-    let labelAnchor = 'middle';
     const stroke = '#64748b';
     let linkKind = 'forward';
     const detourRoute = detourRouteByIndex.get(index) || null;
+    let pathPoints = [];
 
     if (isSelfLoop) {
       const routeSide = detourRoute?.side || 'right';
@@ -1034,54 +1157,84 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
       const startX = routeSide === 'right' ? fromPos.x + fromPos.w : fromPos.x;
       const exitY = fromPos.cy - 7 - routeChannelIndex * 3;
       const enterY = fromPos.cy + 7 + routeChannelIndex * 3;
+      pathPoints = [
+        { x: startX, y: exitY },
+        { x: routeX, y: exitY },
+        { x: routeX, y: enterY },
+        { x: startX, y: enterY },
+      ];
       pathD = `M ${startX} ${exitY} L ${routeX} ${exitY} L ${routeX} ${enterY} L ${startX} ${enterY}`;
-      labelX = routeSide === 'right' ? routeX + 12 : routeX - 12;
-      labelY = fromPos.cy + 4;
-      labelAnchor = routeSide === 'right' ? 'start' : 'end';
       linkKind = 'self';
     } else if (toPos.row === fromPos.row && toPos.cx >= fromPos.cx) {
       const startX = fromPos.x + fromPos.w;
       const endX = toPos.x;
       const y = fromPos.cy + channelIndex * 10;
+      pathPoints = [
+        { x: startX, y },
+        { x: endX, y },
+      ];
       pathD = `M ${startX} ${y} L ${endX} ${y}`;
-      labelX = (startX + endX) / 2;
-      labelY = y - 8;
     } else if (!isBackward && !isForwardDetour) {
       const startX = fromPos.cx;
       const startY = fromPos.y + fromPos.h;
       const endX = toPos.cx;
       const endY = toPos.y;
       const midY = startY + Math.max(18, (endY - startY) / 2) + channelIndex * 10;
+      pathPoints = [
+        { x: startX, y: startY },
+        { x: startX, y: midY },
+        { x: endX, y: midY },
+        { x: endX, y: endY },
+      ];
       pathD = `M ${startX} ${startY} L ${startX} ${midY} L ${endX} ${midY} L ${endX} ${endY}`;
-      labelX = startX === endX ? startX + 52 : (startX + endX) / 2;
-      labelY = midY - 8;
     } else if (isForwardDetour) {
       const routeSide = detourRoute?.side || 'right';
       const routeX = detourRoute?.routeX || getSideRouteX(routeSide, 0);
       const sourceX = routeSide === 'right' ? fromPos.x + fromPos.w : fromPos.x;
       const targetX = routeSide === 'right' ? toPos.x + toPos.w : toPos.x;
+      pathPoints = [
+        { x: sourceX, y: fromPos.cy },
+        { x: routeX, y: fromPos.cy },
+        { x: routeX, y: toPos.cy },
+        { x: targetX, y: toPos.cy },
+      ];
       pathD = `M ${sourceX} ${fromPos.cy} L ${routeX} ${fromPos.cy} L ${routeX} ${toPos.cy} L ${targetX} ${toPos.cy}`;
-      labelX = routeSide === 'right' ? routeX + 12 : routeX - 12;
-      labelY = (fromPos.cy + toPos.cy) / 2;
-      labelAnchor = routeSide === 'right' ? 'start' : 'end';
       linkKind = 'forward-detour';
     } else {
       const routeSide = detourRoute?.side || 'left';
       const routeX = detourRoute?.routeX || getSideRouteX(routeSide, 0);
       const sourceX = routeSide === 'right' ? fromPos.x + fromPos.w : fromPos.x;
       const targetX = routeSide === 'right' ? toPos.x + toPos.w : toPos.x;
+      pathPoints = [
+        { x: sourceX, y: fromPos.cy },
+        { x: routeX, y: fromPos.cy },
+        { x: routeX, y: toPos.cy },
+        { x: targetX, y: toPos.cy },
+      ];
       pathD = `M ${sourceX} ${fromPos.cy} L ${routeX} ${fromPos.cy} L ${routeX} ${toPos.cy} L ${targetX} ${toPos.cy}`;
-      labelX = routeSide === 'right' ? routeX + 12 : routeX - 12;
-      labelY = (fromPos.cy + toPos.cy) / 2;
-      labelAnchor = routeSide === 'right' ? 'start' : 'end';
       linkKind = 'backward';
     }
+    const labelMetrics = getStateLinkLabelMetrics(transition.action || '流转');
+    const labelPlacement = getStateLinkLabelPlacement(
+      pathPoints,
+      (fromPos.cx + toPos.cx) / 2,
+      (fromPos.cy + toPos.cy) / 2,
+      labelMetrics,
+    );
+    const labelBoxX = Math.round((labelPlacement.x - labelMetrics.width / 2) * 10) / 10;
+    const labelBoxY = Math.round((labelPlacement.y - labelMetrics.height / 2) * 10) / 10;
+    const labelTextX = Math.round(labelPlacement.x * 10) / 10;
+    const labelTextY = Math.round(labelPlacement.y * 10) / 10;
 
     return `
       <path class="entity-state-link entity-state-link-${linkKind}" data-testid="entity-state-graph-link" data-link-kind="${linkKind}" data-link-side="${esc(detourRoute?.side || '')}" data-link-action="${esc(transition.action || '')}"
         d="${pathD}" fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
         marker-end="url(#entity-state-arrow)"></path>
-      <text x="${labelX}" y="${labelY}" text-anchor="${labelAnchor}" class="entity-state-link-label">${esc(transition.action || '流转')}</text>
+      <g class="entity-state-link-label-group" data-testid="entity-state-link-label-group" data-link-action="${esc(transition.action || '')}" data-label-axis="${labelPlacement.axis}" data-label-line-x="${labelPlacement.lineX}" data-label-line-y="${labelPlacement.lineY}" data-label-angle="${labelPlacement.angle || 0}" transform="rotate(${labelPlacement.angle || 0} ${labelTextX} ${labelTextY})">
+        <rect class="entity-state-link-label-box" x="${labelBoxX}" y="${labelBoxY}" width="${labelMetrics.width}" height="${labelMetrics.height}" rx="10" ry="10"></rect>
+        <text x="${labelTextX}" y="${labelTextY}" text-anchor="middle" dominant-baseline="middle" class="entity-state-link-label">${esc(labelMetrics.text)}</text>
+      </g>
+      <text x="-9999" y="-9999" text-anchor="middle" class="entity-state-link-label entity-state-link-label-legacy">${esc(transition.action || '流转')}</text>
     `;
   }).join('');
   const startEndMarkup = stateNodes.map((item) => {
@@ -1110,22 +1263,30 @@ function renderEntityStateGraphMarkup(entity, fieldName = '') {
     return '';
   }).join('');
 
+  const zoom = getStateDiagramZoom();
+  const zoomedW = Math.max(180, Math.round(boardW * zoom * 10) / 10);
+  const zoomedH = Math.max(160, Math.round(boardH * zoom * 10) / 10);
+
   return `<div class="entity-state-graph" data-testid="entity-state-graph-canvas">
-    <div class="entity-state-canvas" style="width:${boardW}px;height:${boardH}px">
-      <svg class="entity-state-svg" width="${boardW}" height="${boardH}" viewBox="0 0 ${boardW} ${boardH}" aria-hidden="true">
-        <defs>${markerMarkup}</defs>
-        ${startEndMarkup}
-        ${linesMarkup}
-      </svg>
-      <div class="entity-state-board" style="width:${boardW}px;height:${boardH}px">
-        ${stateNodes.map((item, index) => {
-          const pos = posMap[item.name];
-          return `<div class="entity-state-node kind-${item.kind}"
-            data-testid="entity-state-node-${index}" data-state-name="${esc(item.name)}" data-state-kind="${esc(item.kind)}"
-            style="left:${pos.x}px;top:${pos.y}px;width:${pos.w}px;height:${pos.h}px">
-            <span class="entity-state-node-label">${esc(item.name)}</span>
-          </div>`;
-        }).join('')}
+    <div class="entity-state-zoom-shell" data-testid="entity-state-zoom-shell" data-state-zoom="${zoom}" style="width:${zoomedW}px;height:${zoomedH}px">
+      <div class="entity-state-zoom-target" data-testid="entity-state-zoom-target" style="width:${boardW}px;height:${boardH}px;transform:scale(${zoom});transform-origin:0 0;">
+        <div class="entity-state-canvas" style="width:${boardW}px;height:${boardH}px">
+          <svg class="entity-state-svg" width="${boardW}" height="${boardH}" viewBox="0 0 ${boardW} ${boardH}" aria-hidden="true">
+            <defs>${markerMarkup}</defs>
+            ${startEndMarkup}
+            ${linesMarkup}
+          </svg>
+          <div class="entity-state-board" style="width:${boardW}px;height:${boardH}px">
+            ${stateNodes.map((item, index) => {
+              const pos = posMap[item.name];
+              return `<div class="entity-state-node kind-${item.kind}"
+                data-testid="entity-state-node-${index}" data-state-name="${esc(item.name)}" data-state-kind="${esc(item.kind)}"
+                style="left:${pos.x}px;top:${pos.y}px;width:${pos.w}px;height:${pos.h}px">
+                <span class="entity-state-node-label">${esc(item.name)}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
       </div>
     </div>
     ${transitions.length ? '' : '<p class="no-refs">暂无状态流转，先添加一条边。</p>'}
@@ -1371,6 +1532,50 @@ function setStateTransitionRows(entityId, fieldName) {
   rerenderStateWorkbenchView('[data-testid="entity-state-field-select"]');
 }
 
+function clampStateDiagramZoom(zoom) {
+  return Math.max(0.6, Math.min(1.8, Math.round(Number(zoom || 1) * 100) / 100));
+}
+
+function getStateDiagramZoom() {
+  return clampStateDiagramZoom(S.ui.stateDiagramZoom || 1);
+}
+
+function setStateDiagramZoom(nextZoom) {
+  const normalized = clampStateDiagramZoom(nextZoom);
+  if (normalized === getStateDiagramZoom()) return;
+  S.ui.stateDiagramZoom = normalized;
+  rerenderStateWorkbenchView();
+}
+
+function nudgeStateDiagramZoom(delta) {
+  setStateDiagramZoom(getStateDiagramZoom() + delta);
+}
+
+function resetStateDiagramZoom() {
+  setStateDiagramZoom(1);
+}
+
+function setStateEditorCollapsed(collapsed) {
+  const nextValue = Boolean(collapsed);
+  if (Boolean(S.ui.stateEditorCollapsed) === nextValue) return;
+  S.ui.stateEditorCollapsed = nextValue;
+  rerenderStateWorkbenchView();
+}
+
+function toggleStateEditorDrawer(forceOpen = null) {
+  if (typeof forceOpen === 'boolean') {
+    setStateEditorCollapsed(!forceOpen);
+    return;
+  }
+  setStateEditorCollapsed(!S.ui.stateEditorCollapsed);
+}
+
+function handleStateDiagramWheel(event) {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  nudgeStateDiagramZoom(event.deltaY < 0 ? 0.1 : -0.1);
+}
+
 function renderStateEntityBrowser(groupedEntities, activeEntity) {
   if (!groupedEntities.length) {
     return '<div class="diag-empty" data-testid="entity-state-empty">暂无实体，先新建实体。</div>';
@@ -1603,6 +1808,9 @@ function renderStateEditorDrawer(entity, statusFields, stateField, stateValueTex
         <span class="dc-sep">/</span>
         <span>${esc(fieldLabel)}</span>
       </div>
+      <div class="drawer-actions">
+        <button class="drawer-close" type="button" data-testid="state-editor-close" onclick="toggleStateEditorDrawer(false)" title="关闭编辑">✕</button>
+      </div>
     </div>
     <div class="drawer-body">
       ${renderStateEditorPanel(entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows)}
@@ -1611,17 +1819,18 @@ function renderStateEditorDrawer(entity, statusFields, stateField, stateValueTex
 }
 
 function renderStateWorkbench(groupedEntities, entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows, drawerW) {
+  const showEditor = !S.ui.stateEditorCollapsed;
   return `<div class="entity-state-workbench">
     <div class="entity-state-browser">
       ${renderStateEntityBrowser(groupedEntities, entity)}
     </div>
     <div class="entity-state-stage">
-      <div class="entity-state-main-shell" style="margin-right:${drawerW}px">
+      <div class="entity-state-main-shell" style="margin-right:${showEditor ? drawerW : 0}px" onwheel="handleStateDiagramWheel(event)">
         <div class="entity-state-main">
           ${renderStateDiagramCard(entity, statusFields, stateField)}
         </div>
       </div>
-      ${renderStateEditorDrawer(entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows, drawerW)}
+      ${showEditor ? renderStateEditorDrawer(entity, statusFields, stateField, stateValueText, stateValues, stateTransitionRows, drawerW) : ''}
     </div>
   </div>`;
 }
@@ -1826,10 +2035,24 @@ function renderDataTab() {
   const showEntityDrawer = dataView === 'relation';
   const relationEditorOffset = dataView === 'relation' && entity ? drawerW : 0;
   const stateEditorDrawerW = Math.max(getDrawerWidth('entity'), 620);
+  const stateZoomLabel = `${Math.round(getStateDiagramZoom() * 100)}%`;
+  const stateEditorCollapsed = Boolean(S.ui.stateEditorCollapsed);
+  const stateToolbarActions = dataView === 'state'
+    ? `<div class="data-state-toolbar-actions">
+        <div class="data-state-zoom-controls" aria-label="状态图缩放">
+          <button class="btn btn-ghost-sm" type="button" data-testid="state-zoom-out" onclick="nudgeStateDiagramZoom(-0.1)" title="缩小">－</button>
+          <button class="btn btn-ghost-sm data-state-zoom-reset" type="button" data-testid="state-zoom-reset" onclick="resetStateDiagramZoom()" title="重置缩放">${stateZoomLabel}</button>
+          <button class="btn btn-ghost-sm" type="button" data-testid="state-zoom-in" onclick="nudgeStateDiagramZoom(0.1)" title="放大">＋</button>
+        </div>
+        ${stateEditorCollapsed
+          ? '<button class="btn btn-outline btn-sm" type="button" data-testid="state-editor-open" onclick="toggleStateEditorDrawer(true)">打开编辑</button>'
+          : '<button class="btn btn-ghost-sm" type="button" data-testid="state-editor-hide" onclick="toggleStateEditorDrawer(false)">关闭编辑</button>'}
+      </div>`
+    : '';
 
   let h='';
   h+=`<div class="live-diagram-wrap entity-diag-full ${relationEditorOffset ? 'entity-drawer-shift' : ''}" id="diagram-wrap" style="${relationEditorOffset ? `margin-right:${relationEditorOffset}px` : ''}">
-    <div class="live-diagram-toolbar data-toolbar">
+    <div class="live-diagram-toolbar data-toolbar ${dataView==='state' ? 'state-mode' : ''}">
       <div class="data-view-switch" role="tablist" aria-label="数据视图切换">
         <button class="seg-btn ${dataView==='relation'?'active':''}" data-testid="data-switch-relation" onclick="setDataView('relation')">关系图</button>
         <button class="seg-btn ${dataView==='state'?'active':''}" data-testid="data-switch-state" onclick="setDataView('state')">状态图</button>
@@ -1844,6 +2067,7 @@ function renderDataTab() {
             </select>
           </label>`
       }
+      ${stateToolbarActions}
     </div>
     ${dataView === 'relation'
       ? `<div id="entity-diagram" class="live-diagram" style="flex:1;overflow:auto"></div>`

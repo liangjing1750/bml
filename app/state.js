@@ -68,6 +68,8 @@ const S = {
     procDiagramH: 200,
     procDrawerW: 480,
     entityDrawerW: 620,
+    stateDiagramZoom: 1,
+    stateEditorCollapsed: false,
   }
 };
 
