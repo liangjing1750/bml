@@ -67,7 +67,7 @@ const S = {
     procEditorFocusSelector: '',
     procDiagramH: 200,
     procDrawerW: 480,
-    entityDrawerW: 480,
+    entityDrawerW: 620,
   }
 };
 
@@ -101,7 +101,7 @@ function getUiPrefNumber(key, fallback) {
 function getDrawerWidth(kind) {
   return kind === 'process'
     ? (S.ui.procDrawerW || getUiPrefNumber('procDrawerW', 480))
-    : (S.ui.entityDrawerW || getUiPrefNumber('entityDrawerW', 480));
+    : (S.ui.entityDrawerW || getUiPrefNumber('entityDrawerW', 620));
 }
 
 function getProcessDiagramHeight() {
@@ -409,6 +409,60 @@ function getFieldRuleText(field) {
 function getFieldStateValues(field) {
   return normalizeSlashList(getFieldStateValueText(field));
 }
+function normalizeStateNodeKind(kind) {
+  const raw = String(kind || '').trim().toLowerCase();
+  if (raw === 'initial' || raw === 'start' || raw === 'entry') return 'initial';
+  if (raw === 'terminal' || raw === 'end' || raw === 'finish' || raw === 'final') return 'terminal';
+  return 'intermediate';
+}
+function getStateNodeKindLabel(kind) {
+  const normalized = normalizeStateNodeKind(kind);
+  if (normalized === 'initial') return '初始状态';
+  if (normalized === 'terminal') return '结束状态';
+  return '中间状态';
+}
+function inferDefaultStateNodeKind(index, total) {
+  if (total <= 1) return 'intermediate';
+  if (index === 0) return 'initial';
+  if (index === total - 1) return 'terminal';
+  return 'intermediate';
+}
+function syncFieldStateNodes(field) {
+  if (!field || typeof field !== 'object') return [];
+  const states = getFieldStateValues(field);
+  const rawNodes = Array.isArray(field.state_nodes) ? field.state_nodes : [];
+  const existingKinds = new Map(
+    rawNodes
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => [String(item.name || '').trim(), normalizeStateNodeKind(item.kind)]),
+  );
+  field.state_nodes = states.map((state, index) => ({
+    name: state,
+    kind: existingKinds.get(state) || inferDefaultStateNodeKind(index, states.length),
+  }));
+  return field.state_nodes;
+}
+function getFieldStateNodes(field) {
+  const states = getFieldStateValues(field);
+  const rawNodes = Array.isArray(field?.state_nodes) ? field.state_nodes : [];
+  const existingKinds = new Map(
+    rawNodes
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => [String(item.name || '').trim(), normalizeStateNodeKind(item.kind)]),
+  );
+  return states.map((state, index) => ({
+    name: state,
+    kind: existingKinds.get(state) || inferDefaultStateNodeKind(index, states.length),
+  }));
+}
+function getEntityStateNodes(entity, preferredFieldName = '') {
+  return getFieldStateNodes(getEntityStatusField(entity, preferredFieldName));
+}
+function getFieldStateNodeSummary(field) {
+  return getFieldStateNodes(field)
+    .map((item) => `${item.name}=${getStateNodeKindLabel(item.kind)}`)
+    .join('；');
+}
 function getEntityStatusFields(entity) {
   return (entity?.fields || [])
     .filter(isStatusField)
@@ -449,6 +503,7 @@ function ensureEntityStateShape(entity) {
   let primaryAssigned = false;
   entity.fields.forEach((field) => {
     const role = syncFieldStatusRole(field);
+    syncFieldStateNodes(field);
     if (role === 'primary') {
       if (primaryAssigned) {
         syncFieldStatusRole(field, 'secondary');
@@ -468,10 +523,16 @@ function ensureEntityStateShape(entity) {
 }
 function createStateTransitionDraft(entity, preferredFieldName = '') {
   const field = getEntityStatusField(entity, preferredFieldName);
-  const values = getFieldStateValues(field);
+  const stateNodes = getFieldStateNodes(field);
+  const values = stateNodes.map((item) => item.name);
+  const initialState = stateNodes.find((item) => item.kind === 'initial')?.name || values[0] || '';
+  const nextState = stateNodes.find((item) => item.name !== initialState && item.kind !== 'initial')?.name
+    || values.find((item) => item !== initialState)
+    || initialState
+    || '';
   return {
-    from: values[0] || '',
-    to: values[1] || values[0] || '',
+    from: initialState,
+    to: nextState,
     action: '',
     note: '',
     field_name: field?.name || '',

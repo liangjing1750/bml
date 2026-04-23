@@ -31,7 +31,126 @@ function createLocalDocument(name) {
   };
 }
 
+function getFirstRoleId(doc) {
+  return Array.isArray(doc?.roles) && doc.roles.length && typeof doc.roles[0] === 'object'
+    ? doc.roles[0].id
+    : null;
+}
+
+function isStatusFieldCandidate(field) {
+  const statusRole = String(field?.status_role || '');
+  return statusRole === 'primary' || statusRole === 'secondary' || Boolean(field?.is_status || field?.isStatus);
+}
+
+function captureUiViewportState() {
+  const scrollRoot = document.scrollingElement || document.documentElement;
+  const selectors = [
+    '.live-diagram',
+    '.proc-drawer .drawer-body',
+    '.entity-drawer .drawer-body',
+    '.entity-state-browser',
+    '.entity-state-main-shell',
+    '.state-editor-drawer .drawer-body',
+  ];
+  return {
+    pageTop: scrollRoot?.scrollTop || 0,
+    pageLeft: scrollRoot?.scrollLeft || 0,
+    elementScrolls: selectors.map((selector) => {
+      const node = document.querySelector(selector);
+      return node
+        ? { selector, top: node.scrollTop || 0, left: node.scrollLeft || 0 }
+        : null;
+    }).filter(Boolean),
+  };
+}
+
+function restoreUiViewportState(snapshot) {
+  if (!snapshot) return;
+  requestAnimationFrame(() => {
+    const scrollRoot = document.scrollingElement || document.documentElement;
+    if (scrollRoot) {
+      scrollRoot.scrollTop = snapshot.pageTop || 0;
+      scrollRoot.scrollLeft = snapshot.pageLeft || 0;
+    }
+    (snapshot.elementScrolls || []).forEach(({ selector, top, left }) => {
+      const node = document.querySelector(selector);
+      if (!node) return;
+      node.scrollTop = top || 0;
+      node.scrollLeft = left || 0;
+    });
+  });
+}
+
+function getPreservedDocUiState(doc, sourceUi = {}) {
+  const base = createDocUiState(doc);
+  const next = {
+    ...base,
+    ...sourceUi,
+    sbCollapse: sourceUi && typeof sourceUi.sbCollapse === 'object'
+      ? { ...sourceUi.sbCollapse }
+      : { ...base.sbCollapse },
+    procPrototypeExpanded: sourceUi && typeof sourceUi.procPrototypeExpanded === 'object'
+      ? { ...sourceUi.procPrototypeExpanded }
+      : { ...base.procPrototypeExpanded },
+    procRolePickerCollapsed: sourceUi && typeof sourceUi.procRolePickerCollapsed === 'object'
+      ? { ...sourceUi.procRolePickerCollapsed }
+      : { ...base.procRolePickerCollapsed },
+  };
+
+  const validTabs = new Set(['domain', 'process', 'data', 'rules', 'preview', 'manual']);
+  if (!validTabs.has(String(next.tab || ''))) next.tab = base.tab;
+
+  const validProcViews = new Set(['list', 'card', 'role']);
+  if (!validProcViews.has(String(next.procView || ''))) next.procView = base.procView;
+
+  const validNodePerspectives = new Set(['user', 'task']);
+  if (!validNodePerspectives.has(String(next.nodePerspective || ''))) next.nodePerspective = base.nodePerspective;
+
+  const validDataViews = new Set(['relation', 'state']);
+  if (!validDataViews.has(String(next.dataView || ''))) next.dataView = base.dataView;
+
+  next.sidebarCollapsed = Boolean(next.sidebarCollapsed);
+  next.sidebarW = Math.max(200, Number(next.sidebarW) || base.sidebarW);
+  next.procDiagramH = Math.max(140, Number(next.procDiagramH) || base.procDiagramH);
+  next.procDrawerW = Math.max(360, Number(next.procDrawerW) || base.procDrawerW);
+  next.entityDrawerW = Math.max(620, Number(next.entityDrawerW) || base.entityDrawerW);
+  next.roleQuery = String(next.roleQuery || '');
+  next.procEditorFocusSelector = String(next.procEditorFocusSelector || '');
+
+  const processes = Array.isArray(doc?.processes) ? doc.processes : [];
+  if (!processes.some((proc) => proc?.id === next.procId)) {
+    next.procId = base.procId;
+  }
+  const activeProc = processes.find((proc) => proc?.id === next.procId) || null;
+  const procNodes = Array.isArray(activeProc?.nodes) ? activeProc.nodes : [];
+  if (!procNodes.some((node) => node?.id === next.taskId)) {
+    next.taskId = null;
+  }
+
+  const entities = Array.isArray(doc?.entities) ? doc.entities : [];
+  if (!entities.some((entity) => entity?.id === next.entityId)) {
+    next.entityId = entities[0]?.id || null;
+  }
+  const activeEntity = entities.find((entity) => entity?.id === next.entityId) || null;
+  const statusFieldNames = (Array.isArray(activeEntity?.fields) ? activeEntity.fields : [])
+    .filter((field) => isStatusFieldCandidate(field))
+    .map((field) => String(field?.name || ''))
+    .filter(Boolean);
+  if (!statusFieldNames.includes(String(next.stateFieldName || ''))) {
+    next.stateFieldName = statusFieldNames[0] || '';
+  }
+
+  const roles = Array.isArray(doc?.roles) ? doc.roles : [];
+  if (!roles.some((role) => role && typeof role === 'object' && role.id === next.roleId)) {
+    next.roleId = getFirstRoleId(doc);
+  }
+
+  return next;
+}
+
 function setActiveDocumentSession(doc, options = {}) {
+  const previousUi = options.preserveUiState ? S.ui : null;
+  const previousViewport = options.preserveUiState ? captureUiViewportState() : null;
   hydrateDocumentForUi(doc);
   if (doc.meta && !doc.meta.domain) {
     doc.meta.domain = options.domain || options.fileName || '';
@@ -39,8 +158,13 @@ function setActiveDocumentSession(doc, options = {}) {
   S.doc = doc;
   S.currentFile = options.fileName || null;
   S.modified = false;
-  S.ui = createDocUiState(doc);
+  S.ui = options.preserveUiState
+    ? getPreservedDocUiState(doc, previousUi)
+    : createDocUiState(doc);
   render();
+  if (options.preserveUiState) {
+    restoreUiViewportState(previousViewport);
+  }
 }
 
 function closeModalById(id) {
@@ -556,7 +680,10 @@ const App = {
     S.doc.meta.title = targetName;
     const saveResult = await saveWorkspaceDocument(targetName, S.doc, { currentName: S.currentFile });
     if (!saveResult) return;
-    setActiveDocumentSession(saveResult.document || S.doc, { fileName: saveResult.name || targetName });
+    setActiveDocumentSession(saveResult.document || S.doc, {
+      fileName: saveResult.name || targetName,
+      preserveUiState: true,
+    });
   },
 
   async confirmSaveAs() {
@@ -575,7 +702,10 @@ const App = {
     if (!saveResult) return;
 
     App.closeSaveAsModal();
-    setActiveDocumentSession(saveResult.document || nextDocument, { fileName: saveResult.name || name });
+    setActiveDocumentSession(saveResult.document || nextDocument, {
+      fileName: saveResult.name || name,
+      preserveUiState: true,
+    });
   },
 
   async cmdExport() {
@@ -722,9 +852,7 @@ const App = {
 };
 
 function createDocUiState(doc) {
-  const firstRoleId = Array.isArray(doc.roles) && doc.roles.length && typeof doc.roles[0] === 'object'
-    ? doc.roles[0].id
-    : null;
+  const firstRoleId = getFirstRoleId(doc);
   return {
     tab: 'domain',
     procId: doc.processes?.[0]?.id || null,
@@ -744,7 +872,7 @@ function createDocUiState(doc) {
     procEditorFocusSelector: '',
     procDiagramH: getUiPrefNumber('procDiagramH', 200),
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
-    entityDrawerW: getUiPrefNumber('entityDrawerW', 480),
+    entityDrawerW: getUiPrefNumber('entityDrawerW', 620),
   };
 }
 

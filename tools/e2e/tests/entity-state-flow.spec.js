@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 
 const { createDocument, createNewDocument, openDocument } = require('./support/app-helpers');
 
-test('数据页支持编辑实体主状态字段并生成状态图', async ({ page }) => {
+test('数据页支持编辑实体状态字段并实时渲染状态图', async ({ page }) => {
   const documentName = `entity-state-${Date.now()}`;
 
   await createNewDocument(page, documentName);
@@ -15,26 +15,90 @@ test('数据页支持编辑实体主状态字段并生成状态图', async ({ pa
   await page.getByTestId('entity-field-type-0').selectOption('enum');
   await page.getByTestId('entity-status-role-0').selectOption('primary');
   await page.locator('.field-td-note textarea').first().fill('草稿/待审核/审核通过/已作废');
+
   await page.getByTestId('data-switch-state').click();
+  await expect(page.getByTestId('state-editor-drawer')).toBeVisible();
+  const toolbarLabelWhiteSpace = await page.locator('.data-state-select-label').evaluate((node) => getComputedStyle(node).whiteSpace);
+  expect(toolbarLabelWhiteSpace).toBe('nowrap');
   await expect(page.getByTestId('entity-state-field-select')).toHaveValue('预约状态');
   await expect(page.getByTestId('entity-state-values-text')).toContainText('草稿/待审核/审核通过/已作废');
+
+  const drawerWidth = await page.getByTestId('state-editor-drawer').evaluate((node) => node.offsetWidth);
+  const overviewMarginRight = await page.locator('.entity-state-main-shell').evaluate((node) => parseFloat(getComputedStyle(node).marginRight || '0'));
+  expect(drawerWidth).toBeGreaterThanOrEqual(620);
+  expect(Math.abs(overviewMarginRight - drawerWidth)).toBeLessThanOrEqual(4);
+
   await page.getByTestId('entity-transition-add-button').click();
   await page.getByTestId('entity-transition-from-0').selectOption('草稿');
   await page.getByTestId('entity-transition-to-0').selectOption('待审核');
   await page.getByTestId('entity-transition-action-0').fill('提交审核');
-  await page.getByTestId('entity-transition-note-0').fill('提交后进入审核队列');
+  await expect(page.getByTestId('entity-transition-action-0')).toBeFocused();
+  await expect(page.locator('.entity-state-link-label')).toContainText('提交审核');
 
   await expect(page.getByTestId('entity-state-diagram')).toBeVisible();
   await expect(page.getByTestId('entity-state-diagram')).toContainText('草稿');
   await expect(page.getByTestId('entity-state-diagram')).toContainText('待审核');
-  await expect(page.locator('[data-testid=\"entity-state-graph-canvas\"]')).toBeVisible();
-  await expect(page.locator('[data-testid=\"entity-state-graph-link\"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="entity-state-graph-canvas"]')).toBeVisible();
+  await expect(page.locator('[data-testid="entity-state-graph-link"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="entity-state-start-dot"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="entity-state-end-dot"]')).toHaveCount(1);
+  await expect(page.getByTestId('entity-state-overview-field')).toHaveCount(1);
+
+  const nodeWidths = await page.locator('[data-testid^="entity-state-node-"]').evaluateAll((nodes) =>
+    nodes.map((node) => parseFloat(node.style.width || '0')),
+  );
+  expect(Math.max(...nodeWidths)).toBeGreaterThan(Math.min(...nodeWidths));
+
+  await expect(page.getByTestId('entity-state-kind-list')).toBeVisible();
+  await expect(page.getByTestId('entity-state-kind-0')).toHaveValue('initial');
   await expect(page.locator('.entity-transition-row select')).toHaveCount(2);
+  await expect(page.locator('[data-testid^="entity-transition-note-"]')).toHaveCount(0);
   await expect(page.getByTestId('entity-state-empty')).toHaveCount(0);
 
   await page.getByTestId('tab-preview').click();
   await expect(page.locator('.preview-rendered')).toContainText('状态流转');
   await expect(page.locator('.preview-rendered')).toContainText('提交审核');
+});
+
+test('状态流转支持行内快捷增删和上下移动', async ({ page }) => {
+  const documentName = `entity-transition-actions-${Date.now()}`;
+
+  await createNewDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-add-entity').click();
+
+  await page.getByTestId('entity-name-input').fill('预约单');
+  await page.getByTestId('entity-field-add-button').click();
+  await page.getByTestId('entity-field-name-0').fill('预约状态');
+  await page.getByTestId('entity-field-type-0').selectOption('enum');
+  await page.getByTestId('entity-status-role-0').selectOption('primary');
+  await page.locator('.field-td-note textarea').first().fill('草稿/待审核/已完成');
+
+  await page.getByTestId('data-switch-state').click();
+  await page.getByTestId('entity-transition-add-button').click();
+  await page.getByTestId('entity-transition-action-0').fill('提交审核');
+
+  const actionCounts = await page.locator('.entity-transition-row').evaluateAll((rows) =>
+    rows.map((row) => row.querySelectorAll('.entity-transition-actions button').length),
+  );
+  expect(actionCounts).toEqual([4]);
+
+  await page.getByTestId('entity-transition-add-after-0').click();
+  await expect(page.locator('.entity-transition-row')).toHaveCount(2);
+  await page.getByTestId('entity-transition-action-1').fill('补充审核');
+
+  await page.getByTestId('entity-transition-move-up-1').click();
+  let actionValues = await page.locator('[data-testid^="entity-transition-action-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value),
+  );
+  expect(actionValues).toEqual(['补充审核', '提交审核']);
+
+  await page.getByTestId('entity-transition-delete-0').click();
+  await expect(page.locator('.entity-transition-row')).toHaveCount(1);
+  actionValues = await page.locator('[data-testid^="entity-transition-action-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value),
+  );
+  expect(actionValues).toEqual(['提交审核']);
 });
 
 test('数据页允许一个主状态加多个子状态且不增加列', async ({ page }) => {
@@ -75,6 +139,20 @@ test('数据页允许一个主状态加多个子状态且不增加列', async ({
   expect(headerCount).toBe(6);
 
   await page.getByTestId('data-switch-state').click();
+  await page.getByTestId('entity-state-kind-0').selectOption('initial');
+  await page.getByTestId('entity-state-kind-1').selectOption('intermediate');
+  await page.getByTestId('entity-state-kind-2').selectOption('terminal');
+  await expect(page.getByTestId('entity-state-kind-0')).toHaveValue('initial');
+  await expect(page.getByTestId('entity-state-kind-1')).toHaveValue('intermediate');
+  await expect(page.getByTestId('entity-state-kind-2')).toHaveValue('terminal');
+  await expect(page.getByTestId('entity-state-overview-field')).toHaveCount(3);
+  await expect(page.getByTestId('entity-state-diagram')).toContainText('通知状态');
+  await expect(page.getByTestId('entity-state-diagram')).toContainText('主状态');
+  await expect(page.getByTestId('entity-state-diagram')).toContainText('同步状态');
+
+  await page.getByTestId('entity-state-overview-field-1').click();
+  await expect(page.getByTestId('entity-state-field-select')).toHaveValue('主状态');
+
   const options = await page.getByTestId('entity-state-field-select').locator('option').evaluateAll((nodes) =>
     nodes.map((node) => ({ value: node.value, text: node.textContent.trim() })),
   );
@@ -83,7 +161,19 @@ test('数据页允许一个主状态加多个子状态且不增加列', async ({
     { value: '主状态', text: '子：主状态' },
     { value: '同步状态', text: '子：同步状态' },
   ]);
+
   await expect(page.getByTestId('entity-state-diagram')).toContainText('主状态字段');
+  const positions = await page.locator('[data-testid^="entity-state-node-"]').evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      kind: node.dataset.stateKind,
+      top: parseFloat(node.style.top || '0'),
+    })),
+  );
+  const initialTop = positions.find((item) => item.kind === 'initial').top;
+  const intermediateTop = positions.find((item) => item.kind === 'intermediate').top;
+  const terminalTop = positions.find((item) => item.kind === 'terminal').top;
+  expect(initialTop).toBeLessThan(intermediateTop);
+  expect(intermediateTop).toBeLessThan(terminalTop);
 });
 
 test('数据页字段支持行内新增删除和上下移动', async ({ page }) => {
@@ -135,8 +225,9 @@ test('数据页字段支持行内新增删除和上下移动', async ({ page }) 
   expect(names).toEqual(['预约编号', '申请日期']);
 });
 
-test('旧文档中写在公式约束里的状态串会自动进入状态编辑', async ({ page, request }) => {
+test('旧文档中写在字段规则里的状态串会自动进入状态编辑', async ({ page, request }) => {
   const documentName = `entity-state-note-${Date.now()}`;
+
   await createDocument(request, documentName, {
     meta: { title: documentName, domain: documentName, author: '', date: '2026-04' },
     roles: [],
@@ -165,4 +256,208 @@ test('旧文档中写在公式约束里的状态串会自动进入状态编辑',
   await expect(page.getByTestId('entity-state-values-text')).toContainText('草稿/待审核/已通过/已撤销');
   await expect(page.getByTestId('entity-state-diagram')).toContainText('草稿');
   await expect(page.getByTestId('entity-state-diagram')).toContainText('已撤销');
+});
+
+test('状态图对自旋和反向流转使用直线折线路径', async ({ page, request }) => {
+  const documentName = `entity-state-orthogonal-${Date.now()}`;
+
+  await createDocument(request, documentName, {
+    meta: { title: documentName, domain: documentName, author: '', date: '2026-04-23' },
+    roles: [],
+    language: [],
+    processes: [],
+    entities: [
+      {
+        id: 'E1',
+        name: '账号状态',
+        group: '账户管理',
+        fields: [
+          {
+            name: '状态',
+            type: 'enum',
+            is_key: false,
+            is_status: true,
+            status_role: 'primary',
+            note: '启用/禁用',
+            state_nodes: [
+              { name: '启用', kind: 'initial' },
+              { name: '禁用', kind: 'terminal' },
+            ],
+          },
+        ],
+        state_transitions: [
+          { from: '启用', to: '禁用', action: '流转至禁用', field_name: '状态' },
+          { from: '禁用', to: '启用', action: '恢复启用', field_name: '状态' },
+          { from: '禁用', to: '禁用', action: '流转', field_name: '状态' },
+        ],
+      },
+    ],
+    relations: [],
+    rules: [],
+  });
+
+  await page.goto('/');
+  await openDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-switch-state').click();
+
+  await expect(page.locator('[data-link-kind="self"]')).toHaveCount(1);
+  await expect(page.locator('[data-link-kind="backward"]')).toHaveCount(1);
+
+  const paths = await page.locator('[data-testid="entity-state-graph-link"]').evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      kind: node.dataset.linkKind || '',
+      d: node.getAttribute('d') || '',
+    })),
+  );
+
+  const selfPath = paths.find((item) => item.kind === 'self');
+  const backwardPath = paths.find((item) => item.kind === 'backward');
+
+  expect(selfPath).toBeTruthy();
+  expect(backwardPath).toBeTruthy();
+  expect(selfPath.d.includes('C')).toBeFalsy();
+  expect(backwardPath.d.includes('C')).toBeFalsy();
+  expect((selfPath.d.match(/L/g) || []).length).toBeGreaterThanOrEqual(3);
+  expect((backwardPath.d.match(/L/g) || []).length).toBeGreaterThanOrEqual(3);
+  const backwardXs = (backwardPath.d.match(/-?\d+(?:\.\d+)?/g) || [])
+    .map(Number)
+    .filter((_, index) => index % 2 === 0);
+  expect(new Set(backwardXs).size).toBeGreaterThanOrEqual(2);
+});
+
+test('复杂状态场景保持主路径顺序并为跨层流转让出折线通道', async ({ page, request }) => {
+  const documentName = `entity-state-complex-${Date.now()}`;
+
+  await createDocument(request, documentName, {
+    meta: { title: documentName, domain: documentName, author: '', date: '2026-04-23' },
+    roles: [],
+    language: [],
+    processes: [],
+    entities: [
+      {
+        id: 'E1',
+        name: '预约状态',
+        group: '预约管理',
+        fields: [
+          {
+            name: '状态',
+            type: 'enum',
+            is_key: false,
+            is_status: true,
+            status_role: 'primary',
+            note: '草稿/待审核/已通过/已撤销',
+            state_nodes: [
+              { name: '草稿', kind: 'initial' },
+              { name: '待审核', kind: 'intermediate' },
+              { name: '已通过', kind: 'intermediate' },
+              { name: '已撤销', kind: 'terminal' },
+            ],
+          },
+        ],
+        state_transitions: [
+          { from: '草稿', to: '待审核', action: '提交预约', field_name: '状态' },
+          { from: '草稿', to: '草稿', action: '流转', field_name: '状态' },
+          { from: '待审核', to: '草稿', action: '退回草稿', field_name: '状态' },
+          { from: '待审核', to: '已通过', action: '审核通过', field_name: '状态' },
+          { from: '待审核', to: '已撤销', action: '驳回预约', field_name: '状态' },
+        ],
+      },
+    ],
+    relations: [],
+    rules: [],
+  });
+
+  await page.goto('/');
+  await openDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-switch-state').click();
+
+  const nodePositions = await page.locator('[data-testid^="entity-state-node-"]').evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      name: node.dataset.stateName || '',
+      top: parseFloat(node.style.top || '0'),
+    })),
+  );
+  const topByName = Object.fromEntries(nodePositions.map((item) => [item.name, item.top]));
+  expect(topByName['草稿']).toBeLessThan(topByName['待审核']);
+  expect(topByName['待审核']).toBeLessThan(topByName['已通过']);
+  expect(topByName['已通过']).toBeLessThan(topByName['已撤销']);
+
+  const paths = await page.locator('[data-testid="entity-state-graph-link"]').evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      kind: node.dataset.linkKind || '',
+      side: node.dataset.linkSide || '',
+      action: node.dataset.linkAction || '',
+      d: node.getAttribute('d') || '',
+    })),
+  );
+
+  const selfPath = paths.find((item) => item.action === '流转');
+  const backwardPath = paths.find((item) => item.action === '退回草稿');
+  const detourPath = paths.find((item) => item.action === '驳回预约');
+
+  expect(selfPath?.kind).toBe('self');
+  expect(backwardPath?.kind).toBe('backward');
+  expect(detourPath?.kind).toBe('forward-detour');
+  expect(paths.every((item) => !item.d.includes('C'))).toBeTruthy();
+  expect(selfPath?.side).toBe('right');
+  expect(backwardPath?.side).toBe('left');
+  expect(detourPath?.side).toBe('right');
+
+  const detourXs = (detourPath.d.match(/-?\d+(?:\.\d+)?/g) || [])
+    .map(Number)
+    .filter((_, index) => index % 2 === 0);
+  expect(new Set(detourXs).size).toBeGreaterThanOrEqual(2);
+});
+
+test('左侧实体列表切换时保留列表滚动位置', async ({ page, request }) => {
+  const documentName = `entity-state-browser-scroll-${Date.now()}`;
+  const entities = Array.from({ length: 60 }, (_, index) => ({
+    id: `E${index + 1}`,
+    name: `实体${index + 1}`,
+    group: index < 20 ? 'A组' : (index < 40 ? 'B组' : 'C组'),
+    fields: [
+      {
+        name: '状态',
+        type: 'enum',
+        is_key: false,
+        is_status: true,
+        status_role: 'primary',
+        note: '草稿/已完成',
+        state_nodes: [
+          { name: '草稿', kind: 'initial' },
+          { name: '已完成', kind: 'terminal' },
+        ],
+      },
+    ],
+    state_transitions: [
+      { from: '草稿', to: '已完成', action: '完成', field_name: '状态' },
+    ],
+  }));
+
+  await createDocument(request, documentName, {
+    meta: { title: documentName, domain: documentName, author: '', date: '2026-04-23' },
+    roles: [],
+    language: [],
+    processes: [],
+    entities,
+    relations: [],
+    rules: [],
+  });
+
+  await page.goto('/');
+  await openDocument(page, documentName);
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-switch-state').click();
+
+  await page.locator('.entity-state-browser').evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  const beforeScrollTop = await page.locator('.entity-state-browser').evaluate((node) => node.scrollTop);
+  await page.locator('.entity-state-chip').nth(59).click();
+  const afterScrollTop = await page.locator('.entity-state-browser').evaluate((node) => node.scrollTop);
+
+  expect(beforeScrollTop).toBeGreaterThan(0);
+  expect(Math.abs(afterScrollTop - beforeScrollTop)).toBeLessThanOrEqual(4);
 });

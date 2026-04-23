@@ -155,6 +155,61 @@ def get_entity_state_values(entity: dict) -> str:
     return ""
 
 
+def normalize_state_node_kind(kind: str) -> str:
+    raw = str(kind or "").strip().casefold()
+    if raw in {"initial", "start", "entry"}:
+        return "initial"
+    if raw in {"terminal", "end", "finish", "final"}:
+        return "terminal"
+    return "intermediate"
+
+
+def get_state_node_kind_label(kind: str) -> str:
+    normalized = normalize_state_node_kind(kind)
+    if normalized == "initial":
+        return "初始状态"
+    if normalized == "terminal":
+        return "结束状态"
+    return "中间状态"
+
+
+def get_field_state_nodes(field: dict) -> list[dict]:
+    if not isinstance(field, dict):
+        return []
+    state_value_text = str(field.get("state_values", "")).strip()
+    note_text = str(field.get("note", "")).strip()
+    if not state_value_text:
+        parts = [item.strip() for item in note_text.split("/") if item.strip()]
+        if parts and all(len(item) <= 16 for item in parts):
+            state_value_text = "/".join(parts)
+    values = [item.strip() for item in state_value_text.split("/") if item.strip()]
+    if not values:
+        return []
+    raw_nodes = field.get("state_nodes", [])
+    existing_kinds = {
+        str(item.get("name", "")).strip(): normalize_state_node_kind(item.get("kind", ""))
+        for item in raw_nodes
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    }
+    return [
+        {
+            "name": state_name,
+            "kind": existing_kinds.get(
+                state_name,
+                "initial" if index == 0 and len(values) > 1 else ("terminal" if index == len(values) - 1 and len(values) > 1 else "intermediate"),
+            ),
+        }
+        for index, state_name in enumerate(values)
+    ]
+
+
+def get_field_state_node_summary(field: dict) -> str:
+    return "；".join(
+        f"{item['name']}={get_state_node_kind_label(item['kind'])}"
+        for item in get_field_state_nodes(field)
+    )
+
+
 def get_field_rule_text(field: dict) -> str:
     note_text = str(field.get("note", "")).strip()
     if not is_status_field(field):
@@ -166,8 +221,11 @@ def get_field_rule_text(field: dict) -> str:
             state_value_text = "/".join(parts)
     inferred_text = "/".join([item.strip() for item in note_text.split("/") if item.strip()])
     note_only = note_text if note_text and note_text != state_value_text and inferred_text != state_value_text else ""
-    if state_value_text and note_only:
-        return f"{state_value_text}；{note_only}"
+    node_summary = get_field_state_node_summary(field)
+    summary_text = f"节点属性：{node_summary}" if node_summary else ""
+    parts = [item for item in (state_value_text, summary_text, note_only) if item]
+    if parts:
+        return "；".join(parts)
     return note_text or state_value_text
 
 
@@ -270,11 +328,11 @@ class MarkdownExporter:
                             f"**主状态字段**: {status_field.get('name', '')}（状态列表：{get_entity_state_values(entity) or '—'}）"
                         )
                         line()
-                    line("| 来源状态 | 目标状态 | 触发动作 | 说明 |")
-                    line("|----------|----------|----------|------|")
+                    line("| 来源状态 | 目标状态 | 触发动作 |")
+                    line("|----------|----------|----------|")
                     for transition in state_transitions:
                         line(
-                            f"| {transition.get('from', '')} | {transition.get('to', '')} | {transition.get('action', '')} | {transition.get('note', '')} |"
+                            f"| {transition.get('from', '')} | {transition.get('to', '')} | {transition.get('action', '')} |"
                         )
                     line()
             separator()

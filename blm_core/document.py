@@ -150,6 +150,58 @@ def normalize_status_role(status_role: str, fallback_is_status: bool = False) ->
     return "primary" if fallback_is_status else ""
 
 
+def normalize_state_node_kind(kind: str) -> str:
+    raw = str(kind or "").strip().casefold()
+    if raw in {"initial", "start", "entry"}:
+        return "initial"
+    if raw in {"terminal", "end", "finish", "final"}:
+        return "terminal"
+    return "intermediate"
+
+
+def _normalize_slash_list(value: str) -> list[str]:
+    return [item.strip() for item in str(value or "").split("/") if item.strip()]
+
+
+def _get_field_state_values(field: dict) -> list[str]:
+    explicit = str(field.get("state_values", "")).strip()
+    if explicit:
+        return _normalize_slash_list(explicit)
+    note = str(field.get("note", "")).strip()
+    parts = _normalize_slash_list(note)
+    if parts and all(len(item) <= 16 for item in parts):
+        return parts
+    return []
+
+
+def _infer_default_state_node_kind(index: int, total: int) -> str:
+    if total <= 1:
+        return "intermediate"
+    if index == 0:
+        return "initial"
+    if index == total - 1:
+        return "terminal"
+    return "intermediate"
+
+
+def _normalize_state_nodes(raw_nodes: list[dict], state_values: list[str]) -> list[dict]:
+    existing_kinds: dict[str, str] = {}
+    for item in raw_nodes or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        existing_kinds[name] = normalize_state_node_kind(item.get("kind", ""))
+    return [
+        {
+            "name": state_name,
+            "kind": existing_kinds.get(state_name, _infer_default_state_node_kind(index, len(state_values))),
+        }
+        for index, state_name in enumerate(state_values)
+    ]
+
+
 def normalize_role_name(role_name: str) -> str:
     return str(role_name or "").strip()
 
@@ -389,6 +441,10 @@ def _normalize_entities(entities: list[dict]) -> None:
             field["status_role"] = status_role
             field["is_status"] = bool(status_role)
             field.setdefault("state_values", "")
+            field["state_nodes"] = _normalize_state_nodes(
+                field.pop("stateNodes", field.get("state_nodes", [])),
+                _get_field_state_values(field),
+            )
 
         normalized_transitions = []
         status_fields = [field.get("name", "") for field in entity["fields"] if field.get("is_status")]

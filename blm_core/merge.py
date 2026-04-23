@@ -48,7 +48,11 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
     },
     "entity_op": {"scalars": ["entity_id"], "set_lists": ["ops"], "lists": {}},
     "entity": {"scalars": ["id", "name", "group", "note", "pos"], "lists": {"fields": "field", "state_transitions": "transition"}},
-    "field": {"scalars": ["name", "type", "is_key", "is_status", "status_role", "state_values", "note"], "lists": {}},
+    "field": {
+        "scalars": ["name", "type", "is_key", "is_status", "status_role", "state_values", "note"],
+        "lists": {"state_nodes": "state_node"},
+    },
+    "state_node": {"scalars": ["name", "kind"], "lists": {}},
     "transition": {"scalars": ["from", "to", "action", "note", "field_name"], "lists": {}},
     "relation": {"scalars": ["from", "to", "type", "label"], "lists": {}},
     "rule": {"scalars": ["id", "name", "type", "applies_to", "description", "formula"], "lists": {}},
@@ -110,6 +114,8 @@ def _name_key(item_type: str, item: dict) -> str:
     elif item_type == "entity":
         primary = item.get("name") or item.get("id")
     elif item_type == "field":
+        primary = item.get("name")
+    elif item_type == "state_node":
         primary = item.get("name")
     elif item_type == "transition":
         primary = "|".join(

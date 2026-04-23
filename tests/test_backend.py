@@ -266,6 +266,43 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(fields[2]["status_role"], "secondary")
         self.assertTrue(fields[2]["is_status"])
 
+    def test_migrate_document_infers_state_node_kinds_from_state_values(self):
+        document = {
+            "meta": {"title": "State nodes"},
+            "roles": [],
+            "processes": [],
+            "entities": [
+                {
+                    "id": "E1",
+                    "name": "Reservation",
+                    "fields": [
+                        {
+                            "name": "Status",
+                            "type": "enum",
+                            "is_status": True,
+                            "state_values": "Draft/Review/Done",
+                        }
+                    ],
+                    "state_transitions": [],
+                }
+            ],
+            "relations": [],
+            "rules": [],
+            "language": [],
+        }
+
+        migrated = migrate_document(document)
+        state_nodes = migrated["entities"][0]["fields"][0]["state_nodes"]
+
+        self.assertEqual(
+            state_nodes,
+            [
+                {"name": "Draft", "kind": "initial"},
+                {"name": "Review", "kind": "intermediate"},
+                {"name": "Done", "kind": "terminal"},
+            ],
+        )
+
 
 class MarkdownExporterTests(unittest.TestCase):
     def test_export_includes_process_mermaid_and_entity_tables(self):
@@ -367,8 +404,12 @@ class MarkdownExporterTests(unittest.TestCase):
         self.assertIn("reader_status", markdown)
         self.assertIn("字段规则", markdown)
         self.assertIn("Draft/Active/Archived", markdown)
+        self.assertIn("节点属性：Draft=初始状态；Active=中间状态；Archived=结束状态", markdown)
         self.assertIn("状态流转", markdown)
+        self.assertIn("| 来源状态 | 目标状态 | 触发动作 |", markdown)
+        self.assertNotIn("| 来源状态 | 目标状态 | 触发动作 | 说明 |", markdown)
         self.assertIn("Activate", markdown)
+        self.assertNotIn("Reader must be approved", markdown)
 
 
 class WorkspaceStorageTests(unittest.TestCase):

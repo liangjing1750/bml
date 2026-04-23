@@ -81,9 +81,13 @@ test('流程抽屉和实体抽屉宽度会分别记住上次调整结果', async
   const entityDrawer = page.locator('.entity-drawer.open');
   const entityHandle = page.getByTestId('entity-drawer-resize-handle');
   const entityWidthBefore = await entityDrawer.evaluate((node) => node.offsetWidth);
+  const relationMarginBefore = await page.locator('#diagram-wrap').evaluate((node) => parseFloat(getComputedStyle(node).marginRight || '0'));
+  expect(Math.abs(relationMarginBefore - entityWidthBefore)).toBeLessThanOrEqual(4);
   await dragResizeHandle(page, entityHandle, -90);
   const entityWidthAfter = await entityDrawer.evaluate((node) => node.offsetWidth);
   expect(entityWidthAfter).toBeGreaterThan(entityWidthBefore + 60);
+  const relationMarginAfter = await page.locator('#diagram-wrap').evaluate((node) => parseFloat(getComputedStyle(node).marginRight || '0'));
+  expect(Math.abs(relationMarginAfter - entityWidthAfter)).toBeLessThanOrEqual(4);
 
   await page.reload();
   await openDocument(page, documentName);

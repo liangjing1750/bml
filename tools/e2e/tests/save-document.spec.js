@@ -34,6 +34,36 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
     .toBe('2026-04');
 });
 
+test('保存后保留当前数据状态图工作位', async ({ page }) => {
+  const documentName = `save-stay-put-${Date.now()}`;
+
+  await page.goto('/');
+  await page.getByTestId('toolbar-new-button').click();
+  await page.getByTestId('new-doc-name-input').fill(documentName);
+  await page.getByTestId('new-doc-confirm-button').click();
+
+  await page.getByTestId('tab-data').click();
+  await page.getByTestId('data-add-entity').click();
+  await page.getByTestId('entity-name-input').fill('用户账号');
+  await page.getByTestId('entity-field-add-button').click();
+  await page.getByTestId('entity-field-name-0').fill('状态');
+  await page.getByTestId('entity-field-type-0').selectOption('enum');
+  await page.getByTestId('entity-status-role-0').selectOption('primary');
+  await page.locator('.field-td-note textarea').first().fill('草稿/待审核/已完成');
+
+  await page.getByTestId('data-switch-state').click();
+  await expect(page.getByTestId('state-editor-drawer')).toBeVisible();
+  await expect(page.getByTestId('data-state-entity-select')).toHaveValue('E1');
+
+  await page.keyboard.press('Control+S');
+
+  await expect(page.getByTestId('modified-badge')).toBeHidden();
+  await expect(page.getByTestId('tab-data')).toHaveClass(/active/);
+  await expect(page.getByTestId('state-editor-drawer')).toBeVisible();
+  await expect(page.getByTestId('data-state-entity-select')).toHaveValue('E1');
+  await expect(page.getByTestId('entity-state-field-select')).toHaveValue('状态');
+});
+
 test('用户可以通过另存生成新的业务域文档副本', async ({ page }) => {
   const originalName = `原业务域-${Date.now()}`;
   const copiedName = `另存业务域-${Date.now()}`;

@@ -471,17 +471,25 @@ function renderTabBar() {
 
 function startDrawerResize(e) {
   e.preventDefault(); e.stopPropagation();
-  const drawer = e.currentTarget.closest('.proc-drawer, .entity-drawer');
+  const drawer = e.currentTarget.closest('.proc-drawer, .entity-drawer, .state-editor-drawer');
   if(!drawer) return;
   const drawerKind = drawer.classList.contains('proc-drawer') ? 'process' : 'entity';
   const startX = e.clientX;
   const startW = drawer.offsetWidth;
+  const minWidth = drawerKind === 'entity' ? 420 : 300;
   document.body.style.cursor = 'ew-resize';
   document.body.style.userSelect = 'none';
   function onMove(ev) {
-    const newW = Math.max(300, Math.min(window.innerWidth * 0.75, startW + startX - ev.clientX));
+    const newW = Math.max(minWidth, Math.min(window.innerWidth * 0.75, startW + startX - ev.clientX));
     drawer.style.width = newW + 'px';
     setDrawerWidth(drawerKind, newW);
+    if (drawerKind === 'entity' && S.ui.tab === 'data' && (S.ui.dataView || 'relation') === 'relation') {
+      const wrap = document.getElementById('diagram-wrap');
+      if (wrap) wrap.style.marginRight = newW + 'px';
+    } else if (drawer.classList.contains('state-editor-drawer')) {
+      const mainShell = document.querySelector('.entity-state-main-shell');
+      if (mainShell) mainShell.style.marginRight = newW + 'px';
+    }
   }
   function onUp() {
     document.body.style.cursor = '';

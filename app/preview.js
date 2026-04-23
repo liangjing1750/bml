@@ -273,8 +273,8 @@ function renderPreviewEntitiesHtml(entities, fieldLabels) {
             ? `<p class="pv-note"><strong>主状态字段</strong>: ${esc(statusField.name || '')}（状态列表：${esc(getFieldStateValueText(statusField) || '—')}）</p>`
             : '';
           return `${statusLine}
-            <table><thead><tr><th>来源状态</th><th>目标状态</th><th>触发动作</th><th>说明</th></tr></thead><tbody>
-              ${entity.state_transitions.map((transition) => `<tr><td>${esc(transition.from || '')}</td><td>${esc(transition.to || '')}</td><td>${esc(transition.action || '')}</td><td>${esc(transition.note || '')}</td></tr>`).join('')}
+            <table><thead><tr><th>来源状态</th><th>目标状态</th><th>触发动作</th></tr></thead><tbody>
+              ${entity.state_transitions.map((transition) => `<tr><td>${esc(transition.from || '')}</td><td>${esc(transition.to || '')}</td><td>${esc(transition.action || '')}</td></tr>`).join('')}
             </tbody></table>`;
         })()}` : ''}
     </div>`).join('')}`;
@@ -420,9 +420,9 @@ function appendPreviewEntitiesMd(add, doc, entities, fieldLabels) {
         add(`**主状态字段**: ${statusField.name||''}（状态列表：${getFieldStateValueText(statusField)||'—'}）`);
         add('');
       }
-      add('| 来源状态 | 目标状态 | 触发动作 | 说明 |');
-      add('|----------|----------|----------|------|');
-      entity.state_transitions.forEach((transition) => add(`| ${transition.from||''} | ${transition.to||''} | ${transition.action||''} | ${transition.note||''} |`));
+      add('| 来源状态 | 目标状态 | 触发动作 |');
+      add('|----------|----------|----------|');
+      entity.state_transitions.forEach((transition) => add(`| ${transition.from||''} | ${transition.to||''} | ${transition.action||''} |`));
       add('');
     }
   }
