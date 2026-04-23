@@ -373,8 +373,55 @@ function formatPrototypeInputId(procId) {
   return `proc-prototype-input-${String(procId || '').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
+function getProcessPrototypeExpandedMap(procId) {
+  if (!S.ui.procPrototypeExpanded || typeof S.ui.procPrototypeExpanded !== 'object') {
+    S.ui.procPrototypeExpanded = {};
+  }
+  const scopeKey = `${S.currentFile || 'draft'}:${procId}`;
+  if (!S.ui.procPrototypeExpanded[scopeKey] || typeof S.ui.procPrototypeExpanded[scopeKey] !== 'object') {
+    S.ui.procPrototypeExpanded[scopeKey] = {};
+  }
+  return S.ui.procPrototypeExpanded[scopeKey];
+}
+
+function isProcessPrototypeExpanded(procId, prototypeUid) {
+  return !!getProcessPrototypeExpandedMap(procId)[prototypeUid];
+}
+
+function toggleProcessPrototypeVersions(procId, prototypeUid) {
+  const expandedMap = getProcessPrototypeExpandedMap(procId);
+  expandedMap[prototypeUid] = !expandedMap[prototypeUid];
+  S.ui.procEditorFocusSelector = `[data-prototype-toggle="${String(prototypeUid || '').replace(/"/g, '&quot;')}"]`;
+  rerenderProcessEditor({ focusSelector: S.ui.procEditorFocusSelector });
+}
+
 function findProcessPrototypeFile(proc, prototypeUid) {
   return getProcPrototypeFiles(proc).find((file) => file.uid === prototypeUid) || null;
+}
+
+function findProcessPrototypeVersion(prototypeFile, versionUid = '') {
+  if (!prototypeFile) return null;
+  const versions = Array.isArray(prototypeFile.versions) ? prototypeFile.versions : [];
+  if (!versions.length) return null;
+  const targetVersionUid = String(versionUid || prototypeFile.versionUid || '').trim();
+  return versions.find((version) => version.uid === targetVersionUid) || versions[versions.length - 1] || null;
+}
+
+function createProcessPrototypeObjectUrl(prototypeVersion) {
+  const contentType = String(prototypeVersion?.contentType || 'text/html').trim() || 'text/html';
+  const blob = new Blob([prototypeVersion?.content || ''], {
+    type: /charset=/i.test(contentType) ? contentType : `${contentType};charset=utf-8`,
+  });
+  return URL.createObjectURL(blob);
+}
+
+function syncProcessPrototypeCurrentVersion(prototypeFile, versionUid = '') {
+  const normalized = normalizePrototypeFileEntry({
+    ...prototypeFile,
+    versionUid: String(versionUid || prototypeFile?.versionUid || '').trim(),
+  });
+  Object.assign(prototypeFile, normalized);
+  return prototypeFile;
 }
 
 async function addProcessPrototypeFiles(procId, inputId) {
@@ -393,16 +440,42 @@ async function addProcessPrototypeFiles(procId, inputId) {
     return;
   }
 
-  const uploadedFiles = await Promise.all(selectedFiles.map(async (file) => ({
-    uid: createUiUid('proto'),
+  const uploadedVersions = await Promise.all(selectedFiles.map(async (file) => ({
+    uid: createUiUid('protover'),
     name: String(file.name || '').trim() || '未命名原型.html',
     content: await file.text(),
     contentType: String(file.type || 'text/html').trim() || 'text/html',
+    uploadedAt: formatPrototypeUploadedAt(),
   })));
   const prototypeFiles = getProcPrototypeFiles(proc);
-  const fileByName = new Map(prototypeFiles.map((file) => [file.name, file]));
-  for (const file of uploadedFiles) fileByName.set(file.name, file);
-  proc.prototypeFiles = Array.from(fileByName.values());
+  const expandedMap = getProcessPrototypeExpandedMap(procId);
+  for (const uploadedVersion of uploadedVersions) {
+    const existingFile = prototypeFiles.find((file) => String(file.name || '').trim() === uploadedVersion.name);
+    if (existingFile) {
+      existingFile.versions = [
+        ...(Array.isArray(existingFile.versions) ? existingFile.versions : []),
+        {
+          ...uploadedVersion,
+          number: (Array.isArray(existingFile.versions) ? existingFile.versions.length : 0) + 1,
+        },
+      ];
+      syncProcessPrototypeCurrentVersion(existingFile, uploadedVersion.uid);
+      expandedMap[existingFile.uid] = true;
+      continue;
+    }
+    prototypeFiles.push(normalizePrototypeFileEntry({
+      uid: createUiUid('proto'),
+      name: uploadedVersion.name,
+      versionUid: uploadedVersion.uid,
+      versions: [
+        {
+          ...uploadedVersion,
+          number: 1,
+        },
+      ],
+    }, prototypeFiles.length + 1));
+  }
+  proc.prototypeFiles = prototypeFiles.map((file, index) => normalizePrototypeFileEntry(file, index + 1));
   input.value = '';
   S.ui.procEditorFocusSelector = '[data-testid="proc-prototype-upload-button"]';
   markModified();
@@ -416,26 +489,43 @@ function removeProcessPrototypeFile(procId, prototypeUid) {
   const nextFiles = prototypeFiles.filter((file) => file.uid !== prototypeUid);
   if (nextFiles.length === prototypeFiles.length) return;
   proc.prototypeFiles = nextFiles;
+  delete getProcessPrototypeExpandedMap(procId)[prototypeUid];
   S.ui.procEditorFocusSelector = '[data-testid="proc-prototype-upload-button"]';
   markModified();
   rerenderProcessEditor({ focusSelector: '[data-testid="proc-prototype-upload-button"]' });
 }
 
-function openProcessPrototypeFile(procId, prototypeUid) {
+function openProcessPrototypeFile(procId, prototypeUid, versionUid = '') {
   const proc = S.doc.processes.find((item) => item.id === procId);
   const prototypeFile = findProcessPrototypeFile(proc, prototypeUid);
   if (!prototypeFile) return;
-  const contentType = String(prototypeFile.contentType || 'text/html').trim() || 'text/html';
-  const blob = new Blob([prototypeFile.content || ''], {
-    type: /charset=/i.test(contentType) ? contentType : `${contentType};charset=utf-8`,
-  });
-  const objectUrl = URL.createObjectURL(blob);
+  const prototypeVersion = findProcessPrototypeVersion(prototypeFile, versionUid);
+  if (!prototypeVersion) return;
+  const objectUrl = createProcessPrototypeObjectUrl(prototypeVersion);
   const popup = window.open(objectUrl, '_blank');
   if (!popup) {
     URL.revokeObjectURL(objectUrl);
     alert('浏览器拦截了原型预览窗口，请允许弹窗后重试。');
     return;
   }
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+}
+
+function downloadProcessPrototypeFile(procId, prototypeUid, versionUid = '') {
+  const proc = S.doc.processes.find((item) => item.id === procId);
+  const prototypeFile = findProcessPrototypeFile(proc, prototypeUid);
+  if (!prototypeFile) return;
+  const prototypeVersion = findProcessPrototypeVersion(prototypeFile, versionUid);
+  if (!prototypeVersion) return;
+  const objectUrl = createProcessPrototypeObjectUrl(prototypeVersion);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = String(prototypeVersion.name || prototypeFile.name || '').trim() || 'prototype.html';
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
 }
 
@@ -1345,25 +1435,49 @@ function renderProcessTab() {
           <h4>流程原型${prototypeFiles.length ? `<span class="section-count">${prototypeFiles.length}项</span>` : ''}</h4>
         </div>
         ${prototypeFiles.length ? `<div class="prototype-file-list" data-testid="proc-prototype-list">
-          ${prototypeFiles.map((file) => `<div class="prototype-file-item" data-testid="proc-prototype-item">
+          ${prototypeFiles.map((file) => {
+            const currentVersion = findProcessPrototypeVersion(file);
+            const versionCount = Array.isArray(file.versions) ? file.versions.length : 0;
+            const expanded = isProcessPrototypeExpanded(proc.id, file.uid);
+            return `<div class="prototype-file-item" data-testid="proc-prototype-item">
             <div class="prototype-file-meta">
               <strong class="prototype-file-name">${esc(file.name || '')}</strong>
+              <span class="prototype-file-version">当前 v${currentVersion?.number || 1} · 共${versionCount || 1}版${currentVersion?.uploadedAt ? ` · ${esc(currentVersion.uploadedAt)}` : ''}</span>
               <span class="prototype-file-kind">HTML 原型</span>
             </div>
             <div class="prototype-file-actions">
+              <button class="btn btn-ghost-sm" type="button" data-testid="proc-prototype-toggle" data-prototype-toggle="${esc(file.uid)}"
+                onclick="toggleProcessPrototypeVersions('${esc(proc.id)}','${esc(file.uid)}')">${expanded ? '收起' : '展开'}版本</button>
               <button class="btn btn-ghost-sm" type="button" data-testid="proc-prototype-open"
                 onclick="openProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}')">打开</button>
+              <button class="btn btn-ghost-sm" type="button" data-testid="proc-prototype-download"
+                onclick="downloadProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}')">下载</button>
               <button class="btn btn-ghost-sm prototype-file-remove" type="button" data-testid="proc-prototype-remove"
                 onclick="removeProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}')">删除</button>
             </div>
-          </div>`).join('')}
+            ${expanded ? `<div class="prototype-version-list" data-testid="proc-prototype-version-list">
+              ${file.versions.map((version) => `<div class="prototype-version-item" data-testid="proc-prototype-version-item">
+                <div class="prototype-version-meta">
+                  <strong class="prototype-version-label">v${version.number}${version.uid === file.versionUid ? ' · 当前引用' : ''}</strong>
+                  <span class="prototype-version-time">${esc(version.uploadedAt || '未记录上传时间')}</span>
+                </div>
+                <div class="prototype-version-actions">
+                  <button class="btn btn-ghost-sm" type="button" data-testid="proc-prototype-version-open"
+                    onclick="openProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}','${esc(version.uid)}')">打开</button>
+                  <button class="btn btn-ghost-sm" type="button" data-testid="proc-prototype-version-download"
+                    onclick="downloadProcessPrototypeFile('${esc(proc.id)}','${esc(file.uid)}','${esc(version.uid)}')">下载</button>
+                </div>
+              </div>`).join('')}
+            </div>` : ''}
+          </div>`;
+          }).join('')}
         </div>` : `<p class="no-refs" style="margin-bottom:8px">尚未上传流程原型文件</p>`}
         <div class="prototype-upload-row" data-testid="proc-prototype-upload">
           <input type="file" id="${prototypeInputId}" data-testid="proc-prototype-input" accept=".html,.htm,text/html" multiple>
           <button class="btn btn-outline btn-sm" type="button" data-testid="proc-prototype-upload-button"
             onclick="addProcessPrototypeFiles('${esc(proc.id)}','${prototypeInputId}')">上传 HTML 原型</button>
         </div>
-        <p class="prototype-upload-hint">支持同一流程上传多个 HTML 原型文件，文件内容会随当前文档一起保存。</p>
+        <p class="prototype-upload-hint">支持同一流程上传多个 HTML 原型文件；同名上传会自动新增版本，并把最新上传设为当前引用。</p>
       </div>
       <p style="margin-top:14px;font-size:12px;color:var(--text-m)">
         点击上方流程图中的任务节点可直接进入任务编辑

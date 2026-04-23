@@ -258,6 +258,11 @@ test('流程支持上传多个 HTML 原型并在保存后保留', async ({ page,
   await expect(popup.locator('h1')).toHaveText('原型A');
   await popup.close();
 
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('proc-prototype-download').first().click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('login-a.html');
+
   await page.getByTestId('proc-prototype-remove').nth(1).click();
   await expect(page.getByTestId('proc-prototype-item')).toHaveCount(1);
   await expect(page.locator('.prototype-file-name').first()).toHaveText('login-a.html');
@@ -268,6 +273,61 @@ test('流程支持上传多个 HTML 原型并在保存后保留', async ({ page,
   await openProcessEditor(page, documentName);
   await expect(page.getByTestId('proc-prototype-item')).toHaveCount(1);
   await expect(page.locator('.prototype-file-name').first()).toHaveText('login-a.html');
+});
+
+test('同名流程原型会新增版本并显示上传时间', async ({ page, request }) => {
+  const documentName = `process-prototype-versions-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openProcessEditor(page, documentName);
+  await page.getByTestId('proc-prototype-input').setInputFiles([
+    {
+      name: 'login-a.html',
+      mimeType: 'text/html',
+      buffer: Buffer.from('<!doctype html><html><body><h1>原型A-v1</h1></body></html>'),
+    },
+  ]);
+  await page.getByTestId('proc-prototype-upload-button').click();
+
+  await page.getByTestId('proc-prototype-input').setInputFiles([
+    {
+      name: 'login-a.html',
+      mimeType: 'text/html',
+      buffer: Buffer.from('<!doctype html><html><body><h1>原型A-v2</h1></body></html>'),
+    },
+  ]);
+  await page.getByTestId('proc-prototype-upload-button').click();
+
+  await expect(page.getByTestId('proc-prototype-item')).toHaveCount(1);
+  await expect(page.locator('.prototype-file-version').first()).toContainText('当前 v2');
+  await expect(page.locator('.prototype-file-version').first()).toContainText('共2版');
+
+  await page.getByTestId('proc-prototype-toggle').first().click();
+  await expect(page.getByTestId('proc-prototype-version-item')).toHaveCount(2);
+  await expect(page.locator('.prototype-version-label').nth(0)).toContainText('v1');
+  await expect(page.locator('.prototype-version-label').nth(1)).toContainText('v2');
+  await expect(page.locator('.prototype-version-label').nth(1)).toContainText('当前引用');
+  await expect(page.locator('.prototype-version-time').nth(0)).not.toHaveText('');
+
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByTestId('proc-prototype-version-open').nth(1).click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState('domcontentloaded');
+  await expect(popup.locator('h1')).toHaveText('原型A-v2');
+  await popup.close();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('proc-prototype-version-download').first().click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('login-a.html');
+
+  await page.keyboard.press('Control+S');
+  await expect(page.getByTestId('modified-badge')).toBeHidden();
+
+  await openProcessEditor(page, documentName);
+  await page.getByTestId('proc-prototype-toggle').first().click();
+  await expect(page.getByTestId('proc-prototype-version-item')).toHaveCount(2);
+  await expect(page.locator('.prototype-version-label').nth(1)).toContainText('当前引用');
 });
 
 async function openTaskEditorByTask(page, name, taskId, taskName) {

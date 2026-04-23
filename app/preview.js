@@ -197,6 +197,19 @@ function renderPreviewLanguageHtml(languageItems) {
     </tbody></table>`;
 }
 
+function formatPrototypeSummary(prototypeFiles) {
+  return prototypeFiles
+    .map((file) => {
+      const versions = Array.isArray(file?.versions) ? file.versions : [];
+      const currentVersion = versions.find((version) => version.uid === file?.versionUid) || versions[versions.length - 1] || null;
+      const versionLabel = versions.length ? `（当前 v${currentVersion?.number || 1}，共${versions.length}版）` : '';
+      const name = String(file?.name || '').trim();
+      return name ? `${name}${versionLabel}` : '';
+    })
+    .filter(Boolean)
+    .join('、');
+}
+
 function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   if (!processes.length) return '';
   return `<h2 id="preview-processes">流程建模</h2>
@@ -209,7 +222,7 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
           ${proc.flowGroup ? ` | <strong>流程组</strong>: ${esc(proc.flowGroup)}` : ''}
         </p>
         ${proc.trigger || proc.outcome ? `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>` : ''}
-        ${prototypeFiles.length ? `<p class="pv-note"><strong>流程原型</strong>: ${prototypeFiles.map((file) => esc(file.name || '')).join('、')}</p>` : ''}
+        ${prototypeFiles.length ? `<p class="pv-note"><strong>流程原型</strong>: ${esc(formatPrototypeSummary(prototypeFiles))}</p>` : ''}
         <div id="pv-proc-${proc.id}" class="pv-diag"></div>
         ${nodes.length ? `<div class="pv-tasks">
           ${nodes.map((node) => {
@@ -326,7 +339,7 @@ function appendPreviewProcessesMd(add, processes, entityMap, stepLabels, orchest
     add('');
     add(`**业务子域**: ${proc.subDomain||'—'}`);
     if(proc.flowGroup) add(`**流程组**: ${proc.flowGroup}`);
-    if(prototypeFiles.length) add(`**流程原型**: ${prototypeFiles.map((file) => file.name || '').join('、')}`);
+    if(prototypeFiles.length) add(`**流程原型**: ${formatPrototypeSummary(prototypeFiles)}`);
     add('');
     if(proc.trigger||proc.outcome){
       add(`**触发**: ${proc.trigger||'—'}  →  **预期结果**: ${proc.outcome||'—'}`);

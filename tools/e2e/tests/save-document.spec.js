@@ -6,7 +6,7 @@ const { workspaceDir } = require('./support/test-env');
 
 test('用户可以修改文档并点击保存落盘', async ({ page }) => {
   const documentName = '端到端保存文档';
-  const documentPath = path.join(workspaceDir, `${documentName}.json`);
+  const documentPath = path.join(workspaceDir, documentName, 'manifest.json');
 
   await page.goto('/');
   await page.getByTestId('toolbar-new-button').click();
@@ -29,7 +29,7 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
       const saved = JSON.parse(fs.readFileSync(documentPath, 'utf-8'));
       return saved.meta?.date || null;
     }, {
-      message: `等待 ${documentName}.json 写入保存后的日期`,
+      message: `等待 ${documentName}/manifest.json 写入保存后的日期`,
     })
     .toBe('2026-04');
 });
@@ -37,8 +37,8 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
 test('用户可以通过另存生成新的业务域文档副本', async ({ page }) => {
   const originalName = `原业务域-${Date.now()}`;
   const copiedName = `另存业务域-${Date.now()}`;
-  const originalPath = path.join(workspaceDir, `${originalName}.json`);
-  const copiedPath = path.join(workspaceDir, `${copiedName}.json`);
+  const originalPath = path.join(workspaceDir, originalName, 'manifest.json');
+  const copiedPath = path.join(workspaceDir, copiedName, 'manifest.json');
 
   await page.goto('/');
   await page.getByTestId('toolbar-new-button').click();

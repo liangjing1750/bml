@@ -56,6 +56,9 @@ const api = {
   async exportMd(name) {
     return fetch(`/api/export/${encodeURIComponent(name)}`).then((response) => response.text());
   },
+  async exportBundle(name) {
+    return fetch(`/api/export-bundle/${encodeURIComponent(name)}`);
+  },
   async exportJson(name) {
     return this.load(name);
   },

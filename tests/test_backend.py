@@ -1,15 +1,57 @@
 import http.server
+import io
 import json
 import tempfile
 import threading
 import unittest
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from blm_core.document import create_empty_document, migrate_document
 from blm_core.markdown import MarkdownExporter
 from blm_core.server import create_handler
 from blm_core.storage import InvalidDocumentNameError, WorkspaceStorage
+
+
+def package_dir(workspace: Path, name: str) -> Path:
+    return workspace / name
+
+
+def manifest_path(workspace: Path, name: str) -> Path:
+    return package_dir(workspace, name) / "manifest.json"
+
+
+def markdown_path(workspace: Path, name: str) -> Path:
+    return package_dir(workspace, name) / f"{name}.md"
+
+
+def attachment_index_path(workspace: Path, document_uid: str) -> Path:
+    return workspace / ".attachments" / document_uid / "attachments.json"
+
+
+def attachment_path(workspace: Path, document_uid: str, relative_path: str) -> Path:
+    return workspace / ".attachments" / document_uid / relative_path
+
+
+def attachment_files(workspace: Path, document_uid: str) -> list[Path]:
+    root = workspace / ".attachments" / document_uid
+    if not root.exists():
+        return []
+    return sorted(
+        path for path in root.rglob("*")
+        if path.is_file() and path.name != "attachments.json"
+    )
+
+
+def history_snapshot_dirs(workspace: Path, name: str) -> list[Path]:
+    history_root = workspace / ".history" / name
+    if not history_root.exists():
+        return []
+    return sorted(
+        [path for path in history_root.iterdir() if path.is_dir()],
+        key=lambda path: path.name,
+    )
 
 
 class CreateEmptyDocumentTests(unittest.TestCase):
@@ -260,7 +302,8 @@ class MarkdownExporterTests(unittest.TestCase):
 class WorkspaceStorageTests(unittest.TestCase):
     def test_save_load_and_list_documents(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            storage = WorkspaceStorage(Path(temp_dir))
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
             document = create_empty_document("Loans")
 
             storage.save("Loans", document)
@@ -268,8 +311,289 @@ class WorkspaceStorageTests(unittest.TestCase):
             self.assertEqual(storage.list_documents(), ["Loans"])
             loaded = storage.load("Loans")
             self.assertEqual(loaded["meta"]["title"], "Loans")
-            self.assertTrue((Path(temp_dir) / "Loans.json").exists())
-            self.assertTrue((Path(temp_dir) / "Loans.md").exists())
+            self.assertTrue(manifest_path(workspace, "Loans").exists())
+            self.assertTrue(markdown_path(workspace, "Loans").exists())
+
+    def test_save_stores_process_prototypes_as_package_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "borrow-form.html",
+                    "content": "<html><body>borrow</body></html>",
+                    "contentType": "text/html",
+                },
+                {
+                    "uid": "proto-b",
+                    "name": "quota-check.html",
+                    "content": "<html><body>quota</body></html>",
+                    "contentType": "text/html",
+                },
+            ]
+
+            storage.save("Loans", document)
+
+            manifest = json.loads(manifest_path(workspace, "Loans").read_text("utf-8"))
+            prototype_entries = manifest["processes"][0]["prototypeFiles"]
+            self.assertEqual(len(prototype_entries), 2)
+            self.assertNotIn("content", prototype_entries[0])
+            self.assertNotIn("name", prototype_entries[0])
+            self.assertIn("uid", prototype_entries[0])
+            self.assertIn("versionUid", prototype_entries[0])
+            attachment_index = json.loads(
+                attachment_index_path(workspace, manifest["meta"]["document_uid"]).read_text("utf-8")
+            )
+            self.assertEqual(len(attachment_index["attachments"]), 2)
+            first_attachment = attachment_index["attachments"][0]
+            self.assertEqual(first_attachment["name"], "borrow-form.html")
+            self.assertTrue(
+                attachment_path(
+                    workspace,
+                    manifest["meta"]["document_uid"],
+                    first_attachment["versions"][0]["path"],
+                ).exists()
+            )
+
+            loaded = storage.load("Loans")
+            self.assertEqual(
+                [item["content"] for item in loaded["processes"][0]["prototypeFiles"]],
+                [
+                    "<html><body>borrow</body></html>",
+                    "<html><body>quota</body></html>",
+                ],
+            )
+            self.assertEqual(loaded["processes"][0]["prototypeFiles"][0]["versions"][0]["number"], 1)
+            self.assertTrue(loaded["processes"][0]["prototypeFiles"][0]["versions"][0]["uploadedAt"])
+
+    def test_build_export_bundle_outputs_zip_package_with_prototypes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = WorkspaceStorage(Path(temp_dir))
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "borrow-form.html",
+                    "content": "<html><body>borrow</body></html>",
+                    "contentType": "text/html",
+                }
+            ]
+            storage.save("Loans", document)
+
+            filename, payload = storage.build_export_bundle("Loans")
+
+            self.assertEqual(filename, "Loans.zip")
+            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                names = sorted(archive.namelist())
+                self.assertIn("Loans/manifest.json", names)
+                self.assertIn("Loans/Loans.md", names)
+                self.assertIn("Loans/attachments/attachments.json", names)
+                manifest = json.loads(archive.read("Loans/manifest.json").decode("utf-8"))
+                prototype_entry = manifest["processes"][0]["prototypeFiles"][0]
+                self.assertNotIn("content", prototype_entry)
+                self.assertEqual(prototype_entry["uid"], "proto-a")
+                self.assertTrue(prototype_entry["versionUid"])
+                attachment_index = json.loads(archive.read("Loans/attachments/attachments.json").decode("utf-8"))
+                attachment_entry = attachment_index["attachments"][0]
+                self.assertEqual(attachment_entry["name"], "borrow-form.html")
+                self.assertRegex(
+                    attachment_entry["versions"][0]["path"],
+                    r"^attachments/[^/]+/v1__borrow-form\.html$",
+                )
+                self.assertIn(f"Loans/{attachment_entry['versions'][0]['path']}", names)
+                self.assertEqual(
+                    archive.read(f"Loans/{attachment_entry['versions'][0]['path']}").decode("utf-8"),
+                    "<html><body>borrow</body></html>",
+                )
+
+    def test_save_stores_attachment_versions_and_current_version_ref(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "borrow-form.html",
+                    "versionUid": "proto-a-v2",
+                    "versions": [
+                        {
+                            "uid": "proto-a-v1",
+                            "number": 1,
+                            "name": "borrow-form.html",
+                            "content": "<html><body>v1</body></html>",
+                            "contentType": "text/html",
+                            "uploadedAt": "2026-04-23 10:00:00",
+                        },
+                        {
+                            "uid": "proto-a-v2",
+                            "number": 2,
+                            "name": "borrow-form.html",
+                            "content": "<html><body>v2</body></html>",
+                            "contentType": "text/html",
+                            "uploadedAt": "2026-04-23 10:05:00",
+                        },
+                    ],
+                },
+            ]
+
+            storage.save("Loans", document)
+
+            manifest = json.loads(manifest_path(workspace, "Loans").read_text("utf-8"))
+            prototype_entries = manifest["processes"][0]["prototypeFiles"]
+            self.assertEqual(len(prototype_entries), 1)
+            self.assertEqual(prototype_entries[0]["uid"], "proto-a")
+            self.assertEqual(prototype_entries[0]["versionUid"], "proto-a-v2")
+            attachment_index = json.loads(
+                attachment_index_path(workspace, manifest["meta"]["document_uid"]).read_text("utf-8")
+            )
+            attachment_versions = attachment_index["attachments"][0]["versions"]
+            self.assertEqual(
+                [version["uid"] for version in attachment_versions],
+                ["proto-a-v1", "proto-a-v2"],
+            )
+            self.assertEqual(
+                [path.name for path in attachment_files(workspace, manifest["meta"]["document_uid"])],
+                ["v1__borrow-form.html", "v2__borrow-form.html"],
+            )
+
+    def _legacy_save_preserves_unicode_attachment_filename(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "入库查询（客户、交易所）.html",
+                    "content": "<html><body>unicode</body></html>",
+                    "contentType": "text/html",
+                }
+            ]
+
+            storage.save("Loans", document)
+
+            manifest = json.loads(manifest_path(workspace, "Loans").read_text("utf-8"))
+            prototype_entry = manifest["processes"][0]["prototypeFiles"][0]
+            self.assertEqual(prototype_entry["attachmentKey"], "入库查询（客户、交易所）.html")
+            self.assertTrue(
+                attachment_path(
+                    workspace,
+                    manifest["meta"]["document_uid"],
+                    prototype_entry["attachmentKey"],
+                ).exists()
+            )
+
+    def test_save_preserves_unicode_attachment_filename_v2(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "入库查询（客户、交易所）.html",
+                    "content": "<html><body>unicode</body></html>",
+                    "contentType": "text/html",
+                }
+            ]
+
+            storage.save("Loans", document)
+
+            manifest = json.loads(manifest_path(workspace, "Loans").read_text("utf-8"))
+            prototype_entry = manifest["processes"][0]["prototypeFiles"][0]
+            attachment_index = json.loads(
+                attachment_index_path(workspace, manifest["meta"]["document_uid"]).read_text("utf-8")
+            )
+            version_path = attachment_index["attachments"][0]["versions"][0]["path"]
+            self.assertEqual(prototype_entry["uid"], "proto-a")
+            self.assertTrue(version_path.endswith("入库查询（客户、交易所）.html"))
+            self.assertTrue(
+                attachment_path(
+                    workspace,
+                    manifest["meta"]["document_uid"],
+                    version_path,
+                ).exists()
+            )
+
+    def test_history_versions_reuse_single_attachment_file_when_prototype_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "borrow-form.html",
+                    "content": "<html><body>borrow</body></html>",
+                    "contentType": "text/html",
+                }
+            ]
+
+            storage.save("Loans", document)
+            document["meta"]["title"] = "Loans v2"
+            storage.save("Loans", document)
+
+            current_manifest = json.loads(manifest_path(workspace, "Loans").read_text("utf-8"))
+            history_manifest = json.loads(
+                (history_snapshot_dirs(workspace, "Loans")[0] / "manifest.json").read_text("utf-8")
+            )
+            current_ref = current_manifest["processes"][0]["prototypeFiles"][0]
+            history_ref = history_manifest["processes"][0]["prototypeFiles"][0]
+
+            self.assertEqual(current_ref, history_ref)
+            saved_files = attachment_files(workspace, current_manifest["meta"]["document_uid"])
+            self.assertEqual(len(saved_files), 1)
+            self.assertEqual(saved_files[0].name, "v1__borrow-form.html")
+
+    def test_migrate_workspace_layout_converts_legacy_documents_history_and_trash(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            legacy_document = create_empty_document("Legacy")
+            legacy_document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "legacy.html",
+                    "content": "<html><body>legacy</body></html>",
+                    "contentType": "text/html",
+                }
+            ]
+            (workspace / "Legacy.json").write_text(
+                json.dumps(legacy_document, ensure_ascii=False, indent=2),
+                "utf-8",
+            )
+            (workspace / "Legacy.md").write_text("# Legacy\n", "utf-8")
+            history_dir = workspace / ".history" / "Legacy"
+            history_dir.mkdir(parents=True, exist_ok=True)
+            (history_dir / "20260423-120000-000001.json").write_text(
+                json.dumps(legacy_document, ensure_ascii=False, indent=2),
+                "utf-8",
+            )
+            (history_dir / "20260423-120000-000001.md").write_text("# Legacy\n", "utf-8")
+            (workspace / ".trash" / "Legacy-20260423-120100-000001.json").write_text(
+                json.dumps(legacy_document, ensure_ascii=False, indent=2),
+                "utf-8",
+            )
+            (workspace / ".trash" / "Legacy-20260423-120100-000001.md").write_text("# Legacy\n", "utf-8")
+
+            result = storage.migrate_workspace_layout()
+
+            self.assertEqual(result, {"documents": 1, "history": 1, "trash": 1})
+            self.assertTrue(manifest_path(workspace, "Legacy").exists())
+            self.assertFalse((workspace / "Legacy.json").exists())
+            migrated_manifest = json.loads(manifest_path(workspace, "Legacy").read_text("utf-8"))
+            migrated_index = json.loads(
+                attachment_index_path(workspace, migrated_manifest["meta"]["document_uid"]).read_text("utf-8")
+            )
+            migrated_path = migrated_index["attachments"][0]["versions"][0]["path"]
+            self.assertTrue(attachment_path(workspace, migrated_manifest["meta"]["document_uid"], migrated_path).exists())
+            self.assertTrue((workspace / ".history" / "Legacy" / "20260423-120000-000001" / "manifest.json").exists())
+            self.assertFalse((history_dir / "20260423-120000-000001.json").exists())
+            self.assertTrue((workspace / ".trash" / "Legacy-20260423-120100-000001" / "manifest.json").exists())
+            self.assertFalse((workspace / ".trash" / "Legacy-20260423-120100-000001.json").exists())
 
     def test_rejects_unsafe_document_names(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -291,12 +615,11 @@ class WorkspaceStorageTests(unittest.TestCase):
             document["meta"]["title"] = "Loans v2"
             storage.save("Loans", document)
 
-            history_dir = workspace / ".history" / "Loans"
-            snapshots = sorted(history_dir.glob("*.json"))
+            snapshots = history_snapshot_dirs(workspace, "Loans")
 
             self.assertEqual(len(snapshots), 1)
-            self.assertTrue((history_dir / f"{snapshots[0].stem}.md").exists())
-            snapshot_document = json.loads(snapshots[0].read_text("utf-8"))
+            self.assertTrue((snapshots[0] / "Loans.md").exists())
+            snapshot_document = json.loads((snapshots[0] / "manifest.json").read_text("utf-8"))
             self.assertEqual(snapshot_document["meta"]["title"], "Loans")
             self.assertEqual(storage.load("Loans")["meta"]["title"], "Loans v2")
 
@@ -308,12 +631,12 @@ class WorkspaceStorageTests(unittest.TestCase):
 
             storage.delete("Loans")
 
-            self.assertFalse((workspace / "Loans.json").exists())
-            self.assertFalse((workspace / "Loans.md").exists())
-            trash_json = sorted((workspace / ".trash").glob("Loans-*.json"))
-            trash_md = sorted((workspace / ".trash").glob("Loans-*.md"))
-            self.assertEqual(len(trash_json), 1)
-            self.assertEqual(len(trash_md), 1)
+            self.assertFalse(manifest_path(workspace, "Loans").exists())
+            self.assertFalse(markdown_path(workspace, "Loans").exists())
+            trash_dirs = sorted(path for path in (workspace / ".trash").glob("Loans-*") if path.is_dir())
+            self.assertEqual(len(trash_dirs), 1)
+            self.assertTrue((trash_dirs[0] / "manifest.json").exists())
+            self.assertTrue((trash_dirs[0] / "Loans.md").exists())
 
     def test_history_keeps_recent_snapshots_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -327,12 +650,11 @@ class WorkspaceStorageTests(unittest.TestCase):
                 document["meta"]["title"] = f"Loans v{version}"
                 storage.save("Loans", document)
 
-            history_dir = workspace / ".history" / "Loans"
-            snapshots = sorted(history_dir.glob("*.json"))
+            snapshots = history_snapshot_dirs(workspace, "Loans")
 
             self.assertEqual(len(snapshots), 3)
             self.assertEqual(
-                [json.loads(path.read_text("utf-8"))["meta"]["title"] for path in snapshots],
+                [json.loads((path / "manifest.json").read_text("utf-8"))["meta"]["title"] for path in snapshots],
                 ["Loans v2", "Loans v3", "Loans v4"],
             )
 
@@ -366,7 +688,7 @@ class WorkspaceStorageTests(unittest.TestCase):
 
             self.assertEqual(restored_name, "Loans")
             self.assertEqual(restored_document["meta"]["title"], "Loans")
-            self.assertTrue((workspace / "Loans.json").exists())
+            self.assertTrue(manifest_path(workspace, "Loans").exists())
             self.assertEqual(storage.list_trash(), [])
 
     def test_rename_moves_old_workspace_document_to_trash(self):
@@ -387,8 +709,8 @@ class WorkspaceStorageTests(unittest.TestCase):
             self.assertEqual(renamed_name, "交割智慧监管平台")
             self.assertEqual(renamed_document["meta"]["title"], "交割智慧监管平台")
             self.assertEqual(renamed_document["meta"]["domain"], "交割智慧监管平台")
-            self.assertFalse((workspace / "交割智慧监管平台-合并.json").exists())
-            self.assertTrue((workspace / "交割智慧监管平台.json").exists())
+            self.assertFalse(manifest_path(workspace, "交割智慧监管平台-合并").exists())
+            self.assertTrue(manifest_path(workspace, "交割智慧监管平台").exists())
             self.assertTrue(any(entry["doc_name"] == "交割智慧监管平台-合并" for entry in storage.list_trash()))
 
     def test_rename_can_overwrite_existing_document_when_explicitly_allowed(self):
@@ -413,12 +735,43 @@ class WorkspaceStorageTests(unittest.TestCase):
 
             self.assertEqual(renamed_name, "交割智慧监管平台")
             self.assertEqual(renamed_document["meta"]["title"], "交割智慧监管平台")
-            self.assertFalse((workspace / "交割智慧监管平台-合并.json").exists())
+            self.assertFalse(manifest_path(workspace, "交割智慧监管平台-合并").exists())
             self.assertEqual(storage.load("交割智慧监管平台")["meta"]["title"], "交割智慧监管平台")
             history_entries = storage.list_history("交割智慧监管平台")
             self.assertEqual(len(history_entries), 1)
             history_snapshot = storage.restore_history("交割智慧监管平台", history_entries[0]["id"])
             self.assertEqual(history_snapshot["meta"]["author"], "legacy")
+
+    def test_save_upgrades_legacy_workspace_document_to_package(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            legacy_document = create_empty_document("Legacy")
+            (workspace / "Legacy.json").write_text(
+                json.dumps(legacy_document, ensure_ascii=False, indent=2),
+                "utf-8",
+            )
+            (workspace / "Legacy.md").write_text("# Legacy\n", "utf-8")
+
+            storage.save("Legacy", legacy_document)
+
+            self.assertFalse((workspace / "Legacy.json").exists())
+            self.assertFalse((workspace / "Legacy.md").exists())
+            self.assertTrue(manifest_path(workspace, "Legacy").exists())
+            self.assertTrue(markdown_path(workspace, "Legacy").exists())
+
+    def test_list_documents_and_load_support_legacy_workspace_json(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            legacy_document = create_empty_document("Legacy")
+            (workspace / "Legacy.json").write_text(
+                json.dumps(legacy_document, ensure_ascii=False, indent=2),
+                "utf-8",
+            )
+
+            self.assertEqual(storage.list_documents(), ["Legacy"])
+            self.assertEqual(storage.load("Legacy")["meta"]["title"], "Legacy")
 
 
 class MergeApiTests(unittest.TestCase):
@@ -686,6 +1039,60 @@ class RecoveryApiTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Loans")
         self.assertEqual(result["document"]["meta"]["title"], "Loans")
+
+
+class ExportApiTests(unittest.TestCase):
+    def test_export_bundle_api_returns_zip_package(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "workspace"
+            workspace_dir.mkdir()
+            storage = WorkspaceStorage(workspace_dir)
+            document = create_empty_document("Loans")
+            document["processes"][0]["prototypeFiles"] = [
+                {
+                    "uid": "proto-a",
+                    "name": "borrow-form.html",
+                    "content": "<html><body>borrow</body></html>",
+                    "contentType": "text/html",
+                }
+            ]
+            storage.save("Loans", document)
+
+            app_dir = Path(__file__).resolve().parent.parent / "app"
+            handler = create_handler(app_dir, storage)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/export-bundle/Loans"
+                ) as response:
+                    payload = response.read()
+                    content_type = response.headers.get("Content-Type")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(content_type, "application/zip")
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            names = sorted(archive.namelist())
+            self.assertIn("Loans/manifest.json", names)
+            self.assertIn("Loans/Loans.md", names)
+            self.assertIn("Loans/attachments/attachments.json", names)
+            manifest = json.loads(archive.read("Loans/manifest.json").decode("utf-8"))
+            prototype = manifest["processes"][0]["prototypeFiles"][0]
+            self.assertEqual(prototype["uid"], "proto-a")
+            self.assertTrue(prototype["versionUid"])
+            attachment_index = json.loads(archive.read("Loans/attachments/attachments.json").decode("utf-8"))
+            version_path = attachment_index["attachments"][0]["versions"][0]["path"]
+            self.assertRegex(version_path, r"^attachments/[^/]+/v1__borrow-form\.html$")
+            self.assertIn(f"Loans/{version_path}", names)
+            self.assertEqual(
+                archive.read(f"Loans/{version_path}").decode("utf-8"),
+                "<html><body>borrow</body></html>",
+            )
 
 
 class DocsApiTests(unittest.TestCase):

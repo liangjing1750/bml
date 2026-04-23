@@ -580,18 +580,17 @@ const App = {
 
   async cmdExport() {
     if (!S.doc) return;
-    if (S.currentFile) {
-      await App.cmdSave();
-    }
+    await App.cmdSave();
+    if (!S.currentFile || S.modified) return;
 
-    const jsonName = `${S.doc.meta?.domain || getCurrentDocumentLabel() || 'blm-document'}.json`;
-    const mdName = `${S.doc.meta?.domain || getCurrentDocumentLabel() || 'blm-document'}.md`;
-    App._downloadBlob(
-      `${JSON.stringify(S.doc, null, 2)}\n`,
-      'application/json;charset=utf-8',
-      jsonName,
-    );
-    App._downloadBlob(buildMdFromDoc(S.doc), 'text/plain;charset=utf-8', mdName);
+    const bundleName = `${S.currentFile || S.doc.meta?.domain || getCurrentDocumentLabel() || 'blm-document'}.zip`;
+    const response = await api.exportBundle(S.currentFile);
+    if (!response.ok) {
+      alert('导出文档包失败，请稍后重试。');
+      return;
+    }
+    const bundleBlob = await response.blob();
+    App._downloadBlob(bundleBlob, bundleBlob.type || 'application/zip', bundleName);
   },
 
   cmdManual() {

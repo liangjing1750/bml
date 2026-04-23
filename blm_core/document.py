@@ -261,6 +261,59 @@ def _normalize_meta(meta: dict) -> dict:
     return meta
 
 
+def _normalize_uploaded_at(uploaded_at: str) -> str:
+    return str(uploaded_at or "").strip()
+
+
+def _normalize_prototype_versions(prototype: dict, prototype_index: int) -> tuple[list[dict], dict]:
+    normalized_name = str(prototype.get("name", "")).strip() or f"原型{prototype_index}.html"
+    version_sources = prototype.get("versions", [])
+    if not isinstance(version_sources, list) or not version_sources:
+        version_sources = [
+            {
+                "uid": str(prototype.get("versionUid", "")).strip() or str(prototype.get("currentVersionUid", "")).strip(),
+                "number": 1,
+                "name": normalized_name,
+                "content": str(prototype.get("content", "")),
+                "contentType": str(prototype.get("contentType", "text/html")).strip() or "text/html",
+                "uploadedAt": _normalize_uploaded_at(prototype.get("uploadedAt", "")),
+            }
+        ]
+
+    normalized_versions: list[dict] = []
+    for version_index, version in enumerate(version_sources, start=1):
+        raw_version = version if isinstance(version, dict) else {"name": normalized_name, "content": str(version or "")}
+        version_name = str(raw_version.get("name", "")).strip() or normalized_name
+        try:
+            version_number = int(raw_version.get("number") or version_index)
+        except (TypeError, ValueError):
+            version_number = version_index
+        if version_number < 1:
+            version_number = version_index
+        normalized_versions.append(
+            {
+                "uid": str(raw_version.get("uid", "")).strip() or _new_uid(),
+                "number": version_number,
+                "name": version_name,
+                "content": str(raw_version.get("content", "")),
+                "contentType": str(raw_version.get("contentType", "text/html")).strip() or "text/html",
+                "uploadedAt": _normalize_uploaded_at(raw_version.get("uploadedAt", "")),
+            }
+        )
+
+    normalized_versions.sort(key=lambda item: (item["number"], item["uid"]))
+    for version_index, version in enumerate(normalized_versions, start=1):
+        version["number"] = version_index
+
+    version_uid = (
+        str(prototype.get("versionUid", "")).strip()
+        or str(prototype.get("currentVersionUid", "")).strip()
+        or normalized_versions[-1]["uid"]
+    )
+    current_version = next((item for item in normalized_versions if item["uid"] == version_uid), normalized_versions[-1])
+    return normalized_versions, current_version
+
+
 def _normalize_rules(rules: list[dict]) -> None:
     for rule in rules:
         _ensure_uid(rule)
@@ -345,13 +398,16 @@ def _normalize_processes(processes: list[dict], roles: list[dict]) -> None:
         for prototype_index, prototype in enumerate(prototype_sources, start=1):
             normalized = prototype if isinstance(prototype, dict) else {"name": str(prototype or "").strip()}
             _ensure_uid(normalized)
-            normalized_name = str(normalized.get("name", "")).strip() or f"原型{prototype_index}.html"
+            normalized_versions, current_version = _normalize_prototype_versions(normalized, prototype_index)
             normalized_prototypes.append(
                 {
                     "uid": normalized["uid"],
-                    "name": normalized_name,
-                    "content": str(normalized.get("content", "")),
-                    "contentType": str(normalized.get("contentType", "text/html")).strip() or "text/html",
+                    "name": str(normalized.get("name", "")).strip() or current_version["name"],
+                    "versionUid": current_version["uid"],
+                    "content": current_version["content"],
+                    "contentType": current_version["contentType"],
+                    "uploadedAt": current_version["uploadedAt"],
+                    "versions": normalized_versions,
                 }
             )
         process["prototypeFiles"] = normalized_prototypes

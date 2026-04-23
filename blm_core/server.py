@@ -77,6 +77,8 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
                 return self._handle_docs(path)
             if path.startswith("/api/load/"):
                 return self._handle_load(path)
+            if path.startswith("/api/export-bundle/"):
+                return self._handle_export_bundle(path)
             if path.startswith("/api/export/"):
                 return self._handle_export(path)
             if path.startswith("/api/history/"):
@@ -124,6 +126,16 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
             name = unquote(path[len("/api/export/"):])
             try:
                 return self._text(storage.export_markdown(name))
+            except InvalidDocumentNameError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except FileNotFoundError:
+                return self._json({"error": "not found"}, 404)
+
+        def _handle_export_bundle(self, path: str):
+            name = unquote(path[len("/api/export-bundle/"):])
+            try:
+                filename, payload = storage.build_export_bundle(name)
+                return self._binary(payload, "application/zip", filename=filename)
             except InvalidDocumentNameError as exc:
                 return self._json({"error": str(exc)}, 400)
             except FileNotFoundError:
@@ -328,9 +340,11 @@ def create_handler(app_dir: Path, storage: WorkspaceStorage):
             self.end_headers()
             self.wfile.write(body)
 
-        def _binary(self, payload: bytes, content_type: str, code: int = 200):
+        def _binary(self, payload: bytes, content_type: str, code: int = 200, filename: str | None = None):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
+            if filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -353,12 +367,20 @@ def run_server(
     open_browser: bool = True,
 ) -> None:
     storage = WorkspaceStorage(workspace_dir)
+    migration_result = storage.migrate_workspace_layout()
     handler = create_handler(app_dir, storage)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
     url = f"http://127.0.0.1:{port}"
 
     print(f"BLM Tool 已启动: {url}")
     print(f"文档目录: {workspace_dir}")
+    if any(migration_result.values()):
+        print(
+            "已完成文档包迁移: "
+            f"workspace={migration_result['documents']}, "
+            f"history={migration_result['history']}, "
+            f"trash={migration_result['trash']}"
+        )
     print("按 Ctrl+C 退出\n")
 
     if open_browser:

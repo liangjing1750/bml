@@ -40,6 +40,37 @@ FIELD_LABELS = {
     "id": "标识ID",
 }
 
+def _format_prototype_summary(prototype_files: list[dict]) -> str:
+    parts: list[str] = []
+    for item in prototype_files:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        versions = item.get("versions", [])
+        if not isinstance(versions, list):
+            versions = []
+        current_version_uid = str(item.get("versionUid", "")).strip()
+        current_version = next(
+            (
+                version
+                for version in versions
+                if isinstance(version, dict) and str(version.get("uid", "")).strip() == current_version_uid
+            ),
+            versions[-1] if versions else None,
+        )
+        if versions:
+            try:
+                version_number = int((current_version or {}).get("number") or 1)
+            except (AttributeError, TypeError, ValueError):
+                version_number = 1
+            parts.append(f"{name}（当前 v{version_number}，共{len(versions)}版）")
+        else:
+            parts.append(name)
+    return "、".join(parts)
+
+
 RULE_LABELS = {
     "StepRule": "步骤规则",
     "DataRule": "数据规则",
@@ -248,9 +279,7 @@ class MarkdownExporter:
             )
         prototype_files = process.get("prototypeFiles", [])
         if prototype_files:
-            prototype_names = "、".join(
-                str(item.get("name", "")).strip() for item in prototype_files if str(item.get("name", "")).strip()
-            )
+            prototype_names = _format_prototype_summary(prototype_files)
             if prototype_names:
                 process_meta.append(f"**\u6d41\u7a0b\u539f\u578b**: {prototype_names}")
         if process_meta:

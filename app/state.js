@@ -62,6 +62,7 @@ const S = {
     sidebarW: 240,
     procView: 'card',  // 'list' | 'card' | 'role'
     nodePerspective: 'user',
+    procPrototypeExpanded: {},
     procEditorFocusSelector: '',
     procDrawerW: 480,
     entityDrawerW: 480,
@@ -226,22 +227,68 @@ function getNodeUserSteps(node) {
 function getNodeOrchestrationTasks(node) {
   return Array.isArray(node?.orchestrationTasks) ? node.orchestrationTasks : [];
 }
+function formatPrototypeUploadedAt(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  const second = String(date.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+function normalizePrototypeVersionEntry(version, fallbackName, versionIndex = 1) {
+  const normalizedVersion = version && typeof version === 'object' ? version : { name: fallbackName, content: String(version || '') };
+  const versionName = String(normalizedVersion.name || '').trim() || fallbackName;
+  let versionNumber = Number.parseInt(normalizedVersion.number, 10);
+  if (!Number.isFinite(versionNumber) || versionNumber < 1) versionNumber = versionIndex;
+  return {
+    uid: String(normalizedVersion.uid || '').trim() || createUiUid('protover'),
+    number: versionNumber,
+    name: versionName,
+    content: String(normalizedVersion.content || ''),
+    contentType: String(normalizedVersion.contentType || 'text/html').trim() || 'text/html',
+    uploadedAt: String(normalizedVersion.uploadedAt || '').trim(),
+  };
+}
 function normalizePrototypeFileEntry(file, index = 1) {
   const fallbackName = `原型${index}.html`;
   if (!file || typeof file !== 'object') {
+    const version = normalizePrototypeVersionEntry({}, fallbackName, 1);
     return {
       uid: createUiUid('proto'),
       name: fallbackName,
-      content: '',
-      contentType: 'text/html',
+      versionUid: version.uid,
+      content: version.content,
+      contentType: version.contentType,
+      uploadedAt: version.uploadedAt,
+      versions: [version],
     };
   }
   const normalizedName = String(file.name || '').trim() || fallbackName;
+  const versionSources = Array.isArray(file.versions) && file.versions.length
+    ? file.versions
+    : [{
+      uid: String(file.versionUid || file.currentVersionUid || '').trim(),
+      number: 1,
+      name: normalizedName,
+      content: String(file.content || ''),
+      contentType: String(file.contentType || 'text/html').trim() || 'text/html',
+      uploadedAt: String(file.uploadedAt || '').trim(),
+    }];
+  const normalizedVersions = versionSources
+    .map((version, versionIndex) => normalizePrototypeVersionEntry(version, normalizedName, versionIndex + 1))
+    .sort((left, right) => (left.number - right.number) || String(left.uid).localeCompare(String(right.uid)));
+  normalizedVersions.forEach((version, versionIndex) => { version.number = versionIndex + 1; });
+  const versionUid = String(file.versionUid || file.currentVersionUid || '').trim();
+  const currentVersion = normalizedVersions.find((version) => version.uid === versionUid) || normalizedVersions[normalizedVersions.length - 1];
   return {
     uid: String(file.uid || '').trim() || createUiUid('proto'),
-    name: normalizedName,
-    content: String(file.content || ''),
-    contentType: String(file.contentType || 'text/html').trim() || 'text/html',
+    name: normalizedName || currentVersion.name,
+    versionUid: currentVersion.uid,
+    content: currentVersion.content,
+    contentType: currentVersion.contentType,
+    uploadedAt: currentVersion.uploadedAt,
+    versions: normalizedVersions,
   };
 }
 function getProcPrototypeFiles(proc) {
