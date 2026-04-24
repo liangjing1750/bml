@@ -13,6 +13,7 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
   await page.getByTestId('new-doc-name-input').fill(documentName);
   await page.getByTestId('new-doc-confirm-button').click();
 
+  await page.getByTestId('domain-author-input').fill('Codex Tester');
   await page.getByTestId('domain-date-input').fill('2026-04');
   await expect(page.getByTestId('modified-badge')).toBeVisible();
   await expect(page.getByTestId('save-alert')).toBeVisible();
@@ -27,11 +28,17 @@ test('用户可以修改文档并点击保存落盘', async ({ page }) => {
         return null;
       }
       const saved = JSON.parse(fs.readFileSync(documentPath, 'utf-8'));
-      return saved.meta?.date || null;
+      return {
+        author: saved.meta?.author || null,
+        date: saved.meta?.date || null,
+      };
     }, {
-      message: `等待 ${documentName}/manifest.json 写入保存后的日期`,
+      message: `等待 ${documentName}/manifest.json 写入保存后的作者和日期`,
     })
-    .toBe('2026-04');
+    .toEqual({
+      author: 'Codex Tester',
+      date: '2026-04',
+    });
 });
 
 test('保存后保留当前数据状态图工作位', async ({ page }) => {

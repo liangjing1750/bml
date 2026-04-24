@@ -222,6 +222,10 @@ function renderDomainTab(options = {}) {
         <span>业务域 <span class="inline-help inline-help-left" tabindex="0" data-tip="这里填写这份建模文档的业务域名称，也可以顺手带上范围或版本，例如：交割智慧监管平台-v2、仓储仓单管理-2026Q2。">?</span></span>
         <input type="text" value="${esc(meta.domain || meta.title || '')}" oninput="setDomain(this.value)" placeholder="如：交割智慧监管平台-v2">
       </label>
+      <label class="domain-info-inline-field domain-info-author-field">
+        <span>作者</span>
+        <input type="text" data-testid="domain-author-input" value="${esc(meta.author || '')}" oninput="setMeta('author',this.value)" placeholder="如：Liang Jing">
+      </label>
       <label class="domain-info-inline-field domain-info-date-field">
         <span>日期</span>
         <input type="text" data-testid="domain-date-input" value="${esc(meta.date || '')}" oninput="setMeta('date',this.value)" placeholder="2026-04">
