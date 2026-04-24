@@ -59,6 +59,7 @@ const S = {
     stateFieldName: '',
     roleId: null,
     roleQuery: '',
+    navHistory: [],
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
     sidebarCollapsed: false,
     sidebarW: 240,
@@ -70,6 +71,7 @@ const S = {
     procDiagramH: 200,
     procDrawerW: 480,
     stageGraphZoom: 1,
+    stageEditorCollapsed: false,
     entityDrawerW: 620,
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,

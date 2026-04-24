@@ -85,6 +85,222 @@ function restoreUiViewportState(snapshot) {
   });
 }
 
+const UI_NAV_HISTORY_LIMIT = 60;
+const UI_NAV_HISTORY_KEYS = [
+  'tab',
+  'procId',
+  'taskId',
+  'stageId',
+  'stageViewMode',
+  'entityId',
+  'dataView',
+  'stateFieldName',
+  'roleId',
+  'procView',
+  'nodePerspective',
+  'stageEditorCollapsed',
+  'stateEditorCollapsed',
+  'stageGraphZoom',
+  'stateDiagramZoom',
+];
+
+let pendingUiNavigationSnapshot = null;
+let pendingUiNavigationTimer = null;
+
+function cloneUiViewportSnapshot(snapshot) {
+  if (!snapshot) return null;
+  return {
+    pageTop: snapshot.pageTop || 0,
+    pageLeft: snapshot.pageLeft || 0,
+    elementScrolls: Array.isArray(snapshot.elementScrolls)
+      ? snapshot.elementScrolls.map((item) => ({
+        selector: String(item.selector || ''),
+        top: item.top || 0,
+        left: item.left || 0,
+      }))
+      : [],
+  };
+}
+
+function cloneUiNavigationHistory(history = []) {
+  return Array.isArray(history)
+    ? history.map((entry) => ({
+      ...entry,
+      viewport: cloneUiViewportSnapshot(entry.viewport),
+    }))
+    : [];
+}
+
+function getUiNavigationSnapshot(sourceUi = S.ui, options = {}) {
+  const ui = sourceUi || {};
+  const includeViewport = options.includeViewport !== false;
+  return {
+    tab: String(ui.tab || 'domain'),
+    procId: ui.procId || null,
+    taskId: ui.taskId || null,
+    stageId: ui.stageId || null,
+    stageViewMode: String(ui.stageViewMode || 'panorama'),
+    entityId: ui.entityId || null,
+    dataView: String(ui.dataView || 'relation'),
+    stateFieldName: String(ui.stateFieldName || ''),
+    roleId: ui.roleId || null,
+    procView: String(ui.procView || 'card'),
+    nodePerspective: String(ui.nodePerspective || 'user'),
+    stageEditorCollapsed: Boolean(ui.stageEditorCollapsed),
+    stateEditorCollapsed: Boolean(ui.stateEditorCollapsed),
+    stageGraphZoom: Number(ui.stageGraphZoom) || 1,
+    stateDiagramZoom: Number(ui.stateDiagramZoom) || 1,
+    viewport: includeViewport ? cloneUiViewportSnapshot(captureUiViewportState()) : null,
+  };
+}
+
+function areUiNavigationSnapshotsEqual(left, right) {
+  const a = left || {};
+  const b = right || {};
+  return UI_NAV_HISTORY_KEYS.every((key) => {
+    if (key === 'stageGraphZoom' || key === 'stateDiagramZoom') {
+      return Math.abs((Number(a[key]) || 1) - (Number(b[key]) || 1)) < 0.001;
+    }
+    return String(a[key] ?? '') === String(b[key] ?? '');
+  });
+}
+
+function clearPendingUiNavigationHistory() {
+  pendingUiNavigationSnapshot = null;
+  if (pendingUiNavigationTimer) {
+    window.clearTimeout(pendingUiNavigationTimer);
+    pendingUiNavigationTimer = null;
+  }
+}
+
+function commitPendingUiNavigationHistory() {
+  if (!pendingUiNavigationSnapshot) {
+    clearPendingUiNavigationHistory();
+    return;
+  }
+  const snapshot = pendingUiNavigationSnapshot;
+  clearPendingUiNavigationHistory();
+  const current = getUiNavigationSnapshot(S.ui, { includeViewport: false });
+  if (areUiNavigationSnapshotsEqual(snapshot, current)) return;
+  const history = cloneUiNavigationHistory(S.ui.navHistory);
+  const last = history[history.length - 1];
+  if (last && areUiNavigationSnapshotsEqual(last, snapshot)) return;
+  history.push(snapshot);
+  if (history.length > UI_NAV_HISTORY_LIMIT) {
+    history.splice(0, history.length - UI_NAV_HISTORY_LIMIT);
+  }
+  S.ui.navHistory = history;
+  if (typeof renderTabBar === 'function' && S.ui.tab !== 'manual') {
+    renderTabBar();
+  }
+}
+
+function queueUiNavigationHistory() {
+  if (!S.doc) return false;
+  if (!pendingUiNavigationSnapshot) {
+    pendingUiNavigationSnapshot = getUiNavigationSnapshot(S.ui);
+  }
+  if (!pendingUiNavigationTimer) {
+    pendingUiNavigationTimer = window.setTimeout(() => {
+      commitPendingUiNavigationHistory();
+    }, 0);
+  }
+  return true;
+}
+
+function queueUiNavigationHistoryFor(nextState, options = {}) {
+  if (options.recordHistory === false || !S.doc) return false;
+  const current = getUiNavigationSnapshot(S.ui, { includeViewport: false });
+  const draft = { ...current };
+  const normalizedNext = typeof nextState === 'function'
+    ? (nextState(draft) || draft)
+    : { ...draft, ...(nextState || {}) };
+  if (areUiNavigationSnapshotsEqual(current, normalizedNext)) return false;
+  return queueUiNavigationHistory();
+}
+
+function canGoBackNavigation() {
+  commitPendingUiNavigationHistory();
+  return Array.isArray(S.ui?.navHistory) && S.ui.navHistory.length > 0;
+}
+
+function getUiNavigationLabel(snapshot) {
+  const route = snapshot || {};
+  if (route.tab === 'process') {
+    if (route.procView === 'stage') {
+      if (route.stageViewMode === 'detail' && route.stageId) {
+        const stage = getStageItems(S.doc).find((item) => item.id === route.stageId);
+        return `返回到阶段：${stage?.name || route.stageId}`;
+      }
+      return '返回到业务全景';
+    }
+    if (route.procView === 'role') return '返回到角色视图';
+    if (route.procId && route.taskId) {
+      const proc = (S.doc?.processes || []).find((item) => item.id === route.procId);
+      const task = getProcNodes(proc).find((item) => item.id === route.taskId);
+      return `返回到节点：${task?.name || route.taskId}`;
+    }
+    if (route.procId) {
+      const proc = (S.doc?.processes || []).find((item) => item.id === route.procId);
+      return `返回到流程：${proc?.name || route.procId}`;
+    }
+    return '返回到流程';
+  }
+  if (route.tab === 'data') {
+    if (route.dataView === 'state' && route.entityId) {
+      const entity = (S.doc?.entities || []).find((item) => item.id === route.entityId);
+      return `返回到状态图：${entity?.name || route.entityId}`;
+    }
+    if (route.entityId) {
+      const entity = (S.doc?.entities || []).find((item) => item.id === route.entityId);
+      return `返回到实体：${entity?.name || route.entityId}`;
+    }
+    return '返回到数据';
+  }
+  if (route.tab === 'preview') return '返回到预览';
+  if (route.tab === 'manual') return '返回到使用手册';
+  return '返回到业务域';
+}
+
+function getBackNavigationTitle() {
+  commitPendingUiNavigationHistory();
+  const history = Array.isArray(S.ui?.navHistory) ? S.ui.navHistory : [];
+  const previous = history[history.length - 1];
+  return previous ? getUiNavigationLabel(previous) : '当前没有可返回的位置';
+}
+
+function applyUiNavigationSnapshot(snapshot) {
+  if (!snapshot) return false;
+  const history = cloneUiNavigationHistory(S.ui.navHistory);
+  UI_NAV_HISTORY_KEYS.forEach((key) => {
+    if (!(key in snapshot)) return;
+    S.ui[key] = snapshot[key];
+  });
+  S.ui.navHistory = history;
+  render();
+  restoreUiViewportState(snapshot.viewport);
+  return true;
+}
+
+function goBackNavigation() {
+  commitPendingUiNavigationHistory();
+  const history = cloneUiNavigationHistory(S.ui.navHistory);
+  if (!history.length) return false;
+  const current = getUiNavigationSnapshot(S.ui, { includeViewport: false });
+  let previous = history.pop();
+  while (previous && areUiNavigationSnapshotsEqual(previous, current)) {
+    previous = history.pop();
+  }
+  S.ui.navHistory = history;
+  if (!previous) {
+    if (typeof renderTabBar === 'function' && S.ui.tab !== 'manual') {
+      renderTabBar();
+    }
+    return false;
+  }
+  return applyUiNavigationSnapshot(previous);
+}
+
 function getPreservedDocUiState(doc, sourceUi = {}) {
   const base = createDocUiState(doc);
   const next = {
@@ -99,6 +315,7 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
     procRolePickerCollapsed: sourceUi && typeof sourceUi.procRolePickerCollapsed === 'object'
       ? { ...sourceUi.procRolePickerCollapsed }
       : { ...base.procRolePickerCollapsed },
+    navHistory: cloneUiNavigationHistory(sourceUi?.navHistory),
   };
 
   const validTabs = new Set(['domain', 'process', 'data', 'rules', 'preview', 'manual']);
@@ -164,6 +381,7 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
 function setActiveDocumentSession(doc, options = {}) {
   const previousUi = options.preserveUiState ? S.ui : null;
   const previousViewport = options.preserveUiState ? captureUiViewportState() : null;
+  clearPendingUiNavigationHistory();
   hydrateDocumentForUi(doc);
   if (doc.meta && !doc.meta.domain) {
     doc.meta.domain = options.domain || options.fileName || '';
@@ -878,6 +1096,7 @@ function createDocUiState(doc) {
     stateFieldName: '',
     roleId: firstRoleId,
     roleQuery: '',
+    navHistory: [],
     sbCollapse: _defaultSbCollapse(doc),
     sidebarCollapsed: false,
     sidebarW: getUiPrefNumber('sidebarW', 240),
@@ -889,6 +1108,7 @@ function createDocUiState(doc) {
     procDiagramH: getUiPrefNumber('procDiagramH', 200),
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     stageGraphZoom: 1,
+    stageEditorCollapsed: false,
     entityDrawerW: getUiPrefNumber('entityDrawerW', 620),
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,
@@ -900,6 +1120,21 @@ document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 's') {
     event.preventDefault();
     App.cmdSave();
+    return;
+  }
+  const activeElement = document.activeElement;
+  const isTextEditor = Boolean(
+    activeElement
+    && (
+      activeElement.tagName === 'INPUT'
+      || activeElement.tagName === 'TEXTAREA'
+      || activeElement.isContentEditable
+    )
+  );
+  if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'arrowleft' && !isTextEditor) {
+    if (goBackNavigation()) {
+      event.preventDefault();
+    }
   }
 });
 

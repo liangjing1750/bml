@@ -194,7 +194,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 /* ─── 标签页 ─────────────────────────────────────────────── */
 #tab-bar {
   display: flex; border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 6px;
   background: #fff; flex-shrink: 0; padding: 0 16px;
+}
+.tab-btn-group {
+  display: flex;
+  align-items: center;
 }
 .tab-btn {
   padding: 10px 16px; border: none; background: none; cursor: pointer;
@@ -203,6 +209,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .tab-btn:hover  { color: var(--text); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+.tab-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin: 0 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--accent);
+  background: #fff;
+}
+.tab-back-btn:hover:not([disabled]) {
+  background: var(--active-bg);
+  color: var(--accent);
+  border-bottom-color: var(--border);
+}
+.tab-back-btn[disabled] {
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: .62;
+}
 
 /* #tab-content padding 由子组件自行控制（上下布局不用全局 padding） */
 #tab-content { flex: 1; overflow: hidden; padding: 0; display: flex; flex-direction: column; }
@@ -1152,6 +1179,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
 }
+.stage-card-side-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .stage-card-breadcrumb {
   display: flex;
   align-items: center;
@@ -1294,11 +1327,63 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   border-radius: 12px;
   background: #fff;
 }
+.stage-link-row {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+.stage-member-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .stage-member-actions,
 .row-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.stage-quick-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+}
+.stage-quick-btn:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+.stage-quick-btn[disabled] {
+  opacity: .42;
+  cursor: not-allowed;
+  background: #f8fafc;
+  border-color: var(--border);
+  color: #94a3b8;
+}
+.stage-quick-btn-text {
+  min-width: 0;
+  padding: 0 10px;
+}
+.stage-quick-btn.danger {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+.stage-quick-btn.danger:hover {
+  background: #ffe4e6;
+  border-color: #fda4af;
 }
 .stage-inline-row {
   grid-template-columns: minmax(0, 1fr) auto;

@@ -954,25 +954,53 @@ function getCurrentStageItem() {
   return getStageItems(S.doc).find((stage) => stage.id === S.ui.stageId) || null;
 }
 
-function openStagePanorama(stageId = S.ui.stageId || getStageItems(S.doc)[0]?.id || null) {
+function openStagePanorama(stageId = S.ui.stageId || getStageItems(S.doc)[0]?.id || null, navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = 'process';
+    next.procView = 'stage';
+    next.stageViewMode = 'panorama';
+    next.stageId = stageId;
+    next.taskId = null;
+    return next;
+  }, navOptions);
   S.ui.procView = 'stage';
   S.ui.stageViewMode = 'panorama';
   S.ui.stageId = stageId;
   renderProcessTab();
 }
 
-function openStageDetail(stageId) {
+function openStageDetail(stageId, navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = 'process';
+    next.procView = 'stage';
+    next.stageViewMode = 'detail';
+    next.stageId = stageId;
+    next.stageEditorCollapsed = false;
+    next.taskId = null;
+    return next;
+  }, navOptions);
   S.ui.procView = 'stage';
   S.ui.stageViewMode = 'detail';
   S.ui.stageId = stageId;
+  S.ui.stageEditorCollapsed = false;
   renderProcessTab();
 }
 
-function navigateStageView(stageId, mode = 'detail') {
+function navigateStageView(stageId, mode = 'detail', navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = 'process';
+    next.procView = 'stage';
+    next.stageViewMode = mode === 'panorama' ? 'panorama' : 'detail';
+    next.stageId = stageId || getStageItems(S.doc)[0]?.id || null;
+    next.taskId = null;
+    if (next.stageViewMode === 'detail') next.stageEditorCollapsed = false;
+    return next;
+  }, navOptions);
   S.ui.tab = 'process';
   S.ui.procView = 'stage';
   S.ui.stageViewMode = mode === 'panorama' ? 'panorama' : 'detail';
   S.ui.stageId = stageId || getStageItems(S.doc)[0]?.id || null;
+  if (S.ui.stageViewMode === 'detail') S.ui.stageEditorCollapsed = false;
   S.ui.taskId = null;
   render();
 }
@@ -1058,6 +1086,22 @@ function addProcessToStage(stageId, procId) {
   if (!procId) return;
   setProcStage(procId, stageId);
   rerenderStageWorkbench({ focusSelector: '[data-testid="stage-process-select"]' });
+}
+
+function moveProcInStage(stageId, procId, dir) {
+  const targetStageId = isVirtualStageId(stageId) ? '' : String(stageId || '').trim();
+  const procs = S.doc.processes || [];
+  const stageProcs = procs.filter((proc) => String(proc.stageId || '').trim() === targetStageId);
+  const index = stageProcs.findIndex((proc) => proc.id === procId);
+  const targetIndex = index + dir;
+  if (index < 0 || targetIndex < 0 || targetIndex >= stageProcs.length) return;
+  const fromDocIndex = procs.indexOf(stageProcs[index]);
+  const toDocIndex = procs.indexOf(stageProcs[targetIndex]);
+  if (fromDocIndex < 0 || toDocIndex < 0) return;
+  [procs[fromDocIndex], procs[toDocIndex]] = [procs[toDocIndex], procs[fromDocIndex]];
+  markModified();
+  renderSidebar();
+  rerenderStageWorkbench();
 }
 
 function removeProcessFromStage(stageId, procId) {
@@ -1193,6 +1237,21 @@ function rerenderStageWorkbench(options = {}) {
       }
     }
   });
+}
+
+function setStageEditorCollapsed(nextValue) {
+  const normalized = Boolean(nextValue);
+  if (Boolean(S.ui.stageEditorCollapsed) === normalized) return;
+  S.ui.stageEditorCollapsed = normalized;
+  renderProcessTab();
+}
+
+function toggleStageEditorDrawer(forceOpen = null) {
+  if (typeof forceOpen === 'boolean') {
+    setStageEditorCollapsed(!forceOpen);
+    return;
+  }
+  setStageEditorCollapsed(!S.ui.stageEditorCollapsed);
 }
 
 function getStageNodeOffset(kind, nodeId) {
@@ -1440,10 +1499,10 @@ function renderStageLinkEditor(stageItems) {
           ${realStages.map((stage) => `<option value="${esc(stage.id)}" ${link.toStageId===stage.id?'selected':''}>${esc(stage.name || stage.id)}</option>`).join('')}
         </select>
         <div class="row-actions">
-          <button class="mini-btn" type="button" onclick="addStageLink('${esc(link.uid)}')">＋</button>
-          <button class="mini-btn" type="button" onclick="moveStageLink('${esc(link.uid)}',-1)">↑</button>
-          <button class="mini-btn" type="button" onclick="moveStageLink('${esc(link.uid)}',1)">↓</button>
-          <button class="mini-btn danger" type="button" onclick="removeStageLink('${esc(link.uid)}')">✕</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-link-add-button" onclick="addStageLink('${esc(link.uid)}')">＋</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-link-move-up" onclick="moveStageLink('${esc(link.uid)}',-1)">↑</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-link-move-down" onclick="moveStageLink('${esc(link.uid)}',1)">↓</button>
+          <button class="stage-quick-btn danger" type="button" data-testid="stage-link-remove-button" onclick="removeStageLink('${esc(link.uid)}')">✕</button>
         </div>
       </div>`).join('')}
     </div>` : '<p class="no-refs">暂无阶段连线，先添加一条。</p>'}
@@ -1470,10 +1529,10 @@ function renderStageProcessLinkEditor(stage, processes) {
           ${processes.map((proc) => `<option value="${esc(proc.id)}" ${link.toProcessId===proc.id?'selected':''}>${esc(proc.name || proc.id)}</option>`).join('')}
         </select>
         <div class="row-actions">
-          <button class="mini-btn" type="button" onclick="addStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">＋</button>
-          <button class="mini-btn" type="button" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',-1)">↑</button>
-          <button class="mini-btn" type="button" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',1)">↓</button>
-          <button class="mini-btn danger" type="button" onclick="removeStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">✕</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-add-button" onclick="addStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">＋</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-move-up" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',-1)">↑</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-move-down" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',1)">↓</button>
+          <button class="stage-quick-btn danger" type="button" data-testid="stage-process-link-remove-button" onclick="removeStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">✕</button>
         </div>
       </div>`).join('')}
     </div>` : '<p class="no-refs">暂无阶段内流程连线，先添加一条。</p>'}
@@ -1490,14 +1549,16 @@ function renderStageProcessMembership(stageItem, processes) {
   return `<div class="stage-editor-section">
     <div class="stage-editor-section-head">
       <h5>成员流程</h5>
-      ${!stageItem.virtual ? `<button class="btn btn-outline btn-sm" type="button" onclick="addProcess('${esc(stageItem.subDomain || '')}','${esc(stageItem.id)}')">＋ 当前阶段新建流程</button>` : ''}
+      ${!stageItem.virtual ? `<button class="btn btn-outline btn-sm" type="button" data-testid="stage-member-add-button" onclick="addProcess('${esc(stageItem.subDomain || '')}','${esc(stageItem.id)}')">＋ 新流程</button>` : ''}
     </div>
     ${processes.length ? `<div class="stage-member-list">
-      ${processes.map((proc) => `<div class="stage-member-chip" data-testid="stage-member-chip">
-        <span>${esc(proc.id)} ${esc(proc.name || '未命名流程')}</span>
+      ${processes.map((proc, index) => `<div class="stage-member-chip" data-testid="stage-member-chip">
+        <span class="stage-member-label">${esc(proc.id)} ${esc(proc.name || '未命名流程')}</span>
         <div class="stage-member-actions">
-          <button class="mini-btn" type="button" onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})">查看</button>
-          ${!stageItem.virtual ? `<button class="mini-btn danger" type="button" onclick="removeProcessFromStage('${esc(stageItem.id)}','${esc(proc.id)}')">移出</button>` : ''}
+          <button class="stage-quick-btn stage-quick-btn-text" type="button" data-testid="stage-member-view-button" onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})">查看</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-member-move-up" onclick="moveProcInStage('${esc(stageItem.id)}','${esc(proc.id)}',-1)" ${index === 0 ? 'disabled' : ''}>↑</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-member-move-down" onclick="moveProcInStage('${esc(stageItem.id)}','${esc(proc.id)}',1)" ${index === processes.length - 1 ? 'disabled' : ''}>↓</button>
+          ${!stageItem.virtual ? `<button class="stage-quick-btn danger stage-quick-btn-text" type="button" data-testid="stage-member-remove-button" onclick="removeProcessFromStage('${esc(stageItem.id)}','${esc(proc.id)}')">移出</button>` : ''}
         </div>
       </div>`).join('')}
     </div>` : '<p class="no-refs">当前阶段还没有流程。</p>'}
@@ -1506,7 +1567,7 @@ function renderStageProcessMembership(stageItem, processes) {
         <option value="">选择已有流程加入当前阶段...</option>
         ${availableProcesses.map((proc) => `<option value="${esc(proc.id)}">${esc(proc.id)} ${esc(proc.name || '未命名流程')}</option>`).join('')}
       </select>
-      <button class="btn btn-outline btn-sm" type="button" onclick="addProcessToStage('${esc(stageItem.id)}',document.getElementById('stage-process-select').value)">加入阶段</button>
+      <button class="btn btn-outline btn-sm" type="button" data-testid="stage-member-join-button" onclick="addProcessToStage('${esc(stageItem.id)}',document.getElementById('stage-process-select').value)">加入</button>
     </div>` : '<p class="stage-tip">这些流程尚未归入真实业务阶段，可新建阶段后逐步迁移。</p>'}
   </div>`;
 }
@@ -1523,7 +1584,7 @@ function renderStageDrawer(stageItem) {
     <div class="drawer-head">
       <div class="drawer-crumb">${esc(drawerTitle)}</div>
       <div class="drawer-actions">
-        ${stage ? `<button class="btn btn-ghost-sm" type="button" onclick="removeStage('${esc(stage.id)}')">删除阶段</button>` : ''}
+        <button class="drawer-close" type="button" data-testid="stage-drawer-close" onclick="toggleStageEditorDrawer(false)" title="关闭抽屉">✕</button>
       </div>
     </div>
     <div class="drawer-body">
@@ -1557,6 +1618,8 @@ function renderStageWorkbench() {
   const stageItem = getCurrentStageItem();
   const showDetail = S.ui.stageViewMode === 'detail' && stageItem;
   const drawerW = getDrawerWidth('process');
+  const showEditor = !S.ui.stageEditorCollapsed;
+  const editorOffset = showEditor ? drawerW : 0;
   const panoramaGraph = buildStagePanoramaGraphData();
   const detailGraph = stageItem ? buildStageDetailGraphData(stageItem.id) : { nodes: [], links: [], processes: [] };
   const stageWarning = showDetail && detailGraph.processes.length > 7
@@ -1569,7 +1632,7 @@ function renderStageWorkbench() {
     ? '当前节点就是流程，连线表达阶段内流程的先后与分支关系。点击流程节点可进入流程编辑。'
     : '当前节点就是业务阶段，连线表达整个业务的前后顺序与分支。点击阶段节点可钻取到阶段详情。';
   return `<div class="stage-workbench" data-testid="process-stage-view">
-    <div class="stage-main-shell" style="margin-right:${drawerW}px">
+    <div class="stage-main-shell" style="margin-right:${editorOffset}px">
       <div class="stage-main">
         <div class="stage-card">
           <div class="stage-card-head">
@@ -1581,10 +1644,17 @@ function renderStageWorkbench() {
               <div class="stage-card-title">${esc(graphTitle)} ${stageWarning}</div>
               <div class="stage-card-subtitle">${esc(graphHint)}</div>
             </div>
-            <div class="zoom-controls">
-              <button class="zoom-btn" type="button" data-testid="stage-zoom-in" onclick="nudgeStageGraphZoom(0.1)">＋</button>
-              <button class="zoom-btn" type="button" data-testid="stage-zoom-reset" onclick="resetStageGraphZoom()">${Math.round(getStageGraphZoom() * 100)}%</button>
-              <button class="zoom-btn" type="button" data-testid="stage-zoom-out" onclick="nudgeStageGraphZoom(-0.1)">－</button>
+            <div class="stage-card-side-actions">
+              <div class="zoom-controls">
+                <button class="zoom-btn" type="button" data-testid="stage-zoom-in" onclick="nudgeStageGraphZoom(0.1)">＋</button>
+                <button class="zoom-btn" type="button" data-testid="stage-zoom-reset" onclick="resetStageGraphZoom()">${Math.round(getStageGraphZoom() * 100)}%</button>
+                <button class="zoom-btn" type="button" data-testid="stage-zoom-out" onclick="nudgeStageGraphZoom(-0.1)">－</button>
+              </div>
+              <div class="stage-toolbar-actions">
+                ${showEditor
+                  ? '<button class="btn btn-ghost-sm" type="button" data-testid="stage-editor-hide" onclick="toggleStageEditorDrawer(false)">关闭编辑</button>'
+                  : '<button class="btn btn-outline btn-sm" type="button" data-testid="stage-editor-open" onclick="toggleStageEditorDrawer(true)">打开编辑</button>'}
+              </div>
             </div>
           </div>
           ${showDetail
@@ -1605,7 +1675,7 @@ function renderStageWorkbench() {
         </div>
       </div>
     </div>
-    ${renderStageDrawer(stageItem || { id: UNASSIGNED_STAGE_ID, name: UNASSIGNED_STAGE_NAME, virtual: true, subDomain: '' })}
+    ${showEditor ? renderStageDrawer(stageItem || { id: UNASSIGNED_STAGE_ID, name: UNASSIGNED_STAGE_NAME, virtual: true, subDomain: '' }) : ''}
   </div>`;
 }
 
@@ -2041,6 +2111,8 @@ function renderProcessTab() {
   const proc=currentProc();
   const task=currentTask();
   const view=S.ui.procView||'card';
+  const stageItem = view === 'stage' ? getCurrentStageItem() : null;
+  const realStageDetail = view === 'stage' && S.ui.stageViewMode === 'detail' && stageItem && !stageItem.virtual;
 
   /* ── 视图切换工具栏 ── */
   let h=`<div class="proc-view-toolbar">
@@ -2050,6 +2122,7 @@ function renderProcessTab() {
       <button class="vtb ${view==='list'?'active':''}" data-testid="process-switch-overview" onclick="setProcView('list')">概要视图</button>
       <button class="vtb ${view==='role'?'active':''}" data-testid="process-switch-role" onclick="setProcView('role')">角色视图</button>
     </div>
+    ${realStageDetail ? `<button class="btn btn-ghost-sm" data-testid="stage-delete-button" onclick="removeStage('${esc(stageItem.id)}')">删除阶段</button>` : ''}
     ${view==='stage'?`<button class="btn btn-outline btn-sm" data-testid="stage-add-button" onclick="addStage()">＋ 新建阶段</button>`:''}
     ${view==='list'&&proc?`<button class="btn btn-ghost-sm" data-testid="process-delete-button" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
     ${view==='list'?`<button class="btn btn-outline btn-sm" data-testid="process-add-button" onclick="addProcess()">＋ 新流程</button>`:''}
@@ -2082,11 +2155,11 @@ function renderProcessTab() {
           <span class="pc-id">${esc(p.id)}</span>
           <span class="pc-name">${esc(p.name||'未命名')}</span>
           <button class="pc-goto btn-icon"
-            onclick="setProcView('list');navigate('process',{procId:'${esc(p.id)}',taskId:null})"
+            onclick="navigate('process',{procId:'${esc(p.id)}',taskId:null})"
             title="进入编辑">→</button>
         </div>
         <div id="pc-diag-${esc(p.id)}" class="pc-diag pf-clickable"
-          onclick="setProcView('list');navigate('process',{procId:'${esc(p.id)}',taskId:null})"
+          onclick="navigate('process',{procId:'${esc(p.id)}',taskId:null})"
           title="点击进入编辑"></div>
       </div>`;
     }

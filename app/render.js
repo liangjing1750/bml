@@ -111,8 +111,19 @@ async function renderDiagram(containerId, code, onClickMap) {
   }
 }
 
-
-function navigate(tab, opts) {
+function navigate(tab, opts, navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = tab;
+    if (opts) {
+      if ('procId' in opts) next.procId = opts.procId;
+      if ('taskId' in opts) next.taskId = opts.taskId;
+      if ('entityId' in opts) next.entityId = opts.entityId;
+    }
+    if (tab === 'process' && opts && ('procId' in opts || 'taskId' in opts)) {
+      next.procView = 'list';
+    }
+    return next;
+  }, navOptions);
   S.ui.tab = tab;
   if(opts) {
     if('procId'   in opts) S.ui.procId   = opts.procId;
@@ -168,7 +179,16 @@ function startSidebarResize(e) {
   document.addEventListener('mouseup', onUp);
 }
 
-function openProcessHome() {
+function openProcessHome(navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = 'process';
+    next.procView = 'card';
+    next.taskId = null;
+    if (!next.procId && S.doc?.processes?.length) {
+      next.procId = S.doc.processes[0].id;
+    }
+    return next;
+  }, navOptions);
   S.ui.tab = 'process';
   S.ui.procView = 'card';
   S.ui.taskId = null;
@@ -178,7 +198,8 @@ function openProcessHome() {
   render();
 }
 
-function setProcView(v) {
+function setProcView(v, navOptions = {}) {
+  queueUiNavigationHistoryFor({ procView: v }, navOptions);
   S.ui.procView = v;
   renderProcessTab();
 }
@@ -498,11 +519,19 @@ function renderTabBar() {
     {id:'data',   label:'数据'},
     {id:'preview',label:'预览'},
   ];
-  document.getElementById('tab-bar').innerHTML=tabs.map(t=>{
+  const canGoBack = canGoBackNavigation();
+  const backTitle = esc(getBackNavigationTitle());
+  const tabHtml = tabs.map(t=>{
     const onclick = t.id === 'process' ? 'openProcessHome()' : `navigate('${t.id}',{})`;
     return `<button class="tab-btn ${S.ui.tab===t.id?'active':''}" data-testid="tab-${t.id}"
       onclick="${onclick}">${t.label}</button>`;
   }).join('');
+  document.getElementById('tab-bar').innerHTML = `
+    <div class="tab-btn-group">${tabHtml}</div>
+    <button class="tab-btn tab-back-btn" data-testid="nav-back-button"
+      onclick="goBackNavigation()" title="${backTitle}" ${canGoBack ? '' : 'disabled'}>
+      ← 返回
+    </button>`;
 }
 
 /* ═══════════════════════════════════════════════════════════

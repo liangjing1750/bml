@@ -657,7 +657,25 @@ function buildEntityMermaid(doc) {
 }
 
 
-function setDataView(view) {
+function setDataView(view, navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = 'data';
+    next.dataView = view;
+    if (view === 'state') {
+      const entities = S.doc?.entities || [];
+      if (!entities.length) {
+        next.entityId = null;
+        next.stateFieldName = '';
+      } else {
+        const currentEntityId = next.entityId;
+        const activeEntity = entities.find((item) => item.id === currentEntityId) || null;
+        const fallbackEntity = activeEntity || entities.find((item) => getEntityStatusField(item)) || entities[0];
+        next.entityId = fallbackEntity?.id || null;
+        next.stateFieldName = getEntityStatusField(fallbackEntity, next.stateFieldName)?.name || '';
+      }
+    }
+    return next;
+  }, navOptions);
   S.ui.dataView = view;
   if (view === 'state') {
     const entities = S.doc?.entities || [];
@@ -675,7 +693,15 @@ function setDataView(view) {
   renderDataTab();
 }
 
-function setStateEntity(entityId) {
+function setStateEntity(entityId, navOptions = {}) {
+  queueUiNavigationHistoryFor((next) => {
+    next.tab = 'data';
+    next.dataView = 'state';
+    next.entityId = entityId;
+    const entity = (S.doc?.entities || []).find((item) => item.id === entityId) || null;
+    next.stateFieldName = getEntityStatusField(entity, '')?.name || '';
+    return next;
+  }, navOptions);
   S.ui.entityId = entityId;
   S.ui.stateFieldName = getEntityStatusField(currentEntity(), '')?.name || '';
   rerenderStateWorkbenchView({ revealActiveField: true });
