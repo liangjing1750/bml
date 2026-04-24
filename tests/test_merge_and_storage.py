@@ -6,7 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from blm_core.document import create_empty_document, migrate_document
-from blm_core.merge import analyze_merge, apply_merge
+from blm_core.merge import analyze_merge, apply_merge, validate_document
 from blm_core.storage import DocumentFileStore
 
 
@@ -183,6 +183,28 @@ class MergeEngineTests(unittest.TestCase):
 
         self.assertEqual(result["conflicts"], [])
         self.assertEqual(result["merged_document"]["roles"][0]["desc"], "负责对账")
+
+    def test_validate_document_rejects_stage_flow_link_that_points_to_ref_from_other_stage(self):
+        document = create_empty_document("Stage refs")
+        document["stages"] = [
+            {"id": "S1", "name": "阶段一", "subDomain": "仓储", "pos": {"x": 0, "y": 0}, "processLinks": []},
+            {"id": "S2", "name": "阶段二", "subDomain": "仓储", "pos": {"x": 0, "y": 0}, "processLinks": []},
+        ]
+        document["processes"] = [
+            {"id": "P1", "name": "流程一", "subDomain": "仓储", "flowGroup": "", "stageId": "S1", "stagePos": {"x": 0, "y": 0}, "trigger": "", "outcome": "", "prototypeFiles": [], "nodes": []},
+            {"id": "P2", "name": "流程二", "subDomain": "仓储", "flowGroup": "", "stageId": "S2", "stagePos": {"x": 0, "y": 0}, "trigger": "", "outcome": "", "prototypeFiles": [], "nodes": []},
+        ]
+        document["stageFlowRefs"] = [
+            {"id": "SFR1", "stageId": "S1", "processId": "P1", "order": 1, "pos": {"x": 0, "y": 0}},
+            {"id": "SFR2", "stageId": "S2", "processId": "P2", "order": 1, "pos": {"x": 0, "y": 0}},
+        ]
+        document["stageFlowLinks"] = [
+            {"id": "SFL1", "stageId": "S1", "fromRefId": "SFR1", "toRefId": "SFR2"},
+        ]
+
+        issues = validate_document(document)
+
+        self.assertTrue(any("不属于该阶段" in issue["message"] for issue in issues))
 
 
 if __name__ == "__main__":

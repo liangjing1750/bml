@@ -224,20 +224,21 @@ function buildPreviewStagePanoramaData(doc) {
 }
 
 function buildPreviewStageDetailData(doc, stageItem) {
-  const processes = getStageProcesses(stageItem.id, doc);
-  const stage = findStage(stageItem.id, doc);
+  const processRefs = getStageProcessRefs(stageItem.id, doc);
+  const processes = processRefs.map((ref) => getStageRefProcess(ref, doc)).filter(Boolean);
   return {
     processes,
-    nodes: processes.map((proc) => ({
-      id: proc.id,
-      label: proc.name || proc.id,
-      meta: proc.flowGroup ? `流程组 · ${proc.flowGroup}` : '',
-    })),
-    links: stage
-      ? getStageProcessLinks(stage)
-        .filter((link) => processes.some((proc) => proc.id === link.fromProcessId) && processes.some((proc) => proc.id === link.toProcessId))
-        .map((link) => ({ from: link.fromProcessId, to: link.toProcessId }))
-      : [],
+    nodes: processRefs.map((ref) => {
+      const proc = getStageRefProcess(ref, doc);
+      return {
+        id: ref.id,
+        label: proc?.name || proc?.id || ref.processId,
+        meta: proc?.flowGroup ? `流程组 · ${proc.flowGroup}` : '',
+      };
+    }),
+    links: getStageFlowLinks(doc)
+      .filter((link) => link.stageId === stageItem.id)
+      .map((link) => ({ from: link.fromRefId, to: link.toRefId })),
   };
 }
 
@@ -292,7 +293,7 @@ function renderPreviewStagesHtml(doc) {
           | <strong>流程数</strong>: ${detail.processes.length}
           ${stageItem.virtual ? ' | <strong>说明</strong>: 未设置业务阶段' : ''}
         </p>
-        ${renderPreviewStageGraphMarkup(detail.nodes, detail.links, 'process', graphTestId)}
+        ${renderPreviewStageGraphMarkup(detail.nodes, detail.links, 'stage-ref', graphTestId)}
       </div>`;
     }).join('')}`;
 }
@@ -310,6 +311,15 @@ function formatPrototypeSummary(prototypeFiles) {
     .join('、');
 }
 
+function formatProcessStageSummary(proc, doc = S.doc) {
+  const refs = getProcessStageRefs(proc?.id, doc);
+  const names = refs
+    .map((ref) => getStageDisplayName(ref.stageId, doc))
+    .filter(Boolean)
+    .filter((name, index, list) => list.indexOf(name) === index);
+  return names.join('、');
+}
+
 function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   if (!processes.length) return '';
   return `<h2 id="preview-processes">流程建模</h2>
@@ -319,7 +329,7 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
       return `<h3 id="${previewAnchorId('proc', proc.id || proc.name || 'process')}">${esc(proc.id)}: ${esc(proc.name||'')}</h3>
         <p class="pv-note">
           <strong>业务子域</strong>: ${esc(proc.subDomain || '—')}
-          ${String(proc.stageId || '').trim() ? ` | <strong>业务阶段</strong>: ${esc(getStageDisplayName(proc.stageId, S.doc))}` : ''}
+          ${formatProcessStageSummary(proc, S.doc) ? ` | <strong>业务阶段</strong>: ${esc(formatProcessStageSummary(proc, S.doc))}` : ''}
           ${proc.flowGroup ? ` | <strong>流程组</strong>: ${esc(proc.flowGroup)}` : ''}
         </p>
         ${proc.trigger || proc.outcome ? `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>` : ''}
@@ -471,7 +481,8 @@ function appendPreviewProcessesMd(add, doc, processes, entityMap, stepLabels, or
     add(`### ${proc.id}: ${proc.name||''}`);
     add('');
     add(`**业务子域**: ${proc.subDomain||'—'}`);
-    if(proc.stageId) add(`**业务阶段**: ${getStageDisplayName(proc.stageId, doc)}`);
+    const processStageSummary = formatProcessStageSummary(proc, doc);
+    if(processStageSummary) add(`**????**: ${processStageSummary}`);
     if(proc.flowGroup) add(`**流程组**: ${proc.flowGroup}`);
     if(prototypeFiles.length) add(`**流程原型**: ${formatPrototypeSummary(prototypeFiles)}`);
     add('');

@@ -335,11 +335,39 @@ function normalizeStageLinkEntry(link) {
     toStageId: String(normalized.toStageId || '').trim(),
   };
 }
-function normalizeStageEntry(stage, index = 1, processes = []) {
+function normalizeStageFlowRefEntry(ref, index = 1) {
+  const normalized = ref && typeof ref === 'object' ? ref : {};
+  return {
+    uid: String(normalized.uid || '').trim() || createUiUid('stageref'),
+    id: String(normalized.id || '').trim() || `SFR${index}`,
+    stageId: String(normalized.stageId || normalized.stage_id || '').trim(),
+    processId: String(normalized.processId || normalized.process_id || '').trim(),
+    order: Math.max(1, Math.round(Number(normalized.order || index) || index)),
+    pos: normalizeGraphOffset(normalized.pos),
+  };
+}
+function normalizeStageFlowLinkEntry(link, index = 1) {
+  const normalized = link && typeof link === 'object' ? link : {};
+  return {
+    uid: String(normalized.uid || '').trim() || createUiUid('stagereflink'),
+    id: String(normalized.id || '').trim() || `SFL${index}`,
+    stageId: String(normalized.stageId || normalized.stage_id || '').trim(),
+    fromRefId: String(normalized.fromRefId || normalized.from_ref_id || '').trim(),
+    toRefId: String(normalized.toRefId || normalized.to_ref_id || '').trim(),
+  };
+}
+function normalizeStageEntry(stage, index = 1, processes = [], stageFlowRefs = []) {
   const normalized = stage && typeof stage === 'object' ? stage : {};
   let subDomain = String(normalized.subDomain || '').trim();
   if (!subDomain) {
-    const member = (processes || []).find((proc) => String(proc?.stageId || '').trim() === String(normalized.id || '').trim() && String(proc?.subDomain || '').trim());
+    const stageId = String(normalized.id || '').trim();
+    const refMembers = (Array.isArray(stageFlowRefs) ? stageFlowRefs : [])
+      .filter((ref) => String(ref?.stageId || '').trim() === stageId)
+      .map((ref) => (processes || []).find((proc) => String(proc?.id || '').trim() === String(ref?.processId || '').trim()))
+      .filter(Boolean);
+    const legacyMember = (processes || [])
+      .find((proc) => String(proc?.stageId || '').trim() === stageId && String(proc?.subDomain || '').trim());
+    const member = refMembers.find((proc) => String(proc?.subDomain || '').trim()) || legacyMember;
     subDomain = String(member?.subDomain || '').trim();
   }
   return {
@@ -354,7 +382,7 @@ function normalizeStageEntry(stage, index = 1, processes = []) {
 function getStages(doc = S.doc) {
   if (!doc || typeof doc !== 'object') return [];
   if (!Array.isArray(doc.stages)) doc.stages = [];
-  doc.stages = doc.stages.map((stage, index) => normalizeStageEntry(stage, index + 1, doc.processes || []));
+  doc.stages = doc.stages.map((stage, index) => normalizeStageEntry(stage, index + 1, doc.processes || [], doc.stageFlowRefs || []));
   return doc.stages;
 }
 function getStageLinks(doc = S.doc) {
@@ -362,6 +390,79 @@ function getStageLinks(doc = S.doc) {
   if (!Array.isArray(doc.stageLinks)) doc.stageLinks = [];
   doc.stageLinks = doc.stageLinks.map(normalizeStageLinkEntry);
   return doc.stageLinks;
+}
+function getStageFlowRefs(doc = S.doc) {
+  if (!doc || typeof doc !== 'object') return [];
+  if (!Array.isArray(doc.stageFlowRefs)) doc.stageFlowRefs = [];
+  let refs = doc.stageFlowRefs.map((ref, index) => normalizeStageFlowRefEntry(ref, index + 1));
+  const existingPairs = new Set(
+    refs
+      .filter((ref) => ref.stageId && ref.processId)
+      .map((ref) => `${ref.stageId}::${ref.processId}`),
+  );
+  const usedIds = new Set(refs.map((ref) => ref.id));
+  const stageOrderMap = {};
+  refs.forEach((ref) => {
+    if (!ref.stageId) return;
+    stageOrderMap[ref.stageId] = Math.max(stageOrderMap[ref.stageId] || 0, ref.order || 1);
+  });
+  (Array.isArray(doc.processes) ? doc.processes : []).forEach((proc) => {
+    const stageId = String(proc?.stageId || '').trim();
+    const processId = String(proc?.id || '').trim();
+    if (!stageId || !processId) return;
+    const pairKey = `${stageId}::${processId}`;
+    if (existingPairs.has(pairKey)) return;
+    stageOrderMap[stageId] = (stageOrderMap[stageId] || 0) + 1;
+    let nextIndex = refs.length + 1;
+    let nextId = `SFR${nextIndex}`;
+    while (usedIds.has(nextId)) {
+      nextIndex += 1;
+      nextId = `SFR${nextIndex}`;
+    }
+    usedIds.add(nextId);
+    refs.push({
+      uid: createUiUid('stageref'),
+      id: nextId,
+      stageId,
+      processId,
+      order: stageOrderMap[stageId],
+      pos: normalizeGraphOffset(proc.stagePos),
+    });
+    existingPairs.add(pairKey);
+  });
+  refs.sort((left, right) => {
+    if (left.stageId !== right.stageId) return left.stageId.localeCompare(right.stageId);
+    if ((left.order || 0) !== (right.order || 0)) return (left.order || 0) - (right.order || 0);
+    return left.id.localeCompare(right.id);
+  });
+  doc.stageFlowRefs = refs;
+  return doc.stageFlowRefs;
+}
+function getStageFlowLinks(doc = S.doc) {
+  if (!doc || typeof doc !== 'object') return [];
+  if (!Array.isArray(doc.stageFlowLinks)) doc.stageFlowLinks = [];
+  let links = doc.stageFlowLinks.map((link, index) => normalizeStageFlowLinkEntry(link, index + 1));
+  if (!links.length) {
+    const refs = getStageFlowRefs(doc);
+    const refByStageProcess = new Map(refs.map((ref) => [`${ref.stageId}::${ref.processId}`, ref.id]));
+    const generated = [];
+    getStages(doc).forEach((stage) => {
+      getStageProcessLinks(stage).forEach((link, index) => {
+        const fromRefId = refByStageProcess.get(`${stage.id}::${link.fromProcessId}`) || '';
+        const toRefId = refByStageProcess.get(`${stage.id}::${link.toProcessId}`) || '';
+        if (!fromRefId || !toRefId) return;
+        generated.push(normalizeStageFlowLinkEntry({
+          id: `SFL${generated.length + 1}`,
+          stageId: stage.id,
+          fromRefId,
+          toRefId,
+        }, generated.length + 1));
+      });
+    });
+    links = generated;
+  }
+  doc.stageFlowLinks = links;
+  return doc.stageFlowLinks;
 }
 function getStageProcessLinks(stage) {
   if (!stage || typeof stage !== 'object') return [];
@@ -377,18 +478,51 @@ function findStage(stageId, doc = S.doc) {
   if (!targetStageId || isVirtualStageId(targetStageId)) return null;
   return getStages(doc).find((stage) => stage.id === targetStageId) || null;
 }
-function getStageProcesses(stageId, doc = S.doc) {
-  const processes = Array.isArray(doc?.processes) ? doc.processes : [];
+function getStageProcessRefs(stageId, doc = S.doc) {
   const targetStageId = String(stageId || '').trim();
+  const refs = getStageFlowRefs(doc);
   if (isVirtualStageId(targetStageId)) {
-    return processes.filter((proc) => !String(proc?.stageId || '').trim());
+    const referencedProcessIds = new Set(refs.map((ref) => ref.processId));
+    return (Array.isArray(doc?.processes) ? doc.processes : [])
+      .filter((proc) => !referencedProcessIds.has(String(proc?.id || '').trim()))
+      .map((proc, index) => ({
+        uid: `virtual-ref-${proc.id}`,
+        id: `virtual-ref-${proc.id}`,
+        stageId: UNASSIGNED_STAGE_ID,
+        processId: proc.id,
+        order: index + 1,
+        pos: normalizeGraphOffset(proc.stagePos),
+        virtual: true,
+      }));
   }
-  return processes.filter((proc) => String(proc?.stageId || '').trim() === targetStageId);
+  return refs
+    .filter((ref) => ref.stageId === targetStageId)
+    .sort((left, right) => (left.order - right.order) || left.id.localeCompare(right.id));
+}
+function findStageProcessRef(refId, doc = S.doc) {
+  const targetRefId = String(refId || '').trim();
+  if (!targetRefId) return null;
+  return getStageFlowRefs(doc).find((ref) => ref.id === targetRefId) || null;
+}
+function getProcessStageRefs(processId, doc = S.doc) {
+  const targetProcessId = String(processId || '').trim();
+  return getStageFlowRefs(doc)
+    .filter((ref) => ref.processId === targetProcessId)
+    .sort((left, right) => left.stageId.localeCompare(right.stageId) || left.order - right.order);
+}
+function getStageRefProcess(ref, doc = S.doc) {
+  const processId = String(ref?.processId || '').trim();
+  return (Array.isArray(doc?.processes) ? doc.processes : []).find((proc) => String(proc?.id || '').trim() === processId) || null;
+}
+function getStageProcesses(stageId, doc = S.doc) {
+  return getStageProcessRefs(stageId, doc)
+    .map((ref) => getStageRefProcess(ref, doc))
+    .filter(Boolean);
 }
 function getStageItems(doc = S.doc) {
   const stages = getStages(doc);
   const items = stages.map((stage) => ({ ...stage, virtual: false }));
-  const unassignedProcesses = getStageProcesses(UNASSIGNED_STAGE_ID, doc);
+  const unassignedProcesses = getStageProcessRefs(UNASSIGNED_STAGE_ID, doc);
   if (unassignedProcesses.length) {
     items.push({
       uid: 'virtual-unassigned-stage',
@@ -431,6 +565,8 @@ function hydrateDocumentForUi(doc) {
   if (!doc || typeof doc !== 'object') return doc;
   getStages(doc);
   getStageLinks(doc);
+  getStageFlowRefs(doc);
+  getStageFlowLinks(doc);
   (doc.processes || []).forEach((proc) => {
     if (!Array.isArray(proc.nodes) && Array.isArray(proc.tasks)) proc.nodes = proc.tasks;
     if (!Array.isArray(proc.nodes)) proc.nodes = [];

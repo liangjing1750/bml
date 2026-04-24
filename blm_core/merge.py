@@ -21,6 +21,8 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
             "language": "language",
             "stages": "stage",
             "stageLinks": "stage_link",
+            "stageFlowRefs": "stage_flow_ref",
+            "stageFlowLinks": "stage_flow_link",
             "processes": "process",
             "entities": "entity",
             "relations": "relation",
@@ -35,6 +37,8 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
         "lists": {"processLinks": "process_link"},
     },
     "stage_link": {"scalars": ["fromStageId", "toStageId"], "lists": {}},
+    "stage_flow_ref": {"scalars": ["id", "stageId", "processId", "order", "pos"], "lists": {}},
+    "stage_flow_link": {"scalars": ["id", "stageId", "fromRefId", "toRefId"], "lists": {}},
     "process": {
         "scalars": ["id", "name", "subDomain", "flowGroup", "stageId", "stagePos", "trigger", "outcome", "pos"],
         "lists": {"nodes": "node"},
@@ -93,6 +97,8 @@ def _collection_label(item_type: str) -> str:
     return {
         "stage": "业务阶段",
         "stage_link": "业务阶段连线",
+        "stage_flow_ref": "阶段流程引用",
+        "stage_flow_link": "阶段流程引用连线",
         "process_link": "阶段内流程连线",
         "role": "角色",
         "language": "术语",
@@ -110,7 +116,23 @@ def _collection_label(item_type: str) -> str:
 
 
 def _name_key(item_type: str, item: dict) -> str:
-    if item_type == "role":
+    if item_type == "stage_flow_ref":
+        primary = "|".join(
+            [
+                str(item.get("stageId", "")).strip(),
+                str(item.get("processId", "")).strip(),
+                str(item.get("id", "")).strip(),
+            ]
+        )
+    elif item_type == "stage_flow_link":
+        primary = "|".join(
+            [
+                str(item.get("stageId", "")).strip(),
+                str(item.get("fromRefId", "")).strip(),
+                str(item.get("toRefId", "")).strip(),
+            ]
+        )
+    elif item_type == "role":
         primary = item.get("name") or item.get("id")
     elif item_type == "language":
         primary = item.get("term")
@@ -682,12 +704,20 @@ def validate_document(document: dict) -> list[dict]:
     stage_ids = {stage["id"] for stage in doc.get("stages", [])}
     entity_ids = {entity["id"] for entity in doc.get("entities", [])}
     process_ids = {process["id"] for process in doc.get("processes", [])}
+    stage_flow_refs = doc.get("stageFlowRefs", [])
+    stage_flow_ref_ids = {str(ref.get("id", "")).strip() for ref in stage_flow_refs}
+    stage_flow_ref_by_id = {
+        str(ref.get("id", "")).strip(): ref
+        for ref in stage_flow_refs
+        if str(ref.get("id", "")).strip()
+    }
     node_ids = {node["id"] for process in doc.get("processes", []) for node in process.get("nodes", [])}
 
     process_stage_map = {
         process["id"]: str(process.get("stageId", "")).strip()
         for process in doc.get("processes", [])
     }
+    stage_process_ref_map: dict[str, set[str]] = {}
 
     for process in doc.get("processes", []):
         stage_id = str(process.get("stageId", "")).strip()
@@ -700,7 +730,37 @@ def validate_document(document: dict) -> list[dict]:
                 }
             )
 
+    for stage_flow_ref in stage_flow_refs:
+        ref_id = str(stage_flow_ref.get("id", "")).strip() or str(stage_flow_ref.get("uid", "")).strip()
+        stage_id = str(stage_flow_ref.get("stageId", "")).strip()
+        process_id = str(stage_flow_ref.get("processId", "")).strip()
+        if stage_id and stage_id not in stage_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowRefs.{ref_id}.stageId",
+                    "message": f"阶段流程引用 {ref_id} 引用了不存在的业务阶段 {stage_id}",
+                }
+            )
+        if process_id and process_id not in process_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowRefs.{ref_id}.processId",
+                    "message": f"阶段流程引用 {ref_id} 引用了不存在的流程 {process_id}",
+                }
+            )
+        if stage_id and process_id:
+            stage_process_ref_map.setdefault(stage_id, set()).add(process_id)
+
     for stage in doc.get("stages", []):
+        stage_member_processes = stage_process_ref_map.get(stage["id"], set())
+        if not stage_member_processes:
+            stage_member_processes = {
+                process_id
+                for process_id, owner_stage_id in process_stage_map.items()
+                if owner_stage_id == stage["id"]
+            }
         for link in stage.get("processLinks", []):
             from_process_id = str(link.get("fromProcessId", "")).strip()
             to_process_id = str(link.get("toProcessId", "")).strip()
@@ -720,7 +780,7 @@ def validate_document(document: dict) -> list[dict]:
                         "message": f"业务阶段 {stage['id']} 的流程连线引用了不存在的流程 {to_process_id}",
                     }
                 )
-            if from_process_id and process_stage_map.get(from_process_id) != stage["id"]:
+            if from_process_id and from_process_id not in stage_member_processes:
                 issues.append(
                     {
                         "level": "error",
@@ -728,7 +788,7 @@ def validate_document(document: dict) -> list[dict]:
                         "message": f"业务阶段 {stage['id']} 的流程连线引用了不属于该阶段的流程 {from_process_id}",
                     }
                 )
-            if to_process_id and process_stage_map.get(to_process_id) != stage["id"]:
+            if to_process_id and to_process_id not in stage_member_processes:
                 issues.append(
                     {
                         "level": "error",
@@ -754,6 +814,54 @@ def validate_document(document: dict) -> list[dict]:
                     "level": "error",
                     "path": f"stageLinks.{stage_link.get('uid', '')}.toStageId",
                     "message": f"业务阶段连线引用了不存在的终点阶段 {to_stage_id}",
+                }
+            )
+
+    for stage_flow_link in doc.get("stageFlowLinks", []):
+        link_id = str(stage_flow_link.get("id", "")).strip() or str(stage_flow_link.get("uid", "")).strip()
+        stage_id = str(stage_flow_link.get("stageId", "")).strip()
+        from_ref_id = str(stage_flow_link.get("fromRefId", "")).strip()
+        to_ref_id = str(stage_flow_link.get("toRefId", "")).strip()
+        if stage_id and stage_id not in stage_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowLinks.{link_id}.stageId",
+                    "message": f"阶段流程引用连线引用了不存在的业务阶段 {stage_id}",
+                }
+            )
+        if from_ref_id and from_ref_id not in stage_flow_ref_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowLinks.{link_id}.fromRefId",
+                    "message": f"阶段流程引用连线引用了不存在的起点引用 {from_ref_id}",
+                }
+            )
+        if to_ref_id and to_ref_id not in stage_flow_ref_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowLinks.{link_id}.toRefId",
+                    "message": f"阶段流程引用连线引用了不存在的终点引用 {to_ref_id}",
+                }
+            )
+        from_ref = stage_flow_ref_by_id.get(from_ref_id)
+        to_ref = stage_flow_ref_by_id.get(to_ref_id)
+        if stage_id and from_ref and str(from_ref.get("stageId", "")).strip() != stage_id:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowLinks.{link_id}.fromRefId",
+                    "message": f"阶段流程引用连线引用了不属于该阶段的起点引用 {from_ref_id}",
+                }
+            )
+        if stage_id and to_ref and str(to_ref.get("stageId", "")).strip() != stage_id:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageFlowLinks.{link_id}.toRefId",
+                    "message": f"阶段流程引用连线引用了不属于该阶段的终点引用 {to_ref_id}",
                 }
             )
 

@@ -129,6 +129,146 @@ def _normalize_stage_links(stage_links: list[dict]) -> list[dict]:
     return normalized_links
 
 
+def _next_seq_id(prefix: str, used_ids: set[str]) -> str:
+    index = 1
+    while f"{prefix}{index}" in used_ids:
+        index += 1
+    next_id = f"{prefix}{index}"
+    used_ids.add(next_id)
+    return next_id
+
+
+def _normalize_positive_int(value, fallback: int) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = fallback
+    return normalized if normalized > 0 else fallback
+
+
+def _normalize_stage_flow_refs(stage_flow_refs: list[dict]) -> list[dict]:
+    normalized_refs: list[dict] = []
+    used_ids: set[str] = set()
+    for ref_index, ref in enumerate(stage_flow_refs or [], start=1):
+        if not isinstance(ref, dict):
+            continue
+        ref_id = str(ref.get("id", "")).strip()
+        if not ref_id or ref_id in used_ids:
+            ref_id = _next_seq_id("SFR", used_ids)
+        else:
+            used_ids.add(ref_id)
+        normalized_refs.append(
+            {
+                "uid": str(ref.get("uid", "")).strip() or _new_uid(),
+                "id": ref_id,
+                "stageId": str(ref.get("stageId", ref.get("stage_id", ""))).strip(),
+                "processId": str(ref.get("processId", ref.get("process_id", ""))).strip(),
+                "order": _normalize_positive_int(ref.get("order"), ref_index),
+                "pos": _normalize_graph_offset(ref.get("pos", {})),
+            }
+        )
+    return normalized_refs
+
+
+def _normalize_stage_flow_links(stage_flow_links: list[dict]) -> list[dict]:
+    normalized_links: list[dict] = []
+    used_ids: set[str] = set()
+    for link_index, link in enumerate(stage_flow_links or [], start=1):
+        if not isinstance(link, dict):
+            continue
+        link_id = str(link.get("id", "")).strip()
+        if not link_id or link_id in used_ids:
+            link_id = _next_seq_id("SFL", used_ids)
+        else:
+            used_ids.add(link_id)
+        normalized_links.append(
+            {
+                "uid": str(link.get("uid", "")).strip() or _new_uid(),
+                "id": link_id,
+                "stageId": str(link.get("stageId", link.get("stage_id", ""))).strip(),
+                "fromRefId": str(link.get("fromRefId", link.get("from_ref_id", ""))).strip(),
+                "toRefId": str(link.get("toRefId", link.get("to_ref_id", ""))).strip(),
+            }
+        )
+    return normalized_links
+
+
+def _supplement_stage_flow_refs_from_legacy(stage_flow_refs: list[dict], processes: list[dict]) -> list[dict]:
+    existing_pairs = {
+        (str(ref.get("stageId", "")).strip(), str(ref.get("processId", "")).strip())
+        for ref in stage_flow_refs
+        if str(ref.get("stageId", "")).strip() and str(ref.get("processId", "")).strip()
+    }
+    used_ids = {str(ref.get("id", "")).strip() for ref in stage_flow_refs if str(ref.get("id", "")).strip()}
+    stage_orders: dict[str, int] = {}
+    for ref in stage_flow_refs:
+        stage_id = str(ref.get("stageId", "")).strip()
+        if not stage_id:
+            continue
+        stage_orders[stage_id] = max(
+            stage_orders.get(stage_id, 0),
+            _normalize_positive_int(ref.get("order"), stage_orders.get(stage_id, 0) + 1),
+        )
+
+    supplemented = list(stage_flow_refs)
+    for process in processes or []:
+        stage_id = str(process.get("stageId", "")).strip()
+        process_id = str(process.get("id", "")).strip()
+        if not stage_id or not process_id:
+            continue
+        pair = (stage_id, process_id)
+        if pair in existing_pairs:
+            continue
+        stage_orders[stage_id] = stage_orders.get(stage_id, 0) + 1
+        supplemented.append(
+            {
+                "uid": _new_uid(),
+                "id": _next_seq_id("SFR", used_ids),
+                "stageId": stage_id,
+                "processId": process_id,
+                "order": stage_orders[stage_id],
+                "pos": _normalize_graph_offset(process.get("stagePos", {})),
+            }
+        )
+        existing_pairs.add(pair)
+    return supplemented
+
+
+def _build_stage_flow_links_from_legacy(stages: list[dict], stage_flow_refs: list[dict]) -> list[dict]:
+    refs_by_stage_process: dict[tuple[str, str], str] = {}
+    used_ids: set[str] = set()
+    generated: list[dict] = []
+    for ref in stage_flow_refs:
+        stage_id = str(ref.get("stageId", "")).strip()
+        process_id = str(ref.get("processId", "")).strip()
+        ref_id = str(ref.get("id", "")).strip()
+        if not stage_id or not process_id or not ref_id:
+            continue
+        refs_by_stage_process.setdefault((stage_id, process_id), ref_id)
+
+    for stage in stages or []:
+        stage_id = str(stage.get("id", "")).strip()
+        if not stage_id:
+            continue
+        for link in stage.get("processLinks", []):
+            from_process_id = str(link.get("fromProcessId", "")).strip()
+            to_process_id = str(link.get("toProcessId", "")).strip()
+            from_ref_id = refs_by_stage_process.get((stage_id, from_process_id), "")
+            to_ref_id = refs_by_stage_process.get((stage_id, to_process_id), "")
+            if not from_ref_id or not to_ref_id:
+                continue
+            generated.append(
+                {
+                    "uid": _new_uid(),
+                    "id": _next_seq_id("SFL", used_ids),
+                    "stageId": stage_id,
+                    "fromRefId": from_ref_id,
+                    "toRefId": to_ref_id,
+                }
+            )
+    return generated
+
+
 def _normalize_stages(stages: list[dict], processes: list[dict]) -> None:
     normalized_stages: list[dict] = []
     for stage_index, stage in enumerate(stages, start=1):
@@ -172,6 +312,8 @@ def create_empty_document(name: str) -> dict:
             "language": [],
             "stages": [],
             "stageLinks": [],
+            "stageFlowRefs": [],
+            "stageFlowLinks": [],
             "processes": [
                 {
                     "id": "P1",
@@ -709,6 +851,8 @@ def migrate_document(document: dict | None) -> dict:
     doc.setdefault("language", [])
     doc.setdefault("stages", [])
     doc.setdefault("stageLinks", [])
+    doc.setdefault("stageFlowRefs", [])
+    doc.setdefault("stageFlowLinks", [])
     doc.setdefault("processes", [])
     doc.setdefault("entities", [])
     doc.setdefault("relations", [])
@@ -733,6 +877,13 @@ def migrate_document(document: dict | None) -> dict:
     _normalize_processes(doc["processes"], doc["roles"])
     _normalize_stages(doc["stages"], doc["processes"])
     doc["stageLinks"] = _normalize_stage_links(doc["stageLinks"])
+    doc["stageFlowRefs"] = _supplement_stage_flow_refs_from_legacy(
+        _normalize_stage_flow_refs(doc["stageFlowRefs"]),
+        doc["processes"],
+    )
+    doc["stageFlowLinks"] = _normalize_stage_flow_links(doc["stageFlowLinks"])
+    if not doc["stageFlowLinks"]:
+        doc["stageFlowLinks"] = _build_stage_flow_links_from_legacy(doc["stages"], doc["stageFlowRefs"])
     _normalize_entities(doc["entities"])
     _normalize_relations(doc["relations"])
     _normalize_rules(doc["rules"])
@@ -762,6 +913,7 @@ def renumber_document_ids(document: dict | None) -> dict:
             stage_map[old_stage_id] = new_stage_id
 
     process_map: dict[str, str] = {}
+    stage_flow_ref_map: dict[str, str] = {}
     node_map: dict[str, str] = {}
     next_node_index = 1
     for process_index, process in enumerate(doc["processes"], start=1):
@@ -801,6 +953,17 @@ def renumber_document_ids(document: dict | None) -> dict:
             node["role_id"] = role_ids[0] if role_ids else ""
             node["role"] = "、".join(node["roles"])
 
+    for stage_flow_ref_index, stage_flow_ref in enumerate(doc.get("stageFlowRefs", []), start=1):
+        old_ref_id = str(stage_flow_ref.get("id", "")).strip()
+        new_ref_id = f"SFR{stage_flow_ref_index}"
+        stage_flow_ref["id"] = new_ref_id
+        if old_ref_id:
+            stage_flow_ref_map[old_ref_id] = new_ref_id
+        if stage_flow_ref.get("stageId") in stage_map:
+            stage_flow_ref["stageId"] = stage_map[stage_flow_ref["stageId"]]
+        if stage_flow_ref.get("processId") in process_map:
+            stage_flow_ref["processId"] = process_map[stage_flow_ref["processId"]]
+
     entity_map: dict[str, str] = {}
     for entity_index, entity in enumerate(doc["entities"], start=1):
         old_entity_id = str(entity.get("id", "")).strip()
@@ -833,6 +996,15 @@ def renumber_document_ids(document: dict | None) -> dict:
             stage_link["fromStageId"] = stage_map[stage_link["fromStageId"]]
         if stage_link.get("toStageId") in stage_map:
             stage_link["toStageId"] = stage_map[stage_link["toStageId"]]
+
+    for stage_flow_link_index, stage_flow_link in enumerate(doc.get("stageFlowLinks", []), start=1):
+        stage_flow_link["id"] = f"SFL{stage_flow_link_index}"
+        if stage_flow_link.get("stageId") in stage_map:
+            stage_flow_link["stageId"] = stage_map[stage_flow_link["stageId"]]
+        if stage_flow_link.get("fromRefId") in stage_flow_ref_map:
+            stage_flow_link["fromRefId"] = stage_flow_ref_map[stage_flow_link["fromRefId"]]
+        if stage_flow_link.get("toRefId") in stage_flow_ref_map:
+            stage_flow_link["toRefId"] = stage_flow_ref_map[stage_flow_link["toRefId"]]
 
     id_map = {}
     id_map.update(role_map)

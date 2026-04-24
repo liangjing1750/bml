@@ -201,24 +201,20 @@ function openProcessHome(navOptions = {}) {
 function setProcView(v, navOptions = {}) {
   queueUiNavigationHistoryFor({ procView: v }, navOptions);
   S.ui.procView = v;
-  renderProcessTab();
+  render();
 }
 
 function _defaultSbCollapse(doc) {
+  const processes = doc.processes || [];
   const c = { lang: true };
-  [...new Set((doc.processes||[]).map(p => p.subDomain || '').filter(Boolean))]
+  [...new Set(processes.map(p => p.subDomain || '').filter(Boolean))]
     .forEach((sd) => { c[`sd-${sd}`] = true; });
-  [...new Set((doc.stages||[])
-    .map((stage) => `${stage.subDomain || ''}::${stage.id || ''}`)
-    .filter((key) => key.split('::')[1]))]
-    .forEach((key) => { c[`stage-${key}`] = true; });
-  [...new Set((doc.processes||[])
-    .filter((p) => !String(p.stageId || '').trim())
-    .map((p) => p.subDomain || ''))]
-    .forEach((sd) => { c[`stage-${sd}::${UNASSIGNED_STAGE_ID}`] = true; });
+  [...new Set(processes.map((p) => `${p.subDomain || ''}::${p.flowGroup || ''}`))]
+    .forEach((key) => { c[`fg-${key}`] = true; });
+  getStageItems(doc).forEach((stageItem) => { c[`stage-tree-${stageItem.id}`] = true; });
   [...new Set((doc.entities||[]).map(e => e.group || '').filter(Boolean))]
     .forEach((grp) => { c[`grp-${grp}`] = true; });
-  (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
+  processes.forEach(p => { c[`proc-${p.id}`] = true; });
   return c;
 }
 
@@ -314,6 +310,22 @@ function _renderSbStage(stageItem, processes, collapseKey) {
   </div>`;
 }
 
+function _renderSbFlowGroup(flowGroup, processes, collapseKey) {
+  const isCollapsed = !!S.ui.sbCollapse[collapseKey];
+  const label = flowGroup || '未分组流程';
+  return `<div class="sb-subgrp-head sb-flowgroup-head" data-flow-group="${esc(label)}"
+    onclick="toggleCollapse('${esc(collapseKey)}')">
+    <button type="button" class="sb-caret ${isCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
+    <span class="sb-subgrp-badge">流程组</span>
+    <span class="sb-name" title="${esc(label)}">${esc(label)}</span>
+    ${_renderSbCount(processes.length)}
+  </div>`;
+}
+
+function isStageSidebarBrowseMode() {
+  return S.ui.tab === 'process' && S.ui.procView === 'stage';
+}
+
 /* ═══════════════════════════════════════════════════════════
    RENDER — Sidebar (collapsible tree)
 ═══════════════════════════════════════════════════════════ */
@@ -322,9 +334,9 @@ function renderSidebar() {
   const entities = S.doc.entities||[];
   const collapsed = S.ui.sidebarCollapsed;
   const stageItems = getStageItems(S.doc);
-  const stageSubDomains = getStages(S.doc).map((stage) => stage.subDomain || '');
-  const subDomains=[...new Set([...procs.map(p=>p.subDomain||''), ...stageSubDomains])];
+  const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
   const groups=[...new Set(entities.map(e=>e.group||''))];
+  const stageSidebarMode = isStageSidebarBrowseMode();
   const processBucketCount = subDomains.filter(Boolean).length + (subDomains.includes('') ? 1 : 0);
   const stageCount = getStages(S.doc).length;
   const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
@@ -363,6 +375,17 @@ function renderSidebar() {
 
   let h='';
 
+  if (stageSidebarMode && S.ui.stageId) {
+    S.ui.sbCollapse[`stage-tree-${S.ui.stageId}`] = false;
+  }
+  if (!stageSidebarMode && S.ui.procId) {
+    const activeProc = procs.find((proc) => proc.id === S.ui.procId);
+    if (activeProc) {
+      S.ui.sbCollapse[`sd-${activeProc.subDomain || ''}`] = false;
+      S.ui.sbCollapse[`fg-${activeProc.subDomain || ''}::${activeProc.flowGroup || ''}`] = false;
+    }
+  }
+
   /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
     <div class="sb-header" data-section="process">
@@ -376,9 +399,24 @@ function renderSidebar() {
         ])}
       </div>
       <button class="sb-add-btn" onclick="addProcess()" title="\u65b0\u5efa\u6d41\u7a0b">+</button>
-    </div>`;
+    </div>
+    <div class="sb-process-browse" data-testid="${stageSidebarMode ? 'sidebar-stage-browse' : 'sidebar-domain-browse'}">`;
 
-  if(!procs.length){
+  if(stageSidebarMode) {
+    for (const stageItem of stageItems) {
+      const stageProcesses = getStageProcesses(stageItem.id, S.doc);
+      const collapseKey = `stage-tree-${stageItem.id}`;
+      h += _renderSbStage(stageItem, stageProcesses, collapseKey);
+      if (S.ui.sbCollapse[collapseKey]) continue;
+      if (!stageProcesses.length) {
+        h += `<div class="sb-empty sb-stage-empty">暂无流程</div>`;
+        continue;
+      }
+      for (const p of stageProcesses) {
+        h += _renderSbProc(p);
+      }
+    }
+  } else if(!procs.length){
     h+=`<div class="sb-empty">\u6682\u65e0\u6d41\u7a0b</div>`;
   } else {
     for(const sd of subDomains) {
@@ -386,34 +424,13 @@ function renderSidebar() {
       const sdLabel = sd || '\u672a\u5f52\u7c7b\u4e1a\u52a1\u5b50\u57df';
       const sdKey=`sd-${sd}`;
       const sdCollapsed=S.ui.sbCollapse[sdKey];
-      const sdStages = stageItems.filter((stageItem) => {
-        if (stageItem.virtual) return false;
-        return String(stageItem.subDomain || '').trim() === String(sd || '').trim();
-      });
-      const sdUnassigned = sdProcs.filter((proc) => !String(proc.stageId || '').trim());
-      const stageRows = [
-        ...sdStages.map((stageItem) => ({
-          stageItem,
-          processes: sdProcs.filter((proc) => String(proc.stageId || '').trim() === stageItem.id),
-          collapseKey: `stage-${sd}::${stageItem.id}`,
-        })),
-        ...(sdUnassigned.length ? [{
-          stageItem: {
-            id: UNASSIGNED_STAGE_ID,
-            name: UNASSIGNED_STAGE_NAME,
-            subDomain: sd,
-            virtual: true,
-          },
-          processes: sdUnassigned,
-          collapseKey: `stage-${sd}::${UNASSIGNED_STAGE_ID}`,
-        }] : []),
-      ];
+      const flowGroups = [...new Set(sdProcs.map((proc) => proc.flowGroup || ''))];
       h+=`<div class="sb-grp-head" data-subdomain="${esc(sdLabel)}" onclick="toggleCollapse('${sdKey}')">
         <button type="button" class="sb-caret ${sdCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
         <span class="sb-grp-badge">业务子域</span>
         <span class="sb-name" title="${esc(sdLabel)}">${esc(sdLabel)}</span>
-        ${_renderSbCount(stageRows.length || sdProcs.length)}
-        <button class="sb-add-btn" onclick="event.stopPropagation();addStage('${esc(sd)}')" title="在此子域新建业务阶段">＋</button>
+        ${_renderSbCount(sdProcs.length)}
+        <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="\u5728\u6b64\u4e1a\u52a1\u5b50\u57df\u65b0\u5efa\u6d41\u7a0b">+</button>
         ${sd ? `<span class="sb-move-btns">
           <button class="sb-move-btn sb-move-up" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
           <button class="sb-move-btn sb-move-down" onclick="moveSdGroup('${esc(sd)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
@@ -421,24 +438,26 @@ function renderSidebar() {
       </div>`;
       if(sdCollapsed) continue;
 
-      if (!stageRows.length) {
-        h += `<div class="sb-empty">暂无业务阶段</div>`;
+      if (!flowGroups.length) {
+        h += `<div class="sb-empty">\u6682\u65e0\u6d41\u7a0b\u7ec4</div>`;
       }
 
-      for (const row of stageRows) {
-        h += _renderSbStage(row.stageItem, row.processes, row.collapseKey);
-        if (S.ui.sbCollapse[row.collapseKey]) continue;
-        if (!row.processes.length) {
+      for (const flowGroup of flowGroups) {
+        const fgProcs = sdProcs.filter((proc) => String(proc.flowGroup || '') === String(flowGroup || ''));
+        const fgKey = `fg-${sd}::${flowGroup}`;
+        h += _renderSbFlowGroup(flowGroup, fgProcs, fgKey);
+        if (S.ui.sbCollapse[fgKey]) continue;
+        if (!fgProcs.length) {
           h += `<div class="sb-empty sb-stage-empty">暂无流程</div>`;
           continue;
         }
-        for(const p of row.processes) {
+        for(const p of fgProcs) {
           h+=_renderSbProc(p);
         }
       }
     }
   }
-  h+=`</div>`;
+  h+=`</div></div>`;
 
   /* ── 实体区（按主题域分组） ── */
   h+=`<div class="sb-section">

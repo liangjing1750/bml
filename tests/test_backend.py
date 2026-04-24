@@ -68,6 +68,8 @@ class CreateEmptyDocumentTests(unittest.TestCase):
         self.assertEqual(document["processes"][0]["nodes"], [])
         self.assertEqual(document["stages"], [])
         self.assertEqual(document["stageLinks"], [])
+        self.assertEqual(document["stageFlowRefs"], [])
+        self.assertEqual(document["stageFlowLinks"], [])
         self.assertEqual(document["entities"], [])
 
 
@@ -129,6 +131,8 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(migrated["language"], [])
         self.assertEqual(migrated["stages"], [])
         self.assertEqual(migrated["stageLinks"], [])
+        self.assertEqual(migrated["stageFlowRefs"], [])
+        self.assertEqual(migrated["stageFlowLinks"], [])
 
     def test_migrate_document_promotes_string_roles_to_role_objects_and_links_tasks(self):
         document = {
@@ -311,6 +315,55 @@ class MigrateDocumentTests(unittest.TestCase):
             ],
         )
 
+    def test_migrate_document_builds_stage_flow_refs_and_links_from_legacy_stage_membership(self):
+        document = {
+            "meta": {"title": "Stage refs"},
+            "roles": [],
+            "language": [],
+            "stages": [
+                {
+                    "id": "S1",
+                    "name": "入库阶段",
+                    "subDomain": "仓储",
+                    "processLinks": [
+                        {"fromProcessId": "P1", "toProcessId": "P2"},
+                    ],
+                },
+                {
+                    "id": "S2",
+                    "name": "在库阶段",
+                    "subDomain": "仓储",
+                    "processLinks": [],
+                },
+            ],
+            "stageLinks": [{"fromStageId": "S1", "toStageId": "S2"}],
+            "processes": [
+                {"id": "P1", "name": "预约", "subDomain": "仓储", "stageId": "S1", "nodes": []},
+                {"id": "P2", "name": "审核", "subDomain": "仓储", "stageId": "S1", "nodes": []},
+                {"id": "P3", "name": "入库", "subDomain": "仓储", "stageId": "S2", "nodes": []},
+            ],
+            "entities": [],
+            "relations": [],
+            "rules": [],
+        }
+
+        migrated = migrate_document(document)
+
+        refs = migrated["stageFlowRefs"]
+        links = migrated["stageFlowLinks"]
+        self.assertEqual(
+            [(item["stageId"], item["processId"]) for item in refs],
+            [("S1", "P1"), ("S1", "P2"), ("S2", "P3")],
+        )
+        self.assertEqual([item["order"] for item in refs], [1, 2, 1])
+        self.assertTrue(all(item["id"] for item in refs))
+        self.assertTrue(all(item["uid"] for item in refs))
+        self.assertEqual(len(links), 1)
+        self.assertEqual(links[0]["stageId"], "S1")
+        ref_map = {item["id"]: item for item in refs}
+        self.assertEqual(ref_map[links[0]["fromRefId"]]["processId"], "P1")
+        self.assertEqual(ref_map[links[0]["toRefId"]]["processId"], "P2")
+
 
 class MarkdownExporterTests(unittest.TestCase):
     def test_export_includes_process_mermaid_and_entity_tables(self):
@@ -418,6 +471,66 @@ class MarkdownExporterTests(unittest.TestCase):
         self.assertNotIn("| 来源状态 | 目标状态 | 触发动作 | 说明 |", markdown)
         self.assertIn("Activate", markdown)
         self.assertNotIn("Reader must be approved", markdown)
+
+    def test_export_uses_stage_flow_refs_for_stage_and_process_views(self):
+        document = {
+            "meta": {
+                "title": "Delivery",
+                "domain": "Delivery",
+                "author": "LJ",
+                "date": "2026-04-24",
+            },
+            "roles": [],
+            "language": [],
+            "stages": [
+                {"id": "S1", "name": "预约阶段", "subDomain": "交割", "pos": {"x": 0, "y": 0}, "processLinks": []},
+                {"id": "S2", "name": "办理阶段", "subDomain": "交割", "pos": {"x": 0, "y": 0}, "processLinks": []},
+            ],
+            "stageLinks": [
+                {"fromStageId": "S1", "toStageId": "S2"},
+            ],
+            "stageFlowRefs": [
+                {"id": "SFR1", "stageId": "S1", "processId": "P1", "order": 1, "pos": {"x": 0, "y": 0}},
+                {"id": "SFR2", "stageId": "S1", "processId": "P2", "order": 2, "pos": {"x": 0, "y": 0}},
+                {"id": "SFR3", "stageId": "S2", "processId": "P2", "order": 1, "pos": {"x": 0, "y": 0}},
+            ],
+            "stageFlowLinks": [
+                {"id": "SFL1", "stageId": "S1", "fromRefId": "SFR1", "toRefId": "SFR2"},
+            ],
+            "processes": [
+                {
+                    "id": "P1",
+                    "name": "预约录入",
+                    "subDomain": "交割",
+                    "flowGroup": "预约组",
+                    "trigger": "",
+                    "outcome": "",
+                    "nodes": [],
+                },
+                {
+                    "id": "P2",
+                    "name": "资料审核",
+                    "subDomain": "交割",
+                    "flowGroup": "审核组",
+                    "trigger": "",
+                    "outcome": "",
+                    "nodes": [],
+                },
+            ],
+            "entities": [],
+            "relations": [],
+            "rules": [],
+        }
+
+        markdown = MarkdownExporter().export(document)
+        self.assertIn("\u4e1a\u52a1\u9636\u6bb5", markdown)
+        self.assertIn("### S1: \u9884\u7ea6\u9636\u6bb5", markdown)
+        self.assertIn("### S2: \u529e\u7406\u9636\u6bb5", markdown)
+        self.assertIn("SFR1[\"\u9884\u7ea6\u5f55\u5165\"]", markdown)
+        self.assertIn("SFR2[\"\u8d44\u6599\u5ba1\u6838\"]", markdown)
+        self.assertIn("SFR1 --> SFR2", markdown)
+        self.assertIn("**\u4e1a\u52a1\u9636\u6bb5**: \u9884\u7ea6\u9636\u6bb5\u3001\u529e\u7406\u9636\u6bb5", markdown)
+        self.assertIn("**业务阶段**: 预约阶段、办理阶段", markdown)
 
 
 class WorkspaceStorageTests(unittest.TestCase):
@@ -941,6 +1054,8 @@ class MergeApiTests(unittest.TestCase):
         self.assertEqual(result["document"]["meta"]["schema_version"], 4)
         self.assertTrue(result["document"]["roles"][0]["uid"])
         self.assertEqual(result["document"]["processes"], [])
+        self.assertEqual(result["document"]["stageFlowRefs"], [])
+        self.assertEqual(result["document"]["stageFlowLinks"], [])
 
     def test_merge_analyze_accepts_inline_documents(self):
         with tempfile.TemporaryDirectory() as temp_dir:

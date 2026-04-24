@@ -26,6 +26,8 @@ function createLocalDocument(name) {
     language: [],
     stages: [],
     stageLinks: [],
+    stageFlowRefs: [],
+    stageFlowLinks: [],
     processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', stageId: '', stagePos: { x: 0, y: 0 }, trigger: '', outcome: '', prototypeFiles: [], nodes: [] }],
     entities: [],
     relations: [],

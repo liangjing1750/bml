@@ -505,17 +505,21 @@ function addProcess(subDomain, stageId = '') {
   const pos = _nextFreePos(S.doc.processes, null); /* 自动填补空缺格子 */
   const stage = findStage(stageId, S.doc);
   const nextSubDomain = String(subDomain || stage?.subDomain || '').trim();
-  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:nextSubDomain, flowGroup:'', stageId:stage?.id||'', stagePos:{ x: 0, y: 0 }, trigger:'', outcome:'', prototypeFiles:[], nodes:[], pos});
+  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:nextSubDomain, flowGroup:'', stageId:'', stagePos:{ x: 0, y: 0 }, trigger:'', outcome:'', prototypeFiles:[], nodes:[], pos});
   hydrateDocumentForUi(S.doc);
+  if (stage?.id) addStageProcessRef(stage.id, id, { silent: true });
   markModified();
   navigate('process',{procId:id, taskId:null});
 }
 function removeProcess(id) {
   if(!confirm('确认删除此流程及所有任务？')) return;
+  const removedRefIds = new Set(getProcessStageRefs(id, S.doc).map((ref) => ref.id));
   S.doc.processes = S.doc.processes.filter(p=>p.id!==id);
   getStages(S.doc).forEach((stage) => {
     stage.processLinks = getStageProcessLinks(stage).filter((link) => link.fromProcessId !== id && link.toProcessId !== id);
   });
+  S.doc.stageFlowRefs = getStageFlowRefs(S.doc).filter((ref) => ref.processId !== id);
+  S.doc.stageFlowLinks = getStageFlowLinks(S.doc).filter((link) => !removedRefIds.has(link.fromRefId) && !removedRefIds.has(link.toRefId));
   if(S.ui.procId===id){S.ui.procId=S.doc.processes[0]?.id||null; S.ui.taskId=null;}
   markModified(); render();
 }
@@ -528,6 +532,7 @@ function setProcStage(procId, stageId) {
   const proc = S.doc.processes.find((item) => item.id === procId);
   if (!proc) return;
   const nextStageId = isVirtualStageId(stageId) ? '' : String(stageId || '').trim();
+  const removedRefIds = new Set(getProcessStageRefs(procId, S.doc).map((ref) => ref.id));
   proc.stageId = nextStageId;
   const stage = findStage(nextStageId, S.doc);
   if (stage?.subDomain && !String(proc.subDomain || '').trim()) {
@@ -537,6 +542,10 @@ function setProcStage(procId, stageId) {
     if (item.id === nextStageId) return;
     item.processLinks = getStageProcessLinks(item).filter((link) => link.fromProcessId !== procId && link.toProcessId !== procId);
   });
+  S.doc.stageFlowRefs = getStageFlowRefs(S.doc).filter((ref) => ref.processId !== procId || ref.stageId === nextStageId);
+  S.doc.stageFlowLinks = getStageFlowLinks(S.doc).filter((link) => !removedRefIds.has(link.fromRefId) && !removedRefIds.has(link.toRefId));
+  if (nextStageId) addStageProcessRef(nextStageId, procId, { silent: true });
+  syncLegacyStageIdForProcess(procId);
   proc.stagePos = normalizeGraphOffset(proc.stagePos);
   markModified();
 }
@@ -1012,6 +1021,72 @@ function ensureStageSelection() {
   }
 }
 
+function nextStageFlowRefId() {
+  const usedIds = new Set(getStageFlowRefs(S.doc).map((ref) => String(ref.id || '').trim()).filter(Boolean));
+  let index = 1;
+  while (usedIds.has(`SFR${index}`)) index += 1;
+  return `SFR${index}`;
+}
+
+function nextStageFlowLinkId() {
+  const usedIds = new Set(getStageFlowLinks(S.doc).map((link) => String(link.id || '').trim()).filter(Boolean));
+  let index = 1;
+  while (usedIds.has(`SFL${index}`)) index += 1;
+  return `SFL${index}`;
+}
+
+function syncLegacyStageIdForProcess(procId) {
+  const proc = (S.doc.processes || []).find((item) => item.id === procId);
+  if (!proc) return;
+  const refs = getProcessStageRefs(procId, S.doc);
+  proc.stageId = refs[0]?.stageId || '';
+  if (!refs.length) proc.stagePos = normalizeGraphOffset(proc.stagePos);
+}
+
+function addStageProcessRef(stageId, procId, options = {}) {
+  const normalizedStageId = isVirtualStageId(stageId) ? '' : String(stageId || '').trim();
+  const normalizedProcId = String(procId || '').trim();
+  if (!normalizedStageId || !normalizedProcId) return null;
+  const existing = getStageFlowRefs(S.doc).find((ref) => ref.stageId === normalizedStageId && ref.processId === normalizedProcId);
+  if (existing) return existing;
+  const order = getStageProcessRefs(normalizedStageId, S.doc).length + 1;
+  const ref = normalizeStageFlowRefEntry({
+    id: nextStageFlowRefId(),
+    stageId: normalizedStageId,
+    processId: normalizedProcId,
+    order,
+    pos: { x: 0, y: 0 },
+  }, getStageFlowRefs(S.doc).length + 1);
+  getStageFlowRefs(S.doc).push(ref);
+  syncLegacyStageIdForProcess(normalizedProcId);
+  if (!options.silent) markModified();
+  return ref;
+}
+
+function removeStageProcessRef(stageId, procId, options = {}) {
+  const normalizedStageId = isVirtualStageId(stageId) ? '' : String(stageId || '').trim();
+  const normalizedProcId = String(procId || '').trim();
+  const removedRefs = getStageFlowRefs(S.doc).filter((ref) => ref.stageId === normalizedStageId && ref.processId === normalizedProcId);
+  if (!removedRefs.length) return false;
+  const removedRefIds = new Set(removedRefs.map((ref) => ref.id));
+  S.doc.stageFlowRefs = getStageFlowRefs(S.doc).filter((ref) => !removedRefIds.has(ref.id));
+  S.doc.stageFlowLinks = getStageFlowLinks(S.doc).filter((link) => !removedRefIds.has(link.fromRefId) && !removedRefIds.has(link.toRefId));
+  getStageProcessRefs(normalizedStageId, S.doc).forEach((ref, index) => { ref.order = index + 1; });
+  syncLegacyStageIdForProcess(normalizedProcId);
+  if (!options.silent) markModified();
+  return true;
+}
+
+function moveStageProcessRef(stageId, procId, dir) {
+  const refs = getStageProcessRefs(stageId, S.doc);
+  const index = refs.findIndex((ref) => ref.processId === procId);
+  const targetIndex = index + dir;
+  if (index < 0 || targetIndex < 0 || targetIndex >= refs.length) return;
+  [refs[index], refs[targetIndex]] = [refs[targetIndex], refs[index]];
+  refs.forEach((ref, orderIndex) => { ref.order = orderIndex + 1; });
+  markModified();
+}
+
 function addStage(subDomain = '') {
   const stages = getStages(S.doc);
   const id = nextId('S', stages);
@@ -1036,12 +1111,11 @@ function removeStage(stageId) {
   if (!confirm(`确认删除业务阶段 ${stage.name || stage.id} 吗？阶段内流程不会删除，但会变成未设置业务阶段。`)) return;
   S.doc.stages = getStages(S.doc).filter((item) => item.id !== stageId);
   S.doc.stageLinks = getStageLinks(S.doc).filter((link) => link.fromStageId !== stageId && link.toStageId !== stageId);
-  (S.doc.processes || []).forEach((proc) => {
-    if (String(proc.stageId || '').trim() === stageId) {
-      proc.stageId = '';
-      proc.stagePos = { x: 0, y: 0 };
-    }
-  });
+  const removedRefIds = new Set(getStageProcessRefs(stageId, S.doc).map((ref) => ref.id));
+  const removedProcIds = new Set(getStageProcessRefs(stageId, S.doc).map((ref) => ref.processId));
+  S.doc.stageFlowRefs = getStageFlowRefs(S.doc).filter((ref) => ref.stageId !== stageId);
+  S.doc.stageFlowLinks = getStageFlowLinks(S.doc).filter((link) => link.stageId !== stageId && !removedRefIds.has(link.fromRefId) && !removedRefIds.has(link.toRefId));
+  removedProcIds.forEach((procId) => syncLegacyStageIdForProcess(procId));
   ensureStageSelection();
   S.ui.stageViewMode = 'panorama';
   markModified();
@@ -1058,6 +1132,12 @@ function renameStageId(stageId, nextStageId) {
   stage.id = normalizedId;
   (S.doc.processes || []).forEach((proc) => {
     if (String(proc.stageId || '').trim() === previousId) proc.stageId = normalizedId;
+  });
+  getStageFlowRefs(S.doc).forEach((ref) => {
+    if (ref.stageId === previousId) ref.stageId = normalizedId;
+  });
+  getStageFlowLinks(S.doc).forEach((link) => {
+    if (link.stageId === previousId) link.stageId = normalizedId;
   });
   getStageLinks(S.doc).forEach((link) => {
     if (link.fromStageId === previousId) link.fromStageId = normalizedId;
@@ -1084,33 +1164,19 @@ function setStage(stageId, key, value) {
 
 function addProcessToStage(stageId, procId) {
   if (!procId) return;
-  setProcStage(procId, stageId);
+  addStageProcessRef(stageId, procId);
   rerenderStageWorkbench({ focusSelector: '[data-testid="stage-process-select"]' });
 }
 
 function moveProcInStage(stageId, procId, dir) {
-  const targetStageId = isVirtualStageId(stageId) ? '' : String(stageId || '').trim();
-  const procs = S.doc.processes || [];
-  const stageProcs = procs.filter((proc) => String(proc.stageId || '').trim() === targetStageId);
-  const index = stageProcs.findIndex((proc) => proc.id === procId);
-  const targetIndex = index + dir;
-  if (index < 0 || targetIndex < 0 || targetIndex >= stageProcs.length) return;
-  const fromDocIndex = procs.indexOf(stageProcs[index]);
-  const toDocIndex = procs.indexOf(stageProcs[targetIndex]);
-  if (fromDocIndex < 0 || toDocIndex < 0) return;
-  [procs[fromDocIndex], procs[toDocIndex]] = [procs[toDocIndex], procs[fromDocIndex]];
-  markModified();
+  moveStageProcessRef(stageId, procId, dir);
   renderSidebar();
   rerenderStageWorkbench();
 }
 
 function removeProcessFromStage(stageId, procId) {
   if (!procId) return;
-  setProcStage(procId, '');
-  const stage = findStage(stageId, S.doc);
-  if (stage) {
-    stage.processLinks = getStageProcessLinks(stage).filter((link) => link.fromProcessId !== procId && link.toProcessId !== procId);
-  }
+  removeStageProcessRef(stageId, procId);
   rerenderStageWorkbench();
 }
 
@@ -1158,47 +1224,48 @@ function moveStageLink(linkUid, dir) {
 function addStageProcessLink(stageId, afterUid = '') {
   const stage = findStage(stageId, S.doc);
   if (!stage) return;
-  const processes = getStageProcesses(stageId, S.doc);
-  if (processes.length < 2) return;
-  const links = getStageProcessLinks(stage);
-  const row = normalizeStageProcessLinkEntry({
-    fromProcessId: processes[0].id,
-    toProcessId: processes[Math.min(1, processes.length - 1)].id,
-  });
-  const insertIndex = links.findIndex((link) => link.uid === afterUid);
+  const refs = getStageProcessRefs(stageId, S.doc);
+  if (refs.length < 2) return;
+  const links = getStageFlowLinks(S.doc).filter((link) => link.stageId === stageId);
+  const row = normalizeStageFlowLinkEntry({
+    id: nextStageFlowLinkId(),
+    stageId,
+    fromRefId: refs[0].id,
+    toRefId: refs[Math.min(1, refs.length - 1)].id,
+  }, getStageFlowLinks(S.doc).length + 1);
+  const insertIndex = links.findIndex((link) => link.id === afterUid);
   if (insertIndex >= 0) links.splice(insertIndex + 1, 0, row);
   else links.push(row);
+  const others = getStageFlowLinks(S.doc).filter((link) => link.stageId !== stageId);
+  S.doc.stageFlowLinks = [...others, ...links];
   markModified();
   rerenderStageWorkbench();
 }
 
 function setStageProcessLink(stageId, linkUid, key, value) {
-  const stage = findStage(stageId, S.doc);
-  const link = getStageProcessLinks(stage).find((item) => item.uid === linkUid);
+  const link = getStageFlowLinks(S.doc).find((item) => item.stageId === stageId && item.id === linkUid);
   if (!link) return;
   link[key] = String(value || '').trim();
   markModified();
 }
 
 function removeStageProcessLink(stageId, linkUid) {
-  const stage = findStage(stageId, S.doc);
-  if (!stage) return;
-  const links = getStageProcessLinks(stage);
-  const nextLinks = links.filter((item) => item.uid !== linkUid);
+  const links = getStageFlowLinks(S.doc);
+  const nextLinks = links.filter((item) => !(item.stageId === stageId && item.id === linkUid));
   if (nextLinks.length === links.length) return;
-  stage.processLinks = nextLinks;
+  S.doc.stageFlowLinks = nextLinks;
   markModified();
   rerenderStageWorkbench();
 }
 
 function moveStageProcessLink(stageId, linkUid, dir) {
-  const stage = findStage(stageId, S.doc);
-  if (!stage) return;
-  const links = getStageProcessLinks(stage);
-  const index = links.findIndex((item) => item.uid === linkUid);
+  const links = getStageFlowLinks(S.doc).filter((item) => item.stageId === stageId);
+  const index = links.findIndex((item) => item.id === linkUid);
   const targetIndex = index + dir;
   if (index < 0 || targetIndex < 0 || targetIndex >= links.length) return;
   [links[index], links[targetIndex]] = [links[targetIndex], links[index]];
+  const others = getStageFlowLinks(S.doc).filter((item) => item.stageId !== stageId);
+  S.doc.stageFlowLinks = [...others, ...links];
   markModified();
   rerenderStageWorkbench();
 }
@@ -1258,6 +1325,9 @@ function getStageNodeOffset(kind, nodeId) {
   if (kind === 'stage') {
     return normalizeGraphOffset(findStage(nodeId, S.doc)?.pos);
   }
+  if (kind === 'stage-ref') {
+    return normalizeGraphOffset(findStageProcessRef(nodeId, S.doc)?.pos);
+  }
   return normalizeGraphOffset((S.doc.processes || []).find((proc) => proc.id === nodeId)?.stagePos);
 }
 
@@ -1266,6 +1336,12 @@ function setStageNodeOffset(kind, nodeId, nextOffset) {
     const stage = findStage(nodeId, S.doc);
     if (!stage) return;
     stage.pos = normalizeGraphOffset(nextOffset);
+    return;
+  }
+  if (kind === 'stage-ref') {
+    const ref = findStageProcessRef(nodeId, S.doc);
+    if (!ref) return;
+    ref.pos = normalizeGraphOffset(nextOffset);
     return;
   }
   const proc = (S.doc.processes || []).find((item) => item.id === nodeId);
@@ -1309,7 +1385,10 @@ function endStageNodeDrag(event) {
   stageDragState = null;
   if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
     if (kind === 'stage') openStageDetail(nodeId);
-    else navigate('process', { procId: nodeId, taskId: null });
+    else if (kind === 'stage-ref') {
+      const ref = findStageProcessRef(nodeId, S.doc);
+      if (ref?.processId) navigate('process', { procId: ref.processId, taskId: null });
+    } else navigate('process', { procId: nodeId, taskId: null });
     return;
   }
   const zoom = getStageGraphZoom() || 1;
@@ -1468,17 +1547,21 @@ function buildStagePanoramaGraphData() {
 }
 
 function buildStageDetailGraphData(stageId) {
-  const processes = getStageProcesses(stageId, S.doc);
-  const nodes = processes.map((proc) => ({
-    id: proc.id,
-    label: proc.name || proc.id,
-    meta: proc.flowGroup ? `流程组 · ${proc.flowGroup}` : '',
-  }));
-  const stage = findStage(stageId, S.doc);
-  const links = stage
-    ? getStageProcessLinks(stage).map((link) => ({ from: link.fromProcessId, to: link.toProcessId }))
-    : [];
-  return { nodes, links, processes };
+  const processRefs = getStageProcessRefs(stageId, S.doc);
+  const processes = processRefs.map((ref) => getStageRefProcess(ref, S.doc)).filter(Boolean);
+  const nodes = processRefs.map((ref) => {
+    const proc = getStageRefProcess(ref, S.doc);
+    return {
+      id: ref.id,
+      label: proc?.name || proc?.id || ref.processId,
+      meta: proc?.flowGroup ? `流程组 · ${proc.flowGroup}` : '',
+      processId: proc?.id || ref.processId,
+    };
+  });
+  const links = getStageFlowLinks(S.doc)
+    .filter((link) => link.stageId === stageId)
+    .map((link) => ({ from: link.fromRefId, to: link.toRefId }));
+  return { nodes, links, processes, processRefs };
 }
 
 function renderStageLinkEditor(stageItems) {
@@ -1509,40 +1592,47 @@ function renderStageLinkEditor(stageItems) {
   </div>`;
 }
 
-function renderStageProcessLinkEditor(stage, processes) {
-  const links = stage ? getStageProcessLinks(stage) : [];
+function renderStageProcessLinkEditor(stage, processRefs) {
+  const links = stage ? getStageFlowLinks(S.doc).filter((link) => link.stageId === stage.id) : [];
   if (!stage) {
     return `<div class="stage-editor-section"><h5>阶段内流程连线</h5><p class="no-refs">未设置业务阶段只用于承接旧流程，不在这里维护流程连线。</p></div>`;
   }
   return `<div class="stage-editor-section">
     <div class="stage-editor-section-head">
       <h5>阶段内流程连线</h5>
-      <button class="btn btn-outline btn-sm" type="button" onclick="addStageProcessLink('${esc(stage.id)}')" ${processes.length > 1 ? '' : 'disabled'}>＋ 添加连线</button>
+      <button class="btn btn-outline btn-sm" type="button" onclick="addStageProcessLink('${esc(stage.id)}')" ${processRefs.length > 1 ? '' : 'disabled'}>＋ 添加连线</button>
     </div>
     ${links.length ? `<div class="stage-link-list">
       ${links.map((link) => `<div class="stage-link-row" data-testid="stage-process-link-row">
-        <select onchange="setStageProcessLink('${esc(stage.id)}','${esc(link.uid)}','fromProcessId',this.value)">
-          ${processes.map((proc) => `<option value="${esc(proc.id)}" ${link.fromProcessId===proc.id?'selected':''}>${esc(proc.name || proc.id)}</option>`).join('')}
+        <select onchange="setStageProcessLink('${esc(stage.id)}','${esc(link.id)}','fromRefId',this.value)">
+          ${processRefs.map((ref) => {
+            const proc = getStageRefProcess(ref, S.doc);
+            return `<option value="${esc(ref.id)}" ${link.fromRefId===ref.id?'selected':''}>${esc(proc?.name || proc?.id || ref.processId)}</option>`;
+          }).join('')}
         </select>
         <span class="stage-link-arrow">→</span>
-        <select onchange="setStageProcessLink('${esc(stage.id)}','${esc(link.uid)}','toProcessId',this.value)">
-          ${processes.map((proc) => `<option value="${esc(proc.id)}" ${link.toProcessId===proc.id?'selected':''}>${esc(proc.name || proc.id)}</option>`).join('')}
+        <select onchange="setStageProcessLink('${esc(stage.id)}','${esc(link.id)}','toRefId',this.value)">
+          ${processRefs.map((ref) => {
+            const proc = getStageRefProcess(ref, S.doc);
+            return `<option value="${esc(ref.id)}" ${link.toRefId===ref.id?'selected':''}>${esc(proc?.name || proc?.id || ref.processId)}</option>`;
+          }).join('')}
         </select>
         <div class="row-actions">
-          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-add-button" onclick="addStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">＋</button>
-          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-move-up" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',-1)">↑</button>
-          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-move-down" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',1)">↓</button>
-          <button class="stage-quick-btn danger" type="button" data-testid="stage-process-link-remove-button" onclick="removeStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">✕</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-add-button" onclick="addStageProcessLink('${esc(stage.id)}','${esc(link.id)}')">＋</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-move-up" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.id)}',-1)">↑</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-process-link-move-down" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.id)}',1)">↓</button>
+          <button class="stage-quick-btn danger" type="button" data-testid="stage-process-link-remove-button" onclick="removeStageProcessLink('${esc(stage.id)}','${esc(link.id)}')">✕</button>
         </div>
       </div>`).join('')}
     </div>` : '<p class="no-refs">暂无阶段内流程连线，先添加一条。</p>'}
   </div>`;
 }
 
-function renderStageProcessMembership(stageItem, processes) {
+function renderStageProcessMembership(stageItem, processRefs) {
+  const processes = processRefs.map((ref) => getStageRefProcess(ref, S.doc)).filter(Boolean);
   const allProcesses = S.doc.processes || [];
   const availableProcesses = allProcesses.filter((proc) => {
-    if (processes.some((item) => item.id === proc.id)) return false;
+    if (processRefs.some((item) => item.processId === proc.id)) return false;
     if (stageItem.virtual) return false;
     return true;
   });
@@ -1552,15 +1642,18 @@ function renderStageProcessMembership(stageItem, processes) {
       ${!stageItem.virtual ? `<button class="btn btn-outline btn-sm" type="button" data-testid="stage-member-add-button" onclick="addProcess('${esc(stageItem.subDomain || '')}','${esc(stageItem.id)}')">＋ 新流程</button>` : ''}
     </div>
     ${processes.length ? `<div class="stage-member-list">
-      ${processes.map((proc, index) => `<div class="stage-member-chip" data-testid="stage-member-chip">
+      ${processRefs.map((ref, index) => {
+        const proc = getStageRefProcess(ref, S.doc);
+        return `<div class="stage-member-chip" data-testid="stage-member-chip">
         <span class="stage-member-label">${esc(proc.id)} ${esc(proc.name || '未命名流程')}</span>
         <div class="stage-member-actions">
           <button class="stage-quick-btn stage-quick-btn-text" type="button" data-testid="stage-member-view-button" onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})">查看</button>
           <button class="stage-quick-btn" type="button" data-testid="stage-member-move-up" onclick="moveProcInStage('${esc(stageItem.id)}','${esc(proc.id)}',-1)" ${index === 0 ? 'disabled' : ''}>↑</button>
-          <button class="stage-quick-btn" type="button" data-testid="stage-member-move-down" onclick="moveProcInStage('${esc(stageItem.id)}','${esc(proc.id)}',1)" ${index === processes.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="stage-quick-btn" type="button" data-testid="stage-member-move-down" onclick="moveProcInStage('${esc(stageItem.id)}','${esc(proc.id)}',1)" ${index === processRefs.length - 1 ? 'disabled' : ''}>↓</button>
           ${!stageItem.virtual ? `<button class="stage-quick-btn danger stage-quick-btn-text" type="button" data-testid="stage-member-remove-button" onclick="removeProcessFromStage('${esc(stageItem.id)}','${esc(proc.id)}')">移出</button>` : ''}
         </div>
-      </div>`).join('')}
+      </div>`;
+      }).join('')}
     </div>` : '<p class="no-refs">当前阶段还没有流程。</p>'}
     ${!stageItem.virtual ? `<div class="stage-inline-row">
       <select data-testid="stage-process-select" id="stage-process-select">
@@ -1575,8 +1668,8 @@ function renderStageProcessMembership(stageItem, processes) {
 function renderStageDrawer(stageItem) {
   const drawerW = getDrawerWidth('process');
   const stage = stageItem && !stageItem.virtual ? findStage(stageItem.id, S.doc) : null;
-  const processes = stageItem ? getStageProcesses(stageItem.id, S.doc) : [];
-  const warning = processes.length > 7 ? '<div class="stage-warning">当前阶段流程已超过 7 个，建议拆分为相邻业务阶段。</div>' : '';
+  const processRefs = stageItem ? getStageProcessRefs(stageItem.id, S.doc) : [];
+  const warning = processRefs.length > 7 ? '<div class="stage-warning">当前阶段流程已超过 7 个，建议拆分业务阶段。</div>' : '';
   const stageItems = getStageItems(S.doc);
   const drawerTitle = stageItem ? `${stageItem.id} ${stageItem.name || ''}`.trim() : '业务阶段';
   return `<div class="stage-drawer open" style="width:${drawerW}px" data-testid="stage-drawer">
@@ -1606,9 +1699,9 @@ function renderStageDrawer(stageItem) {
             oninput="setStage('${esc(stage.id)}','subDomain',this.value);renderSidebar();rerenderStageWorkbench({focusSelector:'[data-testid=&quot;stage-subdomain-input&quot;]'})">
         </div>
       </div>` : '<div class="stage-tip">当前查看的是“未设置业务阶段”虚拟分组，用于承接还未归类的流程。</div>'}
-      ${renderStageProcessMembership(stageItem || { virtual: true, id: UNASSIGNED_STAGE_ID, subDomain: '' }, processes)}
+      ${renderStageProcessMembership(stageItem || { virtual: true, id: UNASSIGNED_STAGE_ID, subDomain: '' }, processRefs)}
       ${renderStageLinkEditor(stageItems)}
-      ${renderStageProcessLinkEditor(stage, processes)}
+      ${renderStageProcessLinkEditor(stage, processRefs)}
     </div>
   </div>`;
 }
@@ -1621,7 +1714,7 @@ function renderStageWorkbench() {
   const showEditor = !S.ui.stageEditorCollapsed;
   const editorOffset = showEditor ? drawerW : 0;
   const panoramaGraph = buildStagePanoramaGraphData();
-  const detailGraph = stageItem ? buildStageDetailGraphData(stageItem.id) : { nodes: [], links: [], processes: [] };
+  const detailGraph = stageItem ? buildStageDetailGraphData(stageItem.id) : { nodes: [], links: [], processes: [], processRefs: [] };
   const stageWarning = showDetail && detailGraph.processes.length > 7
     ? '<span class="stage-header-warning">建议拆分阶段</span>'
     : '';
@@ -2166,7 +2259,7 @@ function renderProcessTab() {
     h+=`</div></div>`;
     document.getElementById('tab-content').innerHTML=h;
     for(const p of procs) {
-      if((p.tasks||[]).length) renderProcFlow(`pc-diag-${p.id}`, p, null);
+      if(getProcNodes(p).length) renderProcFlow(`pc-diag-${p.id}`, p, null);
     }
     return;
   }
@@ -2323,25 +2416,31 @@ function renderProcessTab() {
       /* ── 流程信息 ── */
       const prototypeFiles = getProcPrototypeFiles(proc);
       const prototypeInputId = formatPrototypeInputId(proc.id);
+      const processStageRefs = getProcessStageRefs(proc.id, S.doc);
+      const processStageRefChips = processStageRefs
+        .map((ref) => {
+          const stageName = getStageDisplayName(ref.stageId, S.doc);
+          return `<button class="proc-stage-ref-chip" type="button" data-testid="proc-stage-ref-chip" onclick="openStageDetail('${esc(ref.stageId)}')">${esc(stageName)}</button>`;
+        })
+        .join('');
       h+=`<div class="form-grid">
         <div class="field-group">
           <label>流程名称</label>
           <input type="text" id="proc-name-input" value="${esc(proc.name||'')}"
             placeholder="如：采购入库流程"
-            oninput="setProc('${esc(proc.id)}','name',this.value);renderSidebar();renderProcDiagramNow()">
+            oninput="setProc('${esc(proc.id)}','name',this.value);renderSidebar()">
+        </div>
+        <div class="field-group field-group-wide">
+          <label>业务阶段引用</label>
+          <div class="proc-stage-ref-list" data-testid="proc-stage-ref-list">
+            ${processStageRefChips || '<span class="no-refs">暂未被业务阶段引用</span>'}
+          </div>
+          <div class="field-hint">业务阶段引用请在业务阶段视图中维护</div>
         </div>
         <div class="field-group">
           <label>业务子域</label>
-          <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：订单子域"
+          <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：仓储管理"
             oninput="setProc('${esc(proc.id)}','subDomain',this.value);renderSidebar()">
-        </div>
-        <div class="field-group">
-          <label>业务阶段</label>
-          <select data-testid="proc-stage-select"
-            onchange="setProcStage('${esc(proc.id)}',this.value);renderSidebar();rerenderProcessEditor({ focusSelector: '[data-testid=&quot;proc-stage-select&quot;]' })">
-            <option value="">未设置业务阶段</option>
-            ${getStages(S.doc).map((stage) => `<option value="${esc(stage.id)}" ${String(proc.stageId || '').trim()===stage.id?'selected':''}>${esc(stage.name || stage.id)}</option>`).join('')}
-          </select>
         </div>
         <div class="field-group">
           <label>\u6d41\u7a0b\u7ec4</label>
