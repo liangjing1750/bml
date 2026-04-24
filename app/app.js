@@ -24,7 +24,9 @@ function createLocalDocument(name) {
     meta: { title: name, domain: name, author: '', date: '' },
     roles: [],
     language: [],
-    processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', trigger: '', outcome: '', prototypeFiles: [], nodes: [] }],
+    stages: [],
+    stageLinks: [],
+    processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', stageId: '', stagePos: { x: 0, y: 0 }, trigger: '', outcome: '', prototypeFiles: [], nodes: [] }],
     entities: [],
     relations: [],
     rules: [],
@@ -46,6 +48,8 @@ function captureUiViewportState() {
   const scrollRoot = document.scrollingElement || document.documentElement;
   const selectors = [
     '.live-diagram',
+    '.stage-main-shell',
+    '.stage-drawer .drawer-body',
     '.proc-drawer .drawer-body',
     '.entity-drawer .drawer-body',
     '.entity-state-browser',
@@ -100,8 +104,11 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
   const validTabs = new Set(['domain', 'process', 'data', 'rules', 'preview', 'manual']);
   if (!validTabs.has(String(next.tab || ''))) next.tab = base.tab;
 
-  const validProcViews = new Set(['list', 'card', 'role']);
+  const validProcViews = new Set(['stage', 'list', 'card', 'role']);
   if (!validProcViews.has(String(next.procView || ''))) next.procView = base.procView;
+
+  const validStageViewModes = new Set(['panorama', 'detail']);
+  if (!validStageViewModes.has(String(next.stageViewMode || ''))) next.stageViewMode = base.stageViewMode;
 
   const validNodePerspectives = new Set(['user', 'task']);
   if (!validNodePerspectives.has(String(next.nodePerspective || ''))) next.nodePerspective = base.nodePerspective;
@@ -114,6 +121,7 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
   next.procDiagramH = Math.max(140, Number(next.procDiagramH) || base.procDiagramH);
   next.procDrawerW = Math.max(360, Number(next.procDrawerW) || base.procDrawerW);
   next.entityDrawerW = Math.max(620, Number(next.entityDrawerW) || base.entityDrawerW);
+  next.stageGraphZoom = Math.max(0.6, Math.min(1.8, Number(next.stageGraphZoom) || base.stageGraphZoom));
   next.roleQuery = String(next.roleQuery || '');
   next.procEditorFocusSelector = String(next.procEditorFocusSelector || '');
 
@@ -125,6 +133,11 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
   const procNodes = Array.isArray(activeProc?.nodes) ? activeProc.nodes : [];
   if (!procNodes.some((node) => node?.id === next.taskId)) {
     next.taskId = null;
+  }
+
+  const stageItems = getStageItems(doc);
+  if (!stageItems.some((stage) => stage?.id === next.stageId)) {
+    next.stageId = base.stageId;
   }
 
   const entities = Array.isArray(doc?.entities) ? doc.entities : [];
@@ -853,10 +866,13 @@ const App = {
 
 function createDocUiState(doc) {
   const firstRoleId = getFirstRoleId(doc);
+  const firstStageId = getStageItems(doc)[0]?.id || null;
   return {
     tab: 'domain',
     procId: doc.processes?.[0]?.id || null,
     taskId: null,
+    stageId: firstStageId,
+    stageViewMode: 'panorama',
     entityId: null,
     dataView: 'relation',
     stateFieldName: '',
@@ -872,6 +888,7 @@ function createDocUiState(doc) {
     procEditorFocusSelector: '',
     procDiagramH: getUiPrefNumber('procDiagramH', 200),
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
+    stageGraphZoom: 1,
     entityDrawerW: getUiPrefNumber('entityDrawerW', 620),
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,

@@ -407,6 +407,7 @@ const OV_CARD_H = 72;
 function _cardGridW() { return (S.ui.procView || 'list') === 'list' ? OV_CARD_W : CARD_W; }
 function _cardGridH() { return (S.ui.procView || 'list') === 'list' ? OV_CARD_H : CARD_H; }
 let dragState = null;
+let stageDragState = null;
 
 
 /* ── 概要视图：拖拽排序 ── */
@@ -499,10 +500,12 @@ function moveGrpGroup(grp, dir, e) {
   markModified(); renderSidebar();
 }
 
-function addProcess(subDomain) {
+function addProcess(subDomain, stageId = '') {
   const id  = nextId('P', S.doc.processes);
   const pos = _nextFreePos(S.doc.processes, null); /* 自动填补空缺格子 */
-  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:subDomain||'', flowGroup:'', trigger:'', outcome:'', prototypeFiles:[], nodes:[], pos});
+  const stage = findStage(stageId, S.doc);
+  const nextSubDomain = String(subDomain || stage?.subDomain || '').trim();
+  S.doc.processes.push({id, name:'\u65b0\u6d41\u7a0b', subDomain:nextSubDomain, flowGroup:'', stageId:stage?.id||'', stagePos:{ x: 0, y: 0 }, trigger:'', outcome:'', prototypeFiles:[], nodes:[], pos});
   hydrateDocumentForUi(S.doc);
   markModified();
   navigate('process',{procId:id, taskId:null});
@@ -510,12 +513,32 @@ function addProcess(subDomain) {
 function removeProcess(id) {
   if(!confirm('确认删除此流程及所有任务？')) return;
   S.doc.processes = S.doc.processes.filter(p=>p.id!==id);
+  getStages(S.doc).forEach((stage) => {
+    stage.processLinks = getStageProcessLinks(stage).filter((link) => link.fromProcessId !== id && link.toProcessId !== id);
+  });
   if(S.ui.procId===id){S.ui.procId=S.doc.processes[0]?.id||null; S.ui.taskId=null;}
   markModified(); render();
 }
 function setProc(procId,key,val) {
   const p=S.doc.processes.find(p=>p.id===procId);
   if(p){p[key]=val; markModified();}
+}
+
+function setProcStage(procId, stageId) {
+  const proc = S.doc.processes.find((item) => item.id === procId);
+  if (!proc) return;
+  const nextStageId = isVirtualStageId(stageId) ? '' : String(stageId || '').trim();
+  proc.stageId = nextStageId;
+  const stage = findStage(nextStageId, S.doc);
+  if (stage?.subDomain && !String(proc.subDomain || '').trim()) {
+    proc.subDomain = stage.subDomain;
+  }
+  getStages(S.doc).forEach((item) => {
+    if (item.id === nextStageId) return;
+    item.processLinks = getStageProcessLinks(item).filter((link) => link.fromProcessId !== procId && link.toProcessId !== procId);
+  });
+  proc.stagePos = normalizeGraphOffset(proc.stagePos);
+  markModified();
 }
 
 function formatPrototypeInputId(procId) {
@@ -902,6 +925,688 @@ function ensureProcPos(doc) {
   (doc.processes||[]).forEach(p => {
     if(!p.pos) p.pos = _nextFreePos(doc.processes, p.id);
   });
+}
+
+function clampStageGraphZoom(zoom) {
+  return Math.max(0.6, Math.min(1.8, Math.round(Number(zoom || 1) * 100) / 100));
+}
+
+function getStageGraphZoom() {
+  return clampStageGraphZoom(S.ui.stageGraphZoom || 1);
+}
+
+function setStageGraphZoom(nextZoom) {
+  const normalized = clampStageGraphZoom(nextZoom);
+  if (normalized === getStageGraphZoom()) return;
+  S.ui.stageGraphZoom = normalized;
+  renderProcessTab();
+}
+
+function nudgeStageGraphZoom(delta) {
+  setStageGraphZoom(getStageGraphZoom() + delta);
+}
+
+function resetStageGraphZoom() {
+  setStageGraphZoom(1);
+}
+
+function getCurrentStageItem() {
+  return getStageItems(S.doc).find((stage) => stage.id === S.ui.stageId) || null;
+}
+
+function openStagePanorama(stageId = S.ui.stageId || getStageItems(S.doc)[0]?.id || null) {
+  S.ui.procView = 'stage';
+  S.ui.stageViewMode = 'panorama';
+  S.ui.stageId = stageId;
+  renderProcessTab();
+}
+
+function openStageDetail(stageId) {
+  S.ui.procView = 'stage';
+  S.ui.stageViewMode = 'detail';
+  S.ui.stageId = stageId;
+  renderProcessTab();
+}
+
+function navigateStageView(stageId, mode = 'detail') {
+  S.ui.tab = 'process';
+  S.ui.procView = 'stage';
+  S.ui.stageViewMode = mode === 'panorama' ? 'panorama' : 'detail';
+  S.ui.stageId = stageId || getStageItems(S.doc)[0]?.id || null;
+  S.ui.taskId = null;
+  render();
+}
+
+function ensureStageSelection() {
+  const items = getStageItems(S.doc);
+  if (!items.some((stage) => stage.id === S.ui.stageId)) {
+    S.ui.stageId = items[0]?.id || null;
+  }
+}
+
+function addStage(subDomain = '') {
+  const stages = getStages(S.doc);
+  const id = nextId('S', stages);
+  stages.push(normalizeStageEntry({
+    id,
+    name: `业务阶段${stages.length + 1}`,
+    subDomain: String(subDomain || '').trim(),
+    pos: { x: 0, y: 0 },
+    processLinks: [],
+  }, stages.length + 1, S.doc.processes || []));
+  S.ui.stageId = id;
+  S.ui.procView = 'stage';
+  S.ui.stageViewMode = 'detail';
+  markModified();
+  renderProcessTab();
+}
+
+function removeStage(stageId) {
+  if (isVirtualStageId(stageId)) return;
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  if (!confirm(`确认删除业务阶段 ${stage.name || stage.id} 吗？阶段内流程不会删除，但会变成未设置业务阶段。`)) return;
+  S.doc.stages = getStages(S.doc).filter((item) => item.id !== stageId);
+  S.doc.stageLinks = getStageLinks(S.doc).filter((link) => link.fromStageId !== stageId && link.toStageId !== stageId);
+  (S.doc.processes || []).forEach((proc) => {
+    if (String(proc.stageId || '').trim() === stageId) {
+      proc.stageId = '';
+      proc.stagePos = { x: 0, y: 0 };
+    }
+  });
+  ensureStageSelection();
+  S.ui.stageViewMode = 'panorama';
+  markModified();
+  renderProcessTab();
+}
+
+function renameStageId(stageId, nextStageId) {
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  const normalizedId = String(nextStageId || '').trim();
+  if (!normalizedId || normalizedId === stage.id) return;
+  if (findStage(normalizedId, S.doc)) return;
+  const previousId = stage.id;
+  stage.id = normalizedId;
+  (S.doc.processes || []).forEach((proc) => {
+    if (String(proc.stageId || '').trim() === previousId) proc.stageId = normalizedId;
+  });
+  getStageLinks(S.doc).forEach((link) => {
+    if (link.fromStageId === previousId) link.fromStageId = normalizedId;
+    if (link.toStageId === previousId) link.toStageId = normalizedId;
+  });
+  if (S.ui.stageId === previousId) S.ui.stageId = normalizedId;
+  markModified();
+}
+
+function setStage(stageId, key, value) {
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  if (key === 'id') {
+    renameStageId(stageId, value);
+    return;
+  }
+  if (key === 'pos') {
+    stage.pos = normalizeGraphOffset(value);
+  } else {
+    stage[key] = typeof value === 'string' ? value : value;
+  }
+  markModified();
+}
+
+function addProcessToStage(stageId, procId) {
+  if (!procId) return;
+  setProcStage(procId, stageId);
+  rerenderStageWorkbench({ focusSelector: '[data-testid="stage-process-select"]' });
+}
+
+function removeProcessFromStage(stageId, procId) {
+  if (!procId) return;
+  setProcStage(procId, '');
+  const stage = findStage(stageId, S.doc);
+  if (stage) {
+    stage.processLinks = getStageProcessLinks(stage).filter((link) => link.fromProcessId !== procId && link.toProcessId !== procId);
+  }
+  rerenderStageWorkbench();
+}
+
+function addStageLink(afterUid = '') {
+  const stages = getStages(S.doc).filter((stage) => !stage.virtual);
+  if (stages.length < 2) return;
+  const links = getStageLinks(S.doc);
+  const row = normalizeStageLinkEntry({
+    fromStageId: stages[0].id,
+    toStageId: stages[Math.min(1, stages.length - 1)].id,
+  });
+  const insertIndex = links.findIndex((link) => link.uid === afterUid);
+  if (insertIndex >= 0) links.splice(insertIndex + 1, 0, row);
+  else links.push(row);
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function setStageLink(linkUid, key, value) {
+  const link = getStageLinks(S.doc).find((item) => item.uid === linkUid);
+  if (!link) return;
+  link[key] = String(value || '').trim();
+  markModified();
+}
+
+function removeStageLink(linkUid) {
+  const links = getStageLinks(S.doc);
+  const nextLinks = links.filter((item) => item.uid !== linkUid);
+  if (nextLinks.length === links.length) return;
+  S.doc.stageLinks = nextLinks;
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function moveStageLink(linkUid, dir) {
+  const links = getStageLinks(S.doc);
+  const index = links.findIndex((item) => item.uid === linkUid);
+  const targetIndex = index + dir;
+  if (index < 0 || targetIndex < 0 || targetIndex >= links.length) return;
+  [links[index], links[targetIndex]] = [links[targetIndex], links[index]];
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function addStageProcessLink(stageId, afterUid = '') {
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  const processes = getStageProcesses(stageId, S.doc);
+  if (processes.length < 2) return;
+  const links = getStageProcessLinks(stage);
+  const row = normalizeStageProcessLinkEntry({
+    fromProcessId: processes[0].id,
+    toProcessId: processes[Math.min(1, processes.length - 1)].id,
+  });
+  const insertIndex = links.findIndex((link) => link.uid === afterUid);
+  if (insertIndex >= 0) links.splice(insertIndex + 1, 0, row);
+  else links.push(row);
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function setStageProcessLink(stageId, linkUid, key, value) {
+  const stage = findStage(stageId, S.doc);
+  const link = getStageProcessLinks(stage).find((item) => item.uid === linkUid);
+  if (!link) return;
+  link[key] = String(value || '').trim();
+  markModified();
+}
+
+function removeStageProcessLink(stageId, linkUid) {
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  const links = getStageProcessLinks(stage);
+  const nextLinks = links.filter((item) => item.uid !== linkUid);
+  if (nextLinks.length === links.length) return;
+  stage.processLinks = nextLinks;
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function moveStageProcessLink(stageId, linkUid, dir) {
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  const links = getStageProcessLinks(stage);
+  const index = links.findIndex((item) => item.uid === linkUid);
+  const targetIndex = index + dir;
+  if (index < 0 || targetIndex < 0 || targetIndex >= links.length) return;
+  [links[index], links[targetIndex]] = [links[targetIndex], links[index]];
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function rerenderStageWorkbench(options = {}) {
+  const mainShell = document.querySelector('.stage-main-shell');
+  const drawerBody = document.querySelector('.stage-drawer .drawer-body');
+  const pageRoot = document.scrollingElement || document.documentElement;
+  const mainScrollTop = mainShell?.scrollTop || 0;
+  const mainScrollLeft = mainShell?.scrollLeft || 0;
+  const drawerScrollTop = drawerBody?.scrollTop || 0;
+  const pageTop = pageRoot?.scrollTop || 0;
+  const pageLeft = pageRoot?.scrollLeft || 0;
+  renderProcessTab();
+  requestAnimationFrame(() => {
+    const nextMainShell = document.querySelector('.stage-main-shell');
+    const nextDrawerBody = document.querySelector('.stage-drawer .drawer-body');
+    const nextPageRoot = document.scrollingElement || document.documentElement;
+    if (nextMainShell) {
+      nextMainShell.scrollTop = options.mainScrollTop ?? mainScrollTop;
+      nextMainShell.scrollLeft = options.mainScrollLeft ?? mainScrollLeft;
+    }
+    if (nextDrawerBody) nextDrawerBody.scrollTop = options.drawerScrollTop ?? drawerScrollTop;
+    if (nextPageRoot) {
+      nextPageRoot.scrollTop = pageTop;
+      nextPageRoot.scrollLeft = pageLeft;
+    }
+    if (options.focusSelector) {
+      const field = document.querySelector(options.focusSelector);
+      if (field?.focus) {
+        try {
+          field.focus({ preventScroll: true });
+        } catch (_) {
+          field.focus();
+        }
+      }
+    }
+  });
+}
+
+function getStageNodeOffset(kind, nodeId) {
+  if (kind === 'stage') {
+    return normalizeGraphOffset(findStage(nodeId, S.doc)?.pos);
+  }
+  return normalizeGraphOffset((S.doc.processes || []).find((proc) => proc.id === nodeId)?.stagePos);
+}
+
+function setStageNodeOffset(kind, nodeId, nextOffset) {
+  if (kind === 'stage') {
+    const stage = findStage(nodeId, S.doc);
+    if (!stage) return;
+    stage.pos = normalizeGraphOffset(nextOffset);
+    return;
+  }
+  const proc = (S.doc.processes || []).find((item) => item.id === nodeId);
+  if (!proc) return;
+  proc.stagePos = normalizeGraphOffset(nextOffset);
+}
+
+function startStageNodeDrag(kind, nodeId, event) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  stageDragState = {
+    kind,
+    nodeId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startOffset: getStageNodeOffset(kind, nodeId),
+  };
+  document.addEventListener('mousemove', onStageNodeDrag);
+  document.addEventListener('mouseup', endStageNodeDrag);
+}
+
+function onStageNodeDrag(event) {
+  if (!stageDragState) return;
+  const dx = event.clientX - stageDragState.startX;
+  const dy = event.clientY - stageDragState.startY;
+  const node = document.querySelector(`.stage-graph-node[data-node-id="${stageDragState.nodeId}"]`);
+  if (node) {
+    node.style.transform = `translate(${dx}px,${dy}px)`;
+    node.style.zIndex = '5';
+  }
+}
+
+function endStageNodeDrag(event) {
+  if (!stageDragState) return;
+  const { kind, nodeId, startX, startY, startOffset } = stageDragState;
+  const dx = event.clientX - startX;
+  const dy = event.clientY - startY;
+  document.removeEventListener('mousemove', onStageNodeDrag);
+  document.removeEventListener('mouseup', endStageNodeDrag);
+  stageDragState = null;
+  if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+    if (kind === 'stage') openStageDetail(nodeId);
+    else navigate('process', { procId: nodeId, taskId: null });
+    return;
+  }
+  const zoom = getStageGraphZoom() || 1;
+  setStageNodeOffset(kind, nodeId, {
+    x: startOffset.x + Math.round(dx / zoom),
+    y: startOffset.y + Math.round(dy / zoom),
+  });
+  markModified();
+  rerenderStageWorkbench();
+}
+
+function buildOrderedGraphLayers(nodes, links) {
+  const nodeIds = nodes.map((node) => node.id);
+  const indegree = new Map(nodeIds.map((id) => [id, 0]));
+  const nextMap = new Map(nodeIds.map((id) => [id, []]));
+  for (const link of links) {
+    if (!indegree.has(link.from) || !indegree.has(link.to)) continue;
+    indegree.set(link.to, (indegree.get(link.to) || 0) + 1);
+    nextMap.get(link.from).push(link.to);
+  }
+  const queue = nodeIds.filter((id) => (indegree.get(id) || 0) === 0);
+  if (!queue.length && nodeIds.length) queue.push(nodeIds[0]);
+  const layers = new Map(nodeIds.map((id) => [id, 0]));
+  const ordered = [];
+  const seen = new Set();
+  while (queue.length) {
+    const id = queue.shift();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(id);
+    const nextIds = nextMap.get(id) || [];
+    for (const nextId of nextIds) {
+      layers.set(nextId, Math.max(layers.get(nextId) || 0, (layers.get(id) || 0) + 1));
+      indegree.set(nextId, (indegree.get(nextId) || 0) - 1);
+      if ((indegree.get(nextId) || 0) <= 0) queue.push(nextId);
+    }
+  }
+  nodeIds.forEach((id) => {
+    if (seen.has(id)) return;
+    ordered.push(id);
+    layers.set(id, Math.max(...Array.from(layers.values()), 0) + 1);
+  });
+  return { layers, ordered };
+}
+
+function measureStageGraphNodeWidth(label) {
+  const text = String(label || '').trim();
+  return Math.max(132, Math.min(220, 48 + text.length * 14));
+}
+
+function routeStageGraphLink(fromPos, toPos, laneIndex = 0) {
+  const sx = fromPos.x + fromPos.w / 2;
+  const sy = fromPos.y + fromPos.h;
+  const tx = toPos.x + toPos.w / 2;
+  const ty = toPos.y;
+  if (ty > sy) {
+    const midY = sy + Math.max(28, ((ty - sy) / 2) + laneIndex * 10);
+    return `M ${sx} ${sy} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${ty}`;
+  }
+  const laneX = Math.max(sx, tx) + 48 + laneIndex * 18;
+  const startY = fromPos.y + fromPos.h / 2;
+  const endY = toPos.y + toPos.h / 2;
+  return `M ${sx} ${startY} L ${laneX} ${startY} L ${laneX} ${endY} L ${tx} ${endY}`;
+}
+
+function buildStageGraphLayout(nodes, links, kind) {
+  const { layers, ordered } = buildOrderedGraphLayers(nodes, links);
+  const layersMap = new Map();
+  ordered.forEach((id) => {
+    const layerIndex = layers.get(id) || 0;
+    if (!layersMap.has(layerIndex)) layersMap.set(layerIndex, []);
+    layersMap.get(layerIndex).push(nodes.find((node) => node.id === id));
+  });
+  const layerEntries = Array.from(layersMap.entries()).sort((left, right) => left[0] - right[0]);
+  const gapX = 72;
+  const gapY = 138;
+  const padX = 56;
+  const padY = 36;
+  const nodeH = 54;
+  const positions = {};
+  let boardW = 640;
+  layerEntries.forEach(([, layerNodes], layerOrder) => {
+    const widths = layerNodes.map((node) => measureStageGraphNodeWidth(node.label));
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0) + Math.max(0, layerNodes.length - 1) * gapX;
+    boardW = Math.max(boardW, totalWidth + padX * 2);
+    let cursorX = padX + Math.max(0, (boardW - padX * 2 - totalWidth) / 2);
+    const y = padY + layerOrder * gapY;
+    layerNodes.forEach((node, index) => {
+      const width = widths[index];
+      const offset = getStageNodeOffset(kind, node.id);
+      positions[node.id] = {
+        x: cursorX + offset.x,
+        y: y + offset.y,
+        w: width,
+        h: nodeH,
+      };
+      cursorX += width + gapX;
+    });
+  });
+  const boardH = Math.max(260, padY * 2 + Math.max(0, layerEntries.length - 1) * gapY + nodeH);
+  const routedLinks = links
+    .filter((link) => positions[link.from] && positions[link.to])
+    .map((link, index) => ({
+      ...link,
+      path: routeStageGraphLink(positions[link.from], positions[link.to], index % 3),
+    }));
+  return { positions, links: routedLinks, boardW, boardH };
+}
+
+function renderStageGraphMarkup({ nodes, links, kind = 'stage', emptyText = '暂无内容', testId = 'stage-graph' }) {
+  if (!nodes.length) return `<div class="diag-empty" data-testid="${testId}-empty">${emptyText}</div>`;
+  const graph = buildStageGraphLayout(nodes, links, kind);
+  const zoom = getStageGraphZoom();
+  const zoomedW = Math.max(240, Math.round(graph.boardW * zoom));
+  const zoomedH = Math.max(180, Math.round(graph.boardH * zoom));
+  return `<div class="stage-graph" data-testid="${testId}">
+    <div class="stage-graph-zoom-shell" style="width:${zoomedW}px;height:${zoomedH}px">
+      <div class="stage-graph-zoom-target" style="width:${graph.boardW}px;height:${graph.boardH}px;transform:scale(${zoom});transform-origin:0 0;">
+        <div class="stage-graph-board" style="width:${graph.boardW}px;height:${graph.boardH}px">
+          <svg class="stage-graph-svg" width="${graph.boardW}" height="${graph.boardH}" viewBox="0 0 ${graph.boardW} ${graph.boardH}" aria-hidden="true">
+            <defs>
+              <marker id="stage-graph-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto">
+                <path d="M0,0 L0,8 L8,4 z" fill="#64748b"></path>
+              </marker>
+            </defs>
+            ${graph.links.map((link) => `<path class="stage-graph-link" d="${link.path}" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#stage-graph-arrow)"></path>`).join('')}
+          </svg>
+          ${nodes.map((node) => {
+            const pos = graph.positions[node.id];
+            return `<button class="stage-graph-node ${kind==='stage'?'stage-kind':'process-kind'}" type="button"
+              data-node-id="${esc(node.id)}" data-testid="stage-graph-node"
+              onmousedown="startStageNodeDrag('${kind}','${esc(node.id)}',event)"
+              style="left:${pos.x}px;top:${pos.y}px;width:${pos.w}px;height:${pos.h}px">
+              <span class="stage-graph-node-title">${esc(node.label)}</span>
+              ${node.meta ? `<span class="stage-graph-node-meta">${esc(node.meta)}</span>` : ''}
+            </button>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildStagePanoramaGraphData() {
+  const stageItems = getStageItems(S.doc);
+  const nodes = stageItems.map((stage) => ({
+    id: stage.id,
+    label: stage.name || stage.id,
+    meta: `${getStageProcesses(stage.id, S.doc).length} 个流程`,
+  }));
+  const stageIdSet = new Set(stageItems.map((stage) => stage.id));
+  const links = getStageLinks(S.doc)
+    .filter((link) => stageIdSet.has(link.fromStageId) && stageIdSet.has(link.toStageId))
+    .map((link) => ({ from: link.fromStageId, to: link.toStageId }));
+  return { nodes, links };
+}
+
+function buildStageDetailGraphData(stageId) {
+  const processes = getStageProcesses(stageId, S.doc);
+  const nodes = processes.map((proc) => ({
+    id: proc.id,
+    label: proc.name || proc.id,
+    meta: proc.flowGroup ? `流程组 · ${proc.flowGroup}` : '',
+  }));
+  const stage = findStage(stageId, S.doc);
+  const links = stage
+    ? getStageProcessLinks(stage).map((link) => ({ from: link.fromProcessId, to: link.toProcessId }))
+    : [];
+  return { nodes, links, processes };
+}
+
+function renderStageLinkEditor(stageItems) {
+  const realStages = stageItems.filter((stage) => !stage.virtual);
+  const links = getStageLinks(S.doc);
+  return `<div class="stage-editor-section">
+    <div class="stage-editor-section-head">
+      <h5>阶段连线</h5>
+      <button class="btn btn-outline btn-sm" type="button" onclick="addStageLink()">＋ 添加连线</button>
+    </div>
+    ${links.length ? `<div class="stage-link-list">
+      ${links.map((link) => `<div class="stage-link-row" data-testid="stage-link-row">
+        <select onchange="setStageLink('${esc(link.uid)}','fromStageId',this.value)">
+          ${realStages.map((stage) => `<option value="${esc(stage.id)}" ${link.fromStageId===stage.id?'selected':''}>${esc(stage.name || stage.id)}</option>`).join('')}
+        </select>
+        <span class="stage-link-arrow">→</span>
+        <select onchange="setStageLink('${esc(link.uid)}','toStageId',this.value)">
+          ${realStages.map((stage) => `<option value="${esc(stage.id)}" ${link.toStageId===stage.id?'selected':''}>${esc(stage.name || stage.id)}</option>`).join('')}
+        </select>
+        <div class="row-actions">
+          <button class="mini-btn" type="button" onclick="addStageLink('${esc(link.uid)}')">＋</button>
+          <button class="mini-btn" type="button" onclick="moveStageLink('${esc(link.uid)}',-1)">↑</button>
+          <button class="mini-btn" type="button" onclick="moveStageLink('${esc(link.uid)}',1)">↓</button>
+          <button class="mini-btn danger" type="button" onclick="removeStageLink('${esc(link.uid)}')">✕</button>
+        </div>
+      </div>`).join('')}
+    </div>` : '<p class="no-refs">暂无阶段连线，先添加一条。</p>'}
+  </div>`;
+}
+
+function renderStageProcessLinkEditor(stage, processes) {
+  const links = stage ? getStageProcessLinks(stage) : [];
+  if (!stage) {
+    return `<div class="stage-editor-section"><h5>阶段内流程连线</h5><p class="no-refs">未设置业务阶段只用于承接旧流程，不在这里维护流程连线。</p></div>`;
+  }
+  return `<div class="stage-editor-section">
+    <div class="stage-editor-section-head">
+      <h5>阶段内流程连线</h5>
+      <button class="btn btn-outline btn-sm" type="button" onclick="addStageProcessLink('${esc(stage.id)}')" ${processes.length > 1 ? '' : 'disabled'}>＋ 添加连线</button>
+    </div>
+    ${links.length ? `<div class="stage-link-list">
+      ${links.map((link) => `<div class="stage-link-row" data-testid="stage-process-link-row">
+        <select onchange="setStageProcessLink('${esc(stage.id)}','${esc(link.uid)}','fromProcessId',this.value)">
+          ${processes.map((proc) => `<option value="${esc(proc.id)}" ${link.fromProcessId===proc.id?'selected':''}>${esc(proc.name || proc.id)}</option>`).join('')}
+        </select>
+        <span class="stage-link-arrow">→</span>
+        <select onchange="setStageProcessLink('${esc(stage.id)}','${esc(link.uid)}','toProcessId',this.value)">
+          ${processes.map((proc) => `<option value="${esc(proc.id)}" ${link.toProcessId===proc.id?'selected':''}>${esc(proc.name || proc.id)}</option>`).join('')}
+        </select>
+        <div class="row-actions">
+          <button class="mini-btn" type="button" onclick="addStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">＋</button>
+          <button class="mini-btn" type="button" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',-1)">↑</button>
+          <button class="mini-btn" type="button" onclick="moveStageProcessLink('${esc(stage.id)}','${esc(link.uid)}',1)">↓</button>
+          <button class="mini-btn danger" type="button" onclick="removeStageProcessLink('${esc(stage.id)}','${esc(link.uid)}')">✕</button>
+        </div>
+      </div>`).join('')}
+    </div>` : '<p class="no-refs">暂无阶段内流程连线，先添加一条。</p>'}
+  </div>`;
+}
+
+function renderStageProcessMembership(stageItem, processes) {
+  const allProcesses = S.doc.processes || [];
+  const availableProcesses = allProcesses.filter((proc) => {
+    if (processes.some((item) => item.id === proc.id)) return false;
+    if (stageItem.virtual) return false;
+    return true;
+  });
+  return `<div class="stage-editor-section">
+    <div class="stage-editor-section-head">
+      <h5>成员流程</h5>
+      ${!stageItem.virtual ? `<button class="btn btn-outline btn-sm" type="button" onclick="addProcess('${esc(stageItem.subDomain || '')}','${esc(stageItem.id)}')">＋ 当前阶段新建流程</button>` : ''}
+    </div>
+    ${processes.length ? `<div class="stage-member-list">
+      ${processes.map((proc) => `<div class="stage-member-chip" data-testid="stage-member-chip">
+        <span>${esc(proc.id)} ${esc(proc.name || '未命名流程')}</span>
+        <div class="stage-member-actions">
+          <button class="mini-btn" type="button" onclick="navigate('process',{procId:'${esc(proc.id)}',taskId:null})">查看</button>
+          ${!stageItem.virtual ? `<button class="mini-btn danger" type="button" onclick="removeProcessFromStage('${esc(stageItem.id)}','${esc(proc.id)}')">移出</button>` : ''}
+        </div>
+      </div>`).join('')}
+    </div>` : '<p class="no-refs">当前阶段还没有流程。</p>'}
+    ${!stageItem.virtual ? `<div class="stage-inline-row">
+      <select data-testid="stage-process-select" id="stage-process-select">
+        <option value="">选择已有流程加入当前阶段...</option>
+        ${availableProcesses.map((proc) => `<option value="${esc(proc.id)}">${esc(proc.id)} ${esc(proc.name || '未命名流程')}</option>`).join('')}
+      </select>
+      <button class="btn btn-outline btn-sm" type="button" onclick="addProcessToStage('${esc(stageItem.id)}',document.getElementById('stage-process-select').value)">加入阶段</button>
+    </div>` : '<p class="stage-tip">这些流程尚未归入真实业务阶段，可新建阶段后逐步迁移。</p>'}
+  </div>`;
+}
+
+function renderStageDrawer(stageItem) {
+  const drawerW = getDrawerWidth('process');
+  const stage = stageItem && !stageItem.virtual ? findStage(stageItem.id, S.doc) : null;
+  const processes = stageItem ? getStageProcesses(stageItem.id, S.doc) : [];
+  const warning = processes.length > 7 ? '<div class="stage-warning">当前阶段流程已超过 7 个，建议拆分为相邻业务阶段。</div>' : '';
+  const stageItems = getStageItems(S.doc);
+  const drawerTitle = stageItem ? `${stageItem.id} ${stageItem.name || ''}`.trim() : '业务阶段';
+  return `<div class="stage-drawer open" style="width:${drawerW}px" data-testid="stage-drawer">
+    <div class="drawer-resize-handle" data-testid="stage-drawer-resize-handle" onmousedown="startDrawerResize(event)"></div>
+    <div class="drawer-head">
+      <div class="drawer-crumb">${esc(drawerTitle)}</div>
+      <div class="drawer-actions">
+        ${stage ? `<button class="btn btn-ghost-sm" type="button" onclick="removeStage('${esc(stage.id)}')">删除阶段</button>` : ''}
+      </div>
+    </div>
+    <div class="drawer-body">
+      ${warning}
+      ${stage ? `<div class="form-grid">
+        <div class="field-group">
+          <label>阶段ID</label>
+          <input data-testid="stage-id-input" type="text" value="${esc(stage.id)}"
+            oninput="setStage('${esc(stage.id)}','id',this.value);renderSidebar();rerenderStageWorkbench({focusSelector:'[data-testid=&quot;stage-id-input&quot;]'})">
+        </div>
+        <div class="field-group">
+          <label>阶段名称</label>
+          <input data-testid="stage-name-input" type="text" value="${esc(stage.name || '')}"
+            oninput="setStage('${esc(stage.id)}','name',this.value);renderSidebar();rerenderStageWorkbench({focusSelector:'[data-testid=&quot;stage-name-input&quot;]'})">
+        </div>
+        <div class="field-group">
+          <label>业务子域</label>
+          <input data-testid="stage-subdomain-input" type="text" value="${esc(stage.subDomain || '')}"
+            oninput="setStage('${esc(stage.id)}','subDomain',this.value);renderSidebar();rerenderStageWorkbench({focusSelector:'[data-testid=&quot;stage-subdomain-input&quot;]'})">
+        </div>
+      </div>` : '<div class="stage-tip">当前查看的是“未设置业务阶段”虚拟分组，用于承接还未归类的流程。</div>'}
+      ${renderStageProcessMembership(stageItem || { virtual: true, id: UNASSIGNED_STAGE_ID, subDomain: '' }, processes)}
+      ${renderStageLinkEditor(stageItems)}
+      ${renderStageProcessLinkEditor(stage, processes)}
+    </div>
+  </div>`;
+}
+
+function renderStageWorkbench() {
+  ensureStageSelection();
+  const stageItem = getCurrentStageItem();
+  const showDetail = S.ui.stageViewMode === 'detail' && stageItem;
+  const drawerW = getDrawerWidth('process');
+  const panoramaGraph = buildStagePanoramaGraphData();
+  const detailGraph = stageItem ? buildStageDetailGraphData(stageItem.id) : { nodes: [], links: [], processes: [] };
+  const stageWarning = showDetail && detailGraph.processes.length > 7
+    ? '<span class="stage-header-warning">建议拆分阶段</span>'
+    : '';
+  const graphTitle = showDetail
+    ? `${stageItem.name || stageItem.id} · 阶段详情`
+    : '业务全景图';
+  const graphHint = showDetail
+    ? '当前节点就是流程，连线表达阶段内流程的先后与分支关系。点击流程节点可进入流程编辑。'
+    : '当前节点就是业务阶段，连线表达整个业务的前后顺序与分支。点击阶段节点可钻取到阶段详情。';
+  return `<div class="stage-workbench" data-testid="process-stage-view">
+    <div class="stage-main-shell" style="margin-right:${drawerW}px">
+      <div class="stage-main">
+        <div class="stage-card">
+          <div class="stage-card-head">
+            <div>
+              <div class="stage-card-breadcrumb">
+                <button class="btn btn-ghost-sm" type="button" ${showDetail ? 'onclick="openStagePanorama()"' : 'disabled'}>业务全景</button>
+                ${showDetail ? `<span class="stage-breadcrumb-sep">/</span><span>${esc(stageItem.name || stageItem.id)}</span>` : ''}
+              </div>
+              <div class="stage-card-title">${esc(graphTitle)} ${stageWarning}</div>
+              <div class="stage-card-subtitle">${esc(graphHint)}</div>
+            </div>
+            <div class="zoom-controls">
+              <button class="zoom-btn" type="button" data-testid="stage-zoom-in" onclick="nudgeStageGraphZoom(0.1)">＋</button>
+              <button class="zoom-btn" type="button" data-testid="stage-zoom-reset" onclick="resetStageGraphZoom()">${Math.round(getStageGraphZoom() * 100)}%</button>
+              <button class="zoom-btn" type="button" data-testid="stage-zoom-out" onclick="nudgeStageGraphZoom(-0.1)">－</button>
+            </div>
+          </div>
+          ${showDetail
+            ? renderStageGraphMarkup({
+                nodes: detailGraph.nodes,
+                links: detailGraph.links,
+                kind: 'process',
+                emptyText: '当前阶段还没有流程，先在右侧加入流程或新建流程。',
+                testId: 'stage-detail-graph',
+              })
+            : renderStageGraphMarkup({
+                nodes: panoramaGraph.nodes,
+                links: panoramaGraph.links,
+                kind: 'stage',
+                emptyText: '暂无业务阶段，先新建一个阶段。',
+                testId: 'stage-panorama-graph',
+              })}
+        </div>
+      </div>
+    </div>
+    ${renderStageDrawer(stageItem || { id: UNASSIGNED_STAGE_ID, name: UNASSIGNED_STAGE_NAME, virtual: true, subDomain: '' })}
+  </div>`;
 }
 
 function buildOrchestrationFlowHtml(task) {
@@ -1340,17 +2045,25 @@ function renderProcessTab() {
   /* ── 视图切换工具栏 ── */
   let h=`<div class="proc-view-toolbar">
     <div class="view-toggle-group">
+      <button class="vtb ${view==='stage'?'active':''}" data-testid="process-switch-stage" onclick="setProcView('stage')">业务阶段视图</button>
       <button class="vtb ${view==='card'?'active':''}" data-testid="process-switch-card" onclick="setProcView('card')">卡片视图</button>
       <button class="vtb ${view==='list'?'active':''}" data-testid="process-switch-overview" onclick="setProcView('list')">概要视图</button>
       <button class="vtb ${view==='role'?'active':''}" data-testid="process-switch-role" onclick="setProcView('role')">角色视图</button>
     </div>
+    ${view==='stage'?`<button class="btn btn-outline btn-sm" data-testid="stage-add-button" onclick="addStage()">＋ 新建阶段</button>`:''}
     ${view==='list'&&proc?`<button class="btn btn-ghost-sm" data-testid="process-delete-button" onclick="removeProcess('${proc.id}')">删除流程</button>`:''}
     ${view==='list'?`<button class="btn btn-outline btn-sm" data-testid="process-add-button" onclick="addProcess()">＋ 新流程</button>`:''}
   </div>`;
 
-  if(!procs.length) {
+  if(!procs.length && view!=='stage') {
     h+=`<div style="padding:24px;color:var(--text-m)">暂无流程，点击右上角新建</div>`;
     document.getElementById('tab-content').innerHTML=h;
+    return;
+  }
+
+  if(view==='stage') {
+    h += renderStageWorkbench();
+    document.getElementById('tab-content').innerHTML = h;
     return;
   }
 
@@ -1548,6 +2261,14 @@ function renderProcessTab() {
           <label>业务子域</label>
           <input type="text" value="${esc(proc.subDomain||'')}" placeholder="如：订单子域"
             oninput="setProc('${esc(proc.id)}','subDomain',this.value);renderSidebar()">
+        </div>
+        <div class="field-group">
+          <label>业务阶段</label>
+          <select data-testid="proc-stage-select"
+            onchange="setProcStage('${esc(proc.id)}',this.value);renderSidebar();rerenderProcessEditor({ focusSelector: '[data-testid=&quot;proc-stage-select&quot;]' })">
+            <option value="">未设置业务阶段</option>
+            ${getStages(S.doc).map((stage) => `<option value="${esc(stage.id)}" ${String(proc.stageId || '').trim()===stage.id?'selected':''}>${esc(stage.name || stage.id)}</option>`).join('')}
+          </select>
         </div>
         <div class="field-group">
           <label>\u6d41\u7a0b\u7ec4</label>

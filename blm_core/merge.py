@@ -19,6 +19,8 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
         "lists": {
             "roles": "role",
             "language": "language",
+            "stages": "stage",
+            "stageLinks": "stage_link",
             "processes": "process",
             "entities": "entity",
             "relations": "relation",
@@ -28,10 +30,16 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
     "meta": {"scalars": ["title", "domain", "author", "date"], "lists": {}},
     "role": {"scalars": ["id", "name", "desc", "group"], "set_lists": ["subDomains"], "lists": {}},
     "language": {"scalars": ["term", "definition"], "lists": {}},
+    "stage": {
+        "scalars": ["id", "name", "subDomain", "pos"],
+        "lists": {"processLinks": "process_link"},
+    },
+    "stage_link": {"scalars": ["fromStageId", "toStageId"], "lists": {}},
     "process": {
-        "scalars": ["id", "name", "subDomain", "flowGroup", "trigger", "outcome", "pos"],
+        "scalars": ["id", "name", "subDomain", "flowGroup", "stageId", "stagePos", "trigger", "outcome", "pos"],
         "lists": {"nodes": "node"},
     },
+    "process_link": {"scalars": ["fromProcessId", "toProcessId"], "lists": {}},
     "node": {
         "scalars": ["id", "name", "role_id", "role", "repeatable", "rules_note"],
         "set_lists": ["role_ids", "roles"],
@@ -83,6 +91,9 @@ def _copy(value: Any) -> Any:
 
 def _collection_label(item_type: str) -> str:
     return {
+        "stage": "业务阶段",
+        "stage_link": "业务阶段连线",
+        "process_link": "阶段内流程连线",
         "role": "角色",
         "language": "术语",
         "process": "流程",
@@ -668,9 +679,83 @@ def validate_document(document: dict) -> list[dict]:
     issues: list[dict] = []
 
     role_ids = {role["id"] for role in doc.get("roles", [])}
+    stage_ids = {stage["id"] for stage in doc.get("stages", [])}
     entity_ids = {entity["id"] for entity in doc.get("entities", [])}
     process_ids = {process["id"] for process in doc.get("processes", [])}
     node_ids = {node["id"] for process in doc.get("processes", []) for node in process.get("nodes", [])}
+
+    process_stage_map = {
+        process["id"]: str(process.get("stageId", "")).strip()
+        for process in doc.get("processes", [])
+    }
+
+    for process in doc.get("processes", []):
+        stage_id = str(process.get("stageId", "")).strip()
+        if stage_id and stage_id not in stage_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"processes.{process['id']}.stageId",
+                    "message": f"流程 {process['id']} 引用了不存在的业务阶段 {stage_id}",
+                }
+            )
+
+    for stage in doc.get("stages", []):
+        for link in stage.get("processLinks", []):
+            from_process_id = str(link.get("fromProcessId", "")).strip()
+            to_process_id = str(link.get("toProcessId", "")).strip()
+            if from_process_id and from_process_id not in process_ids:
+                issues.append(
+                    {
+                        "level": "error",
+                        "path": f"stages.{stage['id']}.processLinks.{link.get('uid', '')}.fromProcessId",
+                        "message": f"业务阶段 {stage['id']} 的流程连线引用了不存在的流程 {from_process_id}",
+                    }
+                )
+            if to_process_id and to_process_id not in process_ids:
+                issues.append(
+                    {
+                        "level": "error",
+                        "path": f"stages.{stage['id']}.processLinks.{link.get('uid', '')}.toProcessId",
+                        "message": f"业务阶段 {stage['id']} 的流程连线引用了不存在的流程 {to_process_id}",
+                    }
+                )
+            if from_process_id and process_stage_map.get(from_process_id) != stage["id"]:
+                issues.append(
+                    {
+                        "level": "error",
+                        "path": f"stages.{stage['id']}.processLinks.{link.get('uid', '')}.fromProcessId",
+                        "message": f"业务阶段 {stage['id']} 的流程连线引用了不属于该阶段的流程 {from_process_id}",
+                    }
+                )
+            if to_process_id and process_stage_map.get(to_process_id) != stage["id"]:
+                issues.append(
+                    {
+                        "level": "error",
+                        "path": f"stages.{stage['id']}.processLinks.{link.get('uid', '')}.toProcessId",
+                        "message": f"业务阶段 {stage['id']} 的流程连线引用了不属于该阶段的流程 {to_process_id}",
+                    }
+                )
+
+    for stage_link in doc.get("stageLinks", []):
+        from_stage_id = str(stage_link.get("fromStageId", "")).strip()
+        to_stage_id = str(stage_link.get("toStageId", "")).strip()
+        if from_stage_id and from_stage_id not in stage_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageLinks.{stage_link.get('uid', '')}.fromStageId",
+                    "message": f"业务阶段连线引用了不存在的起点阶段 {from_stage_id}",
+                }
+            )
+        if to_stage_id and to_stage_id not in stage_ids:
+            issues.append(
+                {
+                    "level": "error",
+                    "path": f"stageLinks.{stage_link.get('uid', '')}.toStageId",
+                    "message": f"业务阶段连线引用了不存在的终点阶段 {to_stage_id}",
+                }
+            )
 
     for process in doc.get("processes", []):
         for node in process.get("nodes", []):
@@ -726,7 +811,7 @@ def validate_document(document: dict) -> list[dict]:
                 }
             )
 
-    valid_applies_to = role_ids | entity_ids | process_ids | node_ids
+    valid_applies_to = role_ids | stage_ids | entity_ids | process_ids | node_ids
     for rule in doc.get("rules", []):
         applies_to = str(rule.get("applies_to", "")).strip()
         if applies_to and applies_to not in valid_applies_to:

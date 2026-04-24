@@ -187,10 +187,14 @@ function _defaultSbCollapse(doc) {
   const c = { lang: true };
   [...new Set((doc.processes||[]).map(p => p.subDomain || '').filter(Boolean))]
     .forEach((sd) => { c[`sd-${sd}`] = true; });
-  [...new Set((doc.processes||[])
-    .map((p) => `${p.subDomain || ''}::${p.flowGroup || ''}`)
+  [...new Set((doc.stages||[])
+    .map((stage) => `${stage.subDomain || ''}::${stage.id || ''}`)
     .filter((key) => key.split('::')[1]))]
-    .forEach((key) => { c[`fg-${key}`] = true; });
+    .forEach((key) => { c[`stage-${key}`] = true; });
+  [...new Set((doc.processes||[])
+    .filter((p) => !String(p.stageId || '').trim())
+    .map((p) => p.subDomain || ''))]
+    .forEach((sd) => { c[`stage-${sd}::${UNASSIGNED_STAGE_ID}`] = true; });
   [...new Set((doc.entities||[]).map(e => e.group || '').filter(Boolean))]
     .forEach((grp) => { c[`grp-${grp}`] = true; });
   (doc.processes||[]).forEach(p => { c[`proc-${p.id}`] = true; });
@@ -276,6 +280,19 @@ function _renderSbProc(p) {
   </div>`;
 }
 
+function _renderSbStage(stageItem, processes, collapseKey) {
+  const isActive = S.ui.tab === 'process' && S.ui.procView === 'stage' && S.ui.stageId === stageItem.id;
+  const isCollapsed = !!S.ui.sbCollapse[collapseKey];
+  return `<div class="sb-subgrp-head sb-stage-head ${isActive ? 'active' : ''}" data-stage-id="${esc(stageItem.id)}"
+    onclick="navigateStageView('${esc(stageItem.id)}','detail')">
+    <button type="button" class="sb-caret ${isCollapsed ? 'is-collapsed' : 'is-expanded'}"
+      onclick="event.stopPropagation();toggleCollapse('${esc(collapseKey)}')"><span class="sb-caret-icon">▶</span></button>
+    <span class="sb-subgrp-badge">业务阶段</span>
+    <span class="sb-name" title="${esc(stageItem.name)}">${esc(stageItem.name)}</span>
+    ${_renderSbCount(processes.length)}
+  </div>`;
+}
+
 /* ═══════════════════════════════════════════════════════════
    RENDER — Sidebar (collapsible tree)
 ═══════════════════════════════════════════════════════════ */
@@ -283,10 +300,12 @@ function renderSidebar() {
   const procs    = S.doc.processes||[];
   const entities = S.doc.entities||[];
   const collapsed = S.ui.sidebarCollapsed;
-  const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
+  const stageItems = getStageItems(S.doc);
+  const stageSubDomains = getStages(S.doc).map((stage) => stage.subDomain || '');
+  const subDomains=[...new Set([...procs.map(p=>p.subDomain||''), ...stageSubDomains])];
   const groups=[...new Set(entities.map(e=>e.group||''))];
   const processBucketCount = subDomains.filter(Boolean).length + (subDomains.includes('') ? 1 : 0);
-  const flowGroupCount = [...new Set(procs.map((proc) => `${proc.subDomain || ''}::${proc.flowGroup || ''}`))].length;
+  const stageCount = getStages(S.doc).length;
   const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
   const processCount = procs.length;
   const nodeCount = procs.reduce((sum, proc) => sum + getProcNodes(proc).length, 0);
@@ -329,6 +348,7 @@ function renderSidebar() {
       <div class="sb-header-main">
         <span class="sb-header-title">\u6d41\u7a0b</span>
         ${_renderSbMetrics([
+          { label: '\u9636\u6bb5', value: stageCount },
           { label: '\u6d41\u7a0b', value: processCount },
           { label: '\u8282\u70b9', value: nodeCount },
           { label: '\u4efb\u52a1', value: orchestrationTaskCount },
@@ -345,12 +365,34 @@ function renderSidebar() {
       const sdLabel = sd || '\u672a\u5f52\u7c7b\u4e1a\u52a1\u5b50\u57df';
       const sdKey=`sd-${sd}`;
       const sdCollapsed=S.ui.sbCollapse[sdKey];
+      const sdStages = stageItems.filter((stageItem) => {
+        if (stageItem.virtual) return false;
+        return String(stageItem.subDomain || '').trim() === String(sd || '').trim();
+      });
+      const sdUnassigned = sdProcs.filter((proc) => !String(proc.stageId || '').trim());
+      const stageRows = [
+        ...sdStages.map((stageItem) => ({
+          stageItem,
+          processes: sdProcs.filter((proc) => String(proc.stageId || '').trim() === stageItem.id),
+          collapseKey: `stage-${sd}::${stageItem.id}`,
+        })),
+        ...(sdUnassigned.length ? [{
+          stageItem: {
+            id: UNASSIGNED_STAGE_ID,
+            name: UNASSIGNED_STAGE_NAME,
+            subDomain: sd,
+            virtual: true,
+          },
+          processes: sdUnassigned,
+          collapseKey: `stage-${sd}::${UNASSIGNED_STAGE_ID}`,
+        }] : []),
+      ];
       h+=`<div class="sb-grp-head" data-subdomain="${esc(sdLabel)}" onclick="toggleCollapse('${sdKey}')">
         <button type="button" class="sb-caret ${sdCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
         <span class="sb-grp-badge">业务子域</span>
         <span class="sb-name" title="${esc(sdLabel)}">${esc(sdLabel)}</span>
-        ${_renderSbCount(sdProcs.length)}
-        <button class="sb-add-btn" onclick="event.stopPropagation();addProcess('${esc(sd)}')" title="\u5728\u6b64\u5b50\u57df\u65b0\u5efa\u6d41\u7a0b">＋</button>
+        ${_renderSbCount(stageRows.length || sdProcs.length)}
+        <button class="sb-add-btn" onclick="event.stopPropagation();addStage('${esc(sd)}')" title="在此子域新建业务阶段">＋</button>
         ${sd ? `<span class="sb-move-btns">
           <button class="sb-move-btn sb-move-up" onclick="moveSdGroup('${esc(sd)}',-1,event)" title="\u4e0a\u79fb" aria-label="\u4e0a\u79fb"></button>
           <button class="sb-move-btn sb-move-down" onclick="moveSdGroup('${esc(sd)}',1,event)" title="\u4e0b\u79fb" aria-label="\u4e0b\u79fb"></button>
@@ -358,20 +400,18 @@ function renderSidebar() {
       </div>`;
       if(sdCollapsed) continue;
 
-      const flowGroups = [...new Set(sdProcs.map((proc) => proc.flowGroup || ''))];
-      for(const flowGroup of flowGroups) {
-        const groupProcs = sdProcs.filter((proc) => (proc.flowGroup || '') === flowGroup);
-        const groupLabel = flowGroup || '\u672a\u5206\u7ec4\u6d41\u7a0b';
-        const fgKey=`fg-${sd}::${flowGroup}`;
-        const fgCollapsed = !!flowGroup && S.ui.sbCollapse[fgKey];
-        h+=`<div class="sb-subgrp-head" data-flow-group="${esc(groupLabel)}" onclick="${flowGroup ? `toggleCollapse('${fgKey}')` : ''}">
-          ${flowGroup ? `<button type="button" class="sb-caret ${fgCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>` : '<span class="sb-subgrp-dot"></span>'}
-          <span class="sb-subgrp-badge">\u6d41\u7a0b\u7ec4</span>
-          <span class="sb-name" title="${esc(groupLabel)}">${esc(groupLabel)}</span>
-          ${_renderSbCount(groupProcs.length)}
-        </div>`;
-        if (fgCollapsed) continue;
-        for(const p of groupProcs) {
+      if (!stageRows.length) {
+        h += `<div class="sb-empty">暂无业务阶段</div>`;
+      }
+
+      for (const row of stageRows) {
+        h += _renderSbStage(row.stageItem, row.processes, row.collapseKey);
+        if (S.ui.sbCollapse[row.collapseKey]) continue;
+        if (!row.processes.length) {
+          h += `<div class="sb-empty sb-stage-empty">暂无流程</div>`;
+          continue;
+        }
+        for(const p of row.processes) {
           h+=_renderSbProc(p);
         }
       }
@@ -471,9 +511,11 @@ function renderTabBar() {
 
 function startDrawerResize(e) {
   e.preventDefault(); e.stopPropagation();
-  const drawer = e.currentTarget.closest('.proc-drawer, .entity-drawer, .state-editor-drawer');
+  const drawer = e.currentTarget.closest('.proc-drawer, .entity-drawer, .state-editor-drawer, .stage-drawer');
   if(!drawer) return;
-  const drawerKind = drawer.classList.contains('proc-drawer') ? 'process' : 'entity';
+  const drawerKind = drawer.classList.contains('entity-drawer') || drawer.classList.contains('state-editor-drawer')
+    ? 'entity'
+    : 'process';
   const startX = e.clientX;
   const startW = drawer.offsetWidth;
   const minWidth = drawerKind === 'entity' ? 420 : 300;
@@ -488,6 +530,9 @@ function startDrawerResize(e) {
       if (wrap) wrap.style.marginRight = newW + 'px';
     } else if (drawer.classList.contains('state-editor-drawer')) {
       const mainShell = document.querySelector('.entity-state-main-shell');
+      if (mainShell) mainShell.style.marginRight = newW + 'px';
+    } else if (drawer.classList.contains('stage-drawer')) {
+      const mainShell = document.querySelector('.stage-main-shell');
       if (mainShell) mainShell.style.marginRight = newW + 'px';
     }
   }

@@ -62,8 +62,12 @@ class CreateEmptyDocumentTests(unittest.TestCase):
         self.assertEqual(document["meta"]["domain"], "")
         self.assertEqual(document["processes"][0]["id"], "P1")
         self.assertEqual(document["processes"][0]["flowGroup"], "")
+        self.assertEqual(document["processes"][0]["stageId"], "")
+        self.assertEqual(document["processes"][0]["stagePos"], {"x": 0, "y": 0})
         self.assertEqual(document["processes"][0]["prototypeFiles"], [])
         self.assertEqual(document["processes"][0]["nodes"], [])
+        self.assertEqual(document["stages"], [])
+        self.assertEqual(document["stageLinks"], [])
         self.assertEqual(document["entities"], [])
 
 
@@ -104,8 +108,10 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertNotIn("process", migrated)
         self.assertNotIn("bounded_context", migrated["meta"])
         self.assertEqual(migrated["processes"][0]["id"], "P1")
-        self.assertEqual(migrated["meta"]["schema_version"], 3)
+        self.assertEqual(migrated["meta"]["schema_version"], 4)
         self.assertEqual(migrated["processes"][0]["flowGroup"], "")
+        self.assertEqual(migrated["processes"][0]["stageId"], "")
+        self.assertEqual(migrated["processes"][0]["stagePos"], {"x": 0, "y": 0})
         self.assertEqual(migrated["processes"][0]["nodes"][0]["userSteps"][0]["type"], "Check")
         self.assertEqual(migrated["processes"][0]["nodes"][0]["orchestrationTasks"], [])
         self.assertEqual(migrated["entities"][0]["fields"][0]["type"], "string")
@@ -121,6 +127,8 @@ class MigrateDocumentTests(unittest.TestCase):
         self.assertEqual(migrated["relations"], [])
         self.assertEqual(migrated["rules"], [])
         self.assertEqual(migrated["language"], [])
+        self.assertEqual(migrated["stages"], [])
+        self.assertEqual(migrated["stageLinks"], [])
 
     def test_migrate_document_promotes_string_roles_to_role_objects_and_links_tasks(self):
         document = {
@@ -930,7 +938,7 @@ class MergeApiTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["document"]["meta"]["document_uid"])
-        self.assertEqual(result["document"]["meta"]["schema_version"], 3)
+        self.assertEqual(result["document"]["meta"]["schema_version"], 4)
         self.assertTrue(result["document"]["roles"][0]["uid"])
         self.assertEqual(result["document"]["processes"], [])
 

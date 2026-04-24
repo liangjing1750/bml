@@ -105,6 +105,17 @@ function buildPreviewOutlineItems(doc) {
   const items = [{ id: 'preview-top', label: doc?.meta?.title || doc?.meta?.domain || '文档概览', depth: 0 }];
   if ((doc?.roles || []).length) items.push({ id: 'preview-roles', label: '角色', depth: 0 });
   if ((doc?.language || []).length) items.push({ id: 'preview-language', label: '统一语言/术语表', depth: 0 });
+  if (getStageItems(doc).length) {
+    items.push({ id: 'preview-stages', label: '业务阶段', depth: 0 });
+    items.push({ id: 'preview-stage-panorama', label: '业务全景图', depth: 1 });
+    getStageItems(doc).forEach((stage) => {
+      items.push({
+        id: previewAnchorId('stage', stage.id || stage.name || 'stage'),
+        label: stage.name || stage.id || '未命名业务阶段',
+        depth: 1,
+      });
+    });
+  }
   if ((doc?.processes || []).length) {
     items.push({ id: 'preview-processes', label: '流程建模', depth: 0 });
     (doc.processes || []).forEach((proc) => {
@@ -197,6 +208,95 @@ function renderPreviewLanguageHtml(languageItems) {
     </tbody></table>`;
 }
 
+function buildPreviewStagePanoramaData(doc) {
+  const stageItems = getStageItems(doc);
+  const stageIdSet = new Set(stageItems.map((stage) => stage.id));
+  return {
+    nodes: stageItems.map((stage) => ({
+      id: stage.id,
+      label: stage.name || stage.id,
+      meta: `${getStageProcesses(stage.id, doc).length} 个流程`,
+    })),
+    links: getStageLinks(doc)
+      .filter((link) => stageIdSet.has(link.fromStageId) && stageIdSet.has(link.toStageId))
+      .map((link) => ({ from: link.fromStageId, to: link.toStageId })),
+  };
+}
+
+function buildPreviewStageDetailData(doc, stageItem) {
+  const processes = getStageProcesses(stageItem.id, doc);
+  const stage = findStage(stageItem.id, doc);
+  return {
+    processes,
+    nodes: processes.map((proc) => ({
+      id: proc.id,
+      label: proc.name || proc.id,
+      meta: proc.flowGroup ? `流程组 · ${proc.flowGroup}` : '',
+    })),
+    links: stage
+      ? getStageProcessLinks(stage)
+        .filter((link) => processes.some((proc) => proc.id === link.fromProcessId) && processes.some((proc) => proc.id === link.toProcessId))
+        .map((link) => ({ from: link.fromProcessId, to: link.toProcessId }))
+      : [],
+  };
+}
+
+function renderPreviewStageGraphMarkup(nodes, links, kind = 'stage', testId = 'preview-stage-graph') {
+  if (!nodes.length) {
+    return `<div class="diag-empty" data-testid="${testId}-empty">暂无内容</div>`;
+  }
+  const graph = buildStageGraphLayout(nodes, links, kind);
+  return `<div class="stage-graph preview-stage-graph" data-testid="${testId}">
+    <div class="stage-graph-zoom-shell" style="width:${graph.boardW}px;height:${graph.boardH}px">
+      <div class="stage-graph-zoom-target" style="width:${graph.boardW}px;height:${graph.boardH}px">
+        <div class="stage-graph-board" style="width:${graph.boardW}px;height:${graph.boardH}px">
+          <svg class="stage-graph-svg" width="${graph.boardW}" height="${graph.boardH}" viewBox="0 0 ${graph.boardW} ${graph.boardH}" aria-hidden="true">
+            <defs>
+              <marker id="${testId}-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto">
+                <path d="M0,0 L0,8 L8,4 z" fill="#64748b"></path>
+              </marker>
+            </defs>
+            ${graph.links.map((link) => `<path class="stage-graph-link" d="${link.path}" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${testId}-arrow)"></path>`).join('')}
+          </svg>
+          ${nodes.map((node) => {
+            const pos = graph.positions[node.id];
+            return `<div class="stage-graph-node ${kind==='stage'?'stage-kind':'process-kind'} preview-stage-node"
+              style="left:${pos.x}px;top:${pos.y}px;width:${pos.w}px;height:${pos.h}px">
+              <span class="stage-graph-node-title">${esc(node.label)}</span>
+              ${node.meta ? `<span class="stage-graph-node-meta">${esc(node.meta)}</span>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderPreviewStagesHtml(doc) {
+  const stageItems = getStageItems(doc);
+  if (!stageItems.length) return '';
+  const panorama = buildPreviewStagePanoramaData(doc);
+  return `<h2 id="preview-stages">业务阶段</h2>
+    <div class="pv-stage-section">
+      <h3 id="preview-stage-panorama">业务全景图</h3>
+      ${renderPreviewStageGraphMarkup(panorama.nodes, panorama.links, 'stage', 'preview-stage-panorama')}
+    </div>
+    ${stageItems.map((stageItem) => {
+      const detail = buildPreviewStageDetailData(doc, stageItem);
+      const stageAnchor = previewAnchorId('stage', stageItem.id || stageItem.name || 'stage');
+      const graphTestId = `preview-stage-detail-${String(stageItem.id || 'stage').replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+      return `<div class="pv-stage-section">
+        <h3 id="${stageAnchor}">业务阶段: ${esc(stageItem.name || stageItem.id)}</h3>
+        <p class="pv-note">
+          <strong>业务子域</strong>: ${esc(stageItem.subDomain || '—')}
+          | <strong>流程数</strong>: ${detail.processes.length}
+          ${stageItem.virtual ? ' | <strong>说明</strong>: 未设置业务阶段' : ''}
+        </p>
+        ${renderPreviewStageGraphMarkup(detail.nodes, detail.links, 'process', graphTestId)}
+      </div>`;
+    }).join('')}`;
+}
+
 function formatPrototypeSummary(prototypeFiles) {
   return prototypeFiles
     .map((file) => {
@@ -219,6 +319,7 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
       return `<h3 id="${previewAnchorId('proc', proc.id || proc.name || 'process')}">${esc(proc.id)}: ${esc(proc.name||'')}</h3>
         <p class="pv-note">
           <strong>业务子域</strong>: ${esc(proc.subDomain || '—')}
+          ${String(proc.stageId || '').trim() ? ` | <strong>业务阶段</strong>: ${esc(getStageDisplayName(proc.stageId, S.doc))}` : ''}
           ${proc.flowGroup ? ` | <strong>流程组</strong>: ${esc(proc.flowGroup)}` : ''}
         </p>
         ${proc.trigger || proc.outcome ? `<p class="pv-note"><strong>触发</strong>: ${esc(proc.trigger||'—')} → <strong>预期结果</strong>: ${esc(proc.outcome||'—')}</p>` : ''}
@@ -300,6 +401,7 @@ function buildHtmlPreview() {
     '<hr>',
     renderPreviewRolesHtml(roles),
     renderPreviewLanguageHtml(lang),
+    renderPreviewStagesHtml(doc),
     renderPreviewProcessesHtml(procs, emap, STEP_LBL, ORCH_LBL, QUERY_SOURCE_LBL),
     renderPreviewEntitiesHtml(entities, FIELD_LBL),
   ].filter(Boolean).join('');
@@ -331,13 +433,45 @@ function appendPreviewLanguageMd(add, languageItems) {
   add('');
 }
 
-function appendPreviewProcessesMd(add, processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
+function appendPreviewStagesMd(add, doc) {
+  const stageItems = getStageItems(doc);
+  if (!stageItems.length) return;
+  const panorama = buildPreviewStagePanoramaData(doc);
+  add('### 业务全景图');
+  add('');
+  if (panorama.nodes.length) {
+    add('```mermaid');
+    add('flowchart TD');
+    panorama.nodes.forEach((node) => add(`  ${node.id}["${node.label}"]`));
+    panorama.links.forEach((link) => add(`  ${link.from} --> ${link.to}`));
+    add('```');
+    add('');
+  }
+  for (const stageItem of stageItems) {
+    const detail = buildPreviewStageDetailData(doc, stageItem);
+    add(`### 业务阶段: ${stageItem.name || stageItem.id}`);
+    add('');
+    add(`**业务子域**: ${stageItem.subDomain || '—'}  |  **流程数**: ${detail.processes.length}`);
+    add('');
+    if (detail.nodes.length) {
+      add('```mermaid');
+      add('flowchart TD');
+      detail.nodes.forEach((node) => add(`  ${node.id}["${node.label}"]`));
+      detail.links.forEach((link) => add(`  ${link.from} --> ${link.to}`));
+      add('```');
+      add('');
+    }
+  }
+}
+
+function appendPreviewProcessesMd(add, doc, processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   for (const proc of processes) {
     const nodes = getProcNodes(proc);
     const prototypeFiles = getProcPrototypeFiles(proc);
     add(`### ${proc.id}: ${proc.name||''}`);
     add('');
     add(`**业务子域**: ${proc.subDomain||'—'}`);
+    if(proc.stageId) add(`**业务阶段**: ${getStageDisplayName(proc.stageId, doc)}`);
     if(proc.flowGroup) add(`**流程组**: ${proc.flowGroup}`);
     if(prototypeFiles.length) add(`**流程原型**: ${formatPrototypeSummary(prototypeFiles)}`);
     add('');
@@ -461,10 +595,17 @@ function buildMdFromDoc(doc) {
     sep();
   }
 
+  const stages = getStageItems(doc);
+  if(stages.length){
+    add(`## ${nums[sn++]}、业务阶段`); add('');
+    appendPreviewStagesMd(add, doc);
+    sep();
+  }
+
   const procs = doc.processes||[];
   const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
   add(`## ${nums[sn++]}、流程建模`); add('');
-  appendPreviewProcessesMd(add, procs, emap, STEP_LBL, ORCH_LBL, QUERY_SOURCE_LBL);
+  appendPreviewProcessesMd(add, doc, procs, emap, STEP_LBL, ORCH_LBL, QUERY_SOURCE_LBL);
   sep();
 
   const entities  = doc.entities||[];

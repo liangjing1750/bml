@@ -52,6 +52,8 @@ const S = {
   ui: {
     tab: 'domain',
     procId: null, taskId: null,
+    stageId: null,
+    stageViewMode: 'panorama',
     entityId: null,
     dataView: 'relation',
     stateFieldName: '',
@@ -67,6 +69,7 @@ const S = {
     procEditorFocusSelector: '',
     procDiagramH: 200,
     procDrawerW: 480,
+    stageGraphZoom: 1,
     entityDrawerW: 620,
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,
@@ -190,6 +193,8 @@ function nextId(prefix, items) {
 function createUiUid(prefix = 'uid') {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
+const UNASSIGNED_STAGE_ID = '__unassigned__';
+const UNASSIGNED_STAGE_NAME = '未设置业务阶段';
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -306,6 +311,99 @@ function normalizePrototypeFileEntry(file, index = 1) {
     versions: normalizedVersions,
   };
 }
+function normalizeGraphOffset(value) {
+  if (!value || typeof value !== 'object') return { x: 0, y: 0 };
+  const x = Number.isFinite(Number(value.x)) ? Math.round(Number(value.x)) : 0;
+  const y = Number.isFinite(Number(value.y)) ? Math.round(Number(value.y)) : 0;
+  return { x, y };
+}
+function normalizeStageProcessLinkEntry(link) {
+  const normalized = link && typeof link === 'object' ? link : {};
+  return {
+    uid: String(normalized.uid || '').trim() || createUiUid('stageproc'),
+    fromProcessId: String(normalized.fromProcessId || '').trim(),
+    toProcessId: String(normalized.toProcessId || '').trim(),
+  };
+}
+function normalizeStageLinkEntry(link) {
+  const normalized = link && typeof link === 'object' ? link : {};
+  return {
+    uid: String(normalized.uid || '').trim() || createUiUid('stagelink'),
+    fromStageId: String(normalized.fromStageId || '').trim(),
+    toStageId: String(normalized.toStageId || '').trim(),
+  };
+}
+function normalizeStageEntry(stage, index = 1, processes = []) {
+  const normalized = stage && typeof stage === 'object' ? stage : {};
+  let subDomain = String(normalized.subDomain || '').trim();
+  if (!subDomain) {
+    const member = (processes || []).find((proc) => String(proc?.stageId || '').trim() === String(normalized.id || '').trim() && String(proc?.subDomain || '').trim());
+    subDomain = String(member?.subDomain || '').trim();
+  }
+  return {
+    uid: String(normalized.uid || '').trim() || createUiUid('stage'),
+    id: String(normalized.id || '').trim() || `S${index}`,
+    name: String(normalized.name || '').trim() || `业务阶段${index}`,
+    subDomain,
+    pos: normalizeGraphOffset(normalized.pos),
+    processLinks: (Array.isArray(normalized.processLinks) ? normalized.processLinks : []).map(normalizeStageProcessLinkEntry),
+  };
+}
+function getStages(doc = S.doc) {
+  if (!doc || typeof doc !== 'object') return [];
+  if (!Array.isArray(doc.stages)) doc.stages = [];
+  doc.stages = doc.stages.map((stage, index) => normalizeStageEntry(stage, index + 1, doc.processes || []));
+  return doc.stages;
+}
+function getStageLinks(doc = S.doc) {
+  if (!doc || typeof doc !== 'object') return [];
+  if (!Array.isArray(doc.stageLinks)) doc.stageLinks = [];
+  doc.stageLinks = doc.stageLinks.map(normalizeStageLinkEntry);
+  return doc.stageLinks;
+}
+function getStageProcessLinks(stage) {
+  if (!stage || typeof stage !== 'object') return [];
+  if (!Array.isArray(stage.processLinks)) stage.processLinks = [];
+  stage.processLinks = stage.processLinks.map(normalizeStageProcessLinkEntry);
+  return stage.processLinks;
+}
+function isVirtualStageId(stageId) {
+  return String(stageId || '').trim() === UNASSIGNED_STAGE_ID;
+}
+function findStage(stageId, doc = S.doc) {
+  const targetStageId = String(stageId || '').trim();
+  if (!targetStageId || isVirtualStageId(targetStageId)) return null;
+  return getStages(doc).find((stage) => stage.id === targetStageId) || null;
+}
+function getStageProcesses(stageId, doc = S.doc) {
+  const processes = Array.isArray(doc?.processes) ? doc.processes : [];
+  const targetStageId = String(stageId || '').trim();
+  if (isVirtualStageId(targetStageId)) {
+    return processes.filter((proc) => !String(proc?.stageId || '').trim());
+  }
+  return processes.filter((proc) => String(proc?.stageId || '').trim() === targetStageId);
+}
+function getStageItems(doc = S.doc) {
+  const stages = getStages(doc);
+  const items = stages.map((stage) => ({ ...stage, virtual: false }));
+  const unassignedProcesses = getStageProcesses(UNASSIGNED_STAGE_ID, doc);
+  if (unassignedProcesses.length) {
+    items.push({
+      uid: 'virtual-unassigned-stage',
+      id: UNASSIGNED_STAGE_ID,
+      name: UNASSIGNED_STAGE_NAME,
+      subDomain: '',
+      pos: { x: 0, y: 0 },
+      processLinks: [],
+      virtual: true,
+    });
+  }
+  return items;
+}
+function getStageDisplayName(stageId, doc = S.doc) {
+  if (isVirtualStageId(stageId)) return UNASSIGNED_STAGE_NAME;
+  return findStage(stageId, doc)?.name || String(stageId || '').trim();
+}
 function getProcPrototypeFiles(proc) {
   if (!proc || typeof proc !== 'object') return [];
   if (!Array.isArray(proc.prototypeFiles)) proc.prototypeFiles = [];
@@ -329,11 +427,15 @@ function defineUiAlias(target, aliasKey, actualKey) {
 }
 function hydrateDocumentForUi(doc) {
   if (!doc || typeof doc !== 'object') return doc;
+  getStages(doc);
+  getStageLinks(doc);
   (doc.processes || []).forEach((proc) => {
     if (!Array.isArray(proc.nodes) && Array.isArray(proc.tasks)) proc.nodes = proc.tasks;
     if (!Array.isArray(proc.nodes)) proc.nodes = [];
     defineUiAlias(proc, 'tasks', 'nodes');
     proc.flowGroup = String(proc.flowGroup || '');
+    proc.stageId = String(proc.stageId || '').trim();
+    proc.stagePos = normalizeGraphOffset(proc.stagePos);
     getProcPrototypeFiles(proc);
     proc.nodes.forEach((node) => {
       if (!Array.isArray(node.userSteps) && Array.isArray(node.steps)) node.userSteps = node.steps;
@@ -345,6 +447,7 @@ function hydrateDocumentForUi(doc) {
   });
   return doc;
 }
+function currentStage() { return getStageItems(S.doc).find((stage) => stage.id === S.ui.stageId) || null; }
 function currentProc()  { return (S.doc?.processes||[]).find(p=>p.id===S.ui.procId)||null; }
 function currentNode()  { return getProcNodes(currentProc()).find(t=>t.id===S.ui.taskId)||null; }
 function currentTask()  { return currentNode(); }

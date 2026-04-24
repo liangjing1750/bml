@@ -7,7 +7,8 @@ from uuid import uuid4
 
 DEFAULT_PROCESS_NAME = "主流程"
 DEFAULT_ROLE_NAME = "新角色"
-SCHEMA_VERSION = 3
+DEFAULT_STAGE_NAME = "业务阶段"
+SCHEMA_VERSION = 4
 
 STEP_TYPE_ALIASES = {
     "validate": "Check",
@@ -84,6 +85,77 @@ def _normalize_text_list(values: list[str] | None) -> list[str]:
     return result
 
 
+def _normalize_graph_offset(value) -> dict:
+    if not isinstance(value, dict):
+        return {"x": 0, "y": 0}
+    try:
+        x = int(round(float(value.get("x", 0) or 0)))
+    except (TypeError, ValueError):
+        x = 0
+    try:
+        y = int(round(float(value.get("y", 0) or 0)))
+    except (TypeError, ValueError):
+        y = 0
+    return {"x": x, "y": y}
+
+
+def _normalize_stage_process_links(process_links: list[dict]) -> list[dict]:
+    normalized_links: list[dict] = []
+    for link in process_links or []:
+        if not isinstance(link, dict):
+            continue
+        normalized_links.append(
+            {
+                "uid": str(link.get("uid", "")).strip() or _new_uid(),
+                "fromProcessId": str(link.get("fromProcessId", "")).strip(),
+                "toProcessId": str(link.get("toProcessId", "")).strip(),
+            }
+        )
+    return normalized_links
+
+
+def _normalize_stage_links(stage_links: list[dict]) -> list[dict]:
+    normalized_links: list[dict] = []
+    for link in stage_links or []:
+        if not isinstance(link, dict):
+            continue
+        normalized_links.append(
+            {
+                "uid": str(link.get("uid", "")).strip() or _new_uid(),
+                "fromStageId": str(link.get("fromStageId", "")).strip(),
+                "toStageId": str(link.get("toStageId", "")).strip(),
+            }
+        )
+    return normalized_links
+
+
+def _normalize_stages(stages: list[dict], processes: list[dict]) -> None:
+    normalized_stages: list[dict] = []
+    for stage_index, stage in enumerate(stages, start=1):
+        if not isinstance(stage, dict):
+            continue
+        _ensure_uid(stage)
+        stage.setdefault("id", f"S{stage_index}")
+        stage.setdefault("name", f"{DEFAULT_STAGE_NAME}{stage_index}")
+        if not stage.get("subDomain"):
+            stage_process = next(
+                (
+                    process
+                    for process in processes
+                    if str(process.get("stageId", "")).strip() == stage.get("id", "")
+                    and str(process.get("subDomain", "")).strip()
+                ),
+                None,
+            )
+            stage["subDomain"] = str((stage_process or {}).get("subDomain", "")).strip()
+        else:
+            stage["subDomain"] = str(stage.get("subDomain", "")).strip()
+        stage["pos"] = _normalize_graph_offset(stage.get("pos", {}))
+        stage["processLinks"] = _normalize_stage_process_links(stage.get("processLinks", []))
+        normalized_stages.append(stage)
+    stages[:] = normalized_stages
+
+
 def _parse_role_tokens(value) -> list[str]:
     if isinstance(value, list):
         sources = value
@@ -98,12 +170,16 @@ def create_empty_document(name: str) -> dict:
             "meta": {"title": name, "domain": "", "author": "", "date": ""},
             "roles": [],
             "language": [],
+            "stages": [],
+            "stageLinks": [],
             "processes": [
                 {
                     "id": "P1",
                     "name": DEFAULT_PROCESS_NAME,
                     "subDomain": "",
                     "flowGroup": "",
+                    "stageId": "",
+                    "stagePos": {"x": 0, "y": 0},
                     "trigger": "",
                     "outcome": "",
                     "prototypeFiles": [],
@@ -485,6 +561,8 @@ def _normalize_processes(processes: list[dict], roles: list[dict]) -> None:
         process.setdefault("outcome", "")
         process.setdefault("subDomain", "")
         process.setdefault("flowGroup", "")
+        process["stageId"] = str(process.get("stageId", process.pop("stage_id", "")) or "").strip()
+        process["stagePos"] = _normalize_graph_offset(process.get("stagePos", process.pop("stage_pos", {})))
         normalized_prototypes = []
         prototype_sources = process.get("prototypeFiles", [])
         if not isinstance(prototype_sources, list):
@@ -618,6 +696,8 @@ def migrate_document(document: dict | None) -> dict:
                 "name": legacy_process.get("name", DEFAULT_PROCESS_NAME),
                 "subDomain": legacy_process.get("subDomain", ""),
                 "flowGroup": legacy_process.get("flowGroup", ""),
+                "stageId": legacy_process.get("stageId", ""),
+                "stagePos": legacy_process.get("stagePos", {}),
                 "trigger": legacy_process.get("trigger", ""),
                 "outcome": legacy_process.get("outcome", ""),
                 "prototypeFiles": legacy_process.get("prototypeFiles", []),
@@ -627,6 +707,8 @@ def migrate_document(document: dict | None) -> dict:
 
     doc.setdefault("roles", [])
     doc.setdefault("language", [])
+    doc.setdefault("stages", [])
+    doc.setdefault("stageLinks", [])
     doc.setdefault("processes", [])
     doc.setdefault("entities", [])
     doc.setdefault("relations", [])
@@ -649,6 +731,8 @@ def migrate_document(document: dict | None) -> dict:
     doc["roles"] = normalized_roles
 
     _normalize_processes(doc["processes"], doc["roles"])
+    _normalize_stages(doc["stages"], doc["processes"])
+    doc["stageLinks"] = _normalize_stage_links(doc["stageLinks"])
     _normalize_entities(doc["entities"])
     _normalize_relations(doc["relations"])
     _normalize_rules(doc["rules"])
@@ -669,6 +753,14 @@ def renumber_document_ids(document: dict | None) -> dict:
         if old_id:
             role_map[old_id] = new_id
 
+    stage_map: dict[str, str] = {}
+    for stage_index, stage in enumerate(doc["stages"], start=1):
+        old_stage_id = str(stage.get("id", "")).strip()
+        new_stage_id = f"S{stage_index}"
+        stage["id"] = new_stage_id
+        if old_stage_id:
+            stage_map[old_stage_id] = new_stage_id
+
     process_map: dict[str, str] = {}
     node_map: dict[str, str] = {}
     next_node_index = 1
@@ -678,6 +770,8 @@ def renumber_document_ids(document: dict | None) -> dict:
         process["id"] = new_process_id
         if old_process_id:
             process_map[old_process_id] = new_process_id
+        if process.get("stageId") in stage_map:
+            process["stageId"] = stage_map[process["stageId"]]
 
         for node in process.get("nodes", []):
             old_node_id = str(node.get("id", "")).strip()
@@ -727,8 +821,22 @@ def renumber_document_ids(document: dict | None) -> dict:
         if relation.get("to") in entity_map:
             relation["to"] = entity_map[relation["to"]]
 
+    for stage in doc["stages"]:
+        for process_link in stage.get("processLinks", []):
+            if process_link.get("fromProcessId") in process_map:
+                process_link["fromProcessId"] = process_map[process_link["fromProcessId"]]
+            if process_link.get("toProcessId") in process_map:
+                process_link["toProcessId"] = process_map[process_link["toProcessId"]]
+
+    for stage_link in doc.get("stageLinks", []):
+        if stage_link.get("fromStageId") in stage_map:
+            stage_link["fromStageId"] = stage_map[stage_link["fromStageId"]]
+        if stage_link.get("toStageId") in stage_map:
+            stage_link["toStageId"] = stage_map[stage_link["toStageId"]]
+
     id_map = {}
     id_map.update(role_map)
+    id_map.update(stage_map)
     id_map.update(process_map)
     id_map.update(node_map)
     id_map.update(entity_map)

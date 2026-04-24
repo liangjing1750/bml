@@ -80,6 +80,65 @@ RULE_LABELS = {
 SECTION_NUMBERS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 RELATION_LABELS = {"1:1": "1对1", "1:N": "1对多", "N:N": "多对多"}
 
+UNASSIGNED_STAGE_ID = "__unassigned__"
+UNASSIGNED_STAGE_NAME = "未设置业务阶段"
+
+
+def get_stage_items(document: dict) -> list[dict]:
+    processes = document.get("processes", [])
+    items = [stage for stage in document.get("stages", []) if isinstance(stage, dict)]
+    unassigned_processes = [process for process in processes if not str(process.get("stageId", "")).strip()]
+    if unassigned_processes:
+        items.append(
+            {
+                "id": UNASSIGNED_STAGE_ID,
+                "name": UNASSIGNED_STAGE_NAME,
+                "subDomain": "",
+                "pos": {"x": 0, "y": 0},
+                "processLinks": [],
+                "_virtual": True,
+            }
+        )
+    return items
+
+
+def get_stage_processes(document: dict, stage_id: str) -> list[dict]:
+    processes = document.get("processes", [])
+    if stage_id == UNASSIGNED_STAGE_ID:
+        return [process for process in processes if not str(process.get("stageId", "")).strip()]
+    return [process for process in processes if str(process.get("stageId", "")).strip() == stage_id]
+
+
+def build_stage_panorama_mermaid(document: dict) -> str | None:
+    stages = get_stage_items(document)
+    if not stages:
+        return None
+    lines = ["flowchart TD"]
+    for stage in stages:
+        stage_name = str(stage.get("name", "") or stage.get("id", "")).replace('"', "'")
+        lines.append(f'  {stage["id"]}["{stage_name}"]')
+    for stage_link in document.get("stageLinks", []):
+        from_stage_id = str(stage_link.get("fromStageId", "")).strip()
+        to_stage_id = str(stage_link.get("toStageId", "")).strip()
+        if from_stage_id and to_stage_id:
+            lines.append(f"  {from_stage_id} --> {to_stage_id}")
+    return "\n".join(lines)
+
+
+def build_stage_process_mermaid(stage: dict, processes: list[dict]) -> str | None:
+    if not processes:
+        return None
+    lines = ["flowchart TD"]
+    for process in processes:
+        process_name = str(process.get("name", "") or process.get("id", "")).replace('"', "'")
+        lines.append(f'  {process["id"]}["{process_name}"]')
+    for process_link in stage.get("processLinks", []):
+        from_process_id = str(process_link.get("fromProcessId", "")).strip()
+        to_process_id = str(process_link.get("toProcessId", "")).strip()
+        if from_process_id and to_process_id:
+            lines.append(f"  {from_process_id} --> {to_process_id}")
+    return "\n".join(lines)
+
 
 def get_role_name(role) -> str:
     if isinstance(role, dict):
@@ -288,12 +347,28 @@ class MarkdownExporter:
             line()
             separator()
 
+        stage_items = get_stage_items(doc)
+        if stage_items:
+            line(f"## {next_section_number()}、业务阶段")
+            line()
+            panorama_code = build_stage_panorama_mermaid(doc)
+            if panorama_code:
+                line("```mermaid")
+                for code_line in panorama_code.split("\n"):
+                    line(code_line)
+                line("```")
+                line()
+            for stage in stage_items:
+                self._render_stage(line, doc, stage)
+            separator()
+
         processes = doc.get("processes", [])
         entities_by_id = {entity["id"]: entity for entity in doc.get("entities", [])}
+        stages_by_id = {stage["id"]: stage for stage in doc.get("stages", [])}
         line(f"## {next_section_number()}、流程建模")
         line()
         for process in processes:
-            self._render_process(line, process, entities_by_id)
+            self._render_process(line, process, entities_by_id, stages_by_id)
         separator()
 
         entities = doc.get("entities", [])
@@ -352,11 +427,42 @@ class MarkdownExporter:
 
         return "\n".join(lines)
 
-    def _render_process(self, line, process: dict, entities_by_id: dict) -> None:
+    def _render_stage(self, line, document: dict, stage: dict) -> None:
+        stage_processes = get_stage_processes(document, stage.get("id", ""))
+        line(f"### {stage.get('id', 'S')}: {stage.get('name', '')}")
+        line()
+        stage_meta = []
+        if stage.get("subDomain"):
+            stage_meta.append(f"**业务子域**: {stage.get('subDomain', '')}")
+        if stage_processes:
+            process_names = "、".join(
+                f"{process.get('id', '')} {process.get('name', '')}".strip()
+                for process in stage_processes
+            )
+            stage_meta.append(f"**包含流程**: {process_names}")
+        if stage_meta:
+            for item in stage_meta:
+                line(item)
+            line()
+
+        stage_code = build_stage_process_mermaid(stage, stage_processes)
+        if stage_code:
+            line("```mermaid")
+            for code_line in stage_code.split("\n"):
+                line(code_line)
+            line("```")
+            line()
+
+    def _render_process(self, line, process: dict, entities_by_id: dict, stages_by_id: dict) -> None:
         nodes = process.get("nodes", [])
         line(f"### {process.get('id', 'P')}: {process.get('name', '')}")
         line()
         process_meta = []
+        stage_id = str(process.get("stageId", "")).strip()
+        if stage_id:
+            stage = stages_by_id.get(stage_id)
+            stage_name = stage.get("name", stage_id) if stage else stage_id
+            process_meta.append(f"**业务阶段**: {stage_name}")
         if process.get("subDomain"):
             process_meta.append(f"**\u4e1a\u52a1\u5b50\u57df**: {process.get('subDomain', '')}")
         if process.get("flowGroup"):

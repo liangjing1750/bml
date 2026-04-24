@@ -18,11 +18,22 @@ test('预览页导出会下载文档包 ZIP，并保留流程原型', async ({ p
     },
     roles: [],
     language: [],
+    stages: [
+      {
+        id: 'S1',
+        name: '账户接入阶段',
+        subDomain: '账号',
+        pos: { x: 0, y: 0 },
+        processLinks: [],
+      },
+    ],
+    stageLinks: [],
     processes: [
       {
         id: 'P1',
         name: '登录流程',
         subDomain: '账号',
+        stageId: 'S1',
         flowGroup: '认证',
         trigger: '',
         outcome: '',
@@ -98,5 +109,7 @@ test('预览页导出会下载文档包 ZIP，并保留流程原型', async ({ p
   expect(inspection.names).toContain(`${documentName}/${inspection.prototype_path}`);
   expect(inspection.prototype_html).toContain('prototype-a');
   expect(inspection.markdown).toContain(`# ${documentName}`);
+  expect(inspection.markdown).toContain('业务阶段');
+  expect(inspection.markdown).toContain('账户接入阶段');
   expect(inspection.markdown).toContain('login-a.html');
 });
