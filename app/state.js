@@ -63,6 +63,7 @@ const S = {
     sbCollapse: {},   // { 'proc-P1': true, 'grp-销售': false }
     sidebarCollapsed: false,
     sidebarW: 240,
+    processSidebarMode: 'domain',
     procView: 'card',  // 'list' | 'card' | 'role'
     nodePerspective: 'user',
     procPrototypeExpanded: {},

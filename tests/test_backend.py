@@ -1,6 +1,7 @@
 import http.server
 import io
 import json
+import shutil
 import tempfile
 import threading
 import unittest
@@ -923,6 +924,13 @@ class WorkspaceStorageTests(unittest.TestCase):
             self.assertEqual(restored_name, "Loans")
             self.assertEqual(restored_document["meta"]["title"], "Loans")
             self.assertTrue(manifest_path(workspace, "Loans").exists())
+            self.assertEqual(storage.list_trash(), [])
+
+    def test_list_trash_returns_empty_when_trash_dir_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            storage = WorkspaceStorage(workspace)
+            shutil.rmtree(workspace / ".trash", ignore_errors=True)
             self.assertEqual(storage.list_trash(), [])
 
     def test_rename_moves_old_workspace_document_to_trash(self):

@@ -315,7 +315,8 @@ function _renderSbFlowGroup(flowGroup, processes, collapseKey) {
   const label = flowGroup || '未分组流程';
   return `<div class="sb-subgrp-head sb-flowgroup-head" data-flow-group="${esc(label)}"
     onclick="toggleCollapse('${esc(collapseKey)}')">
-    <button type="button" class="sb-caret ${isCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
+    <button type="button" class="sb-caret ${isCollapsed ? 'is-collapsed' : 'is-expanded'}"
+      onclick="event.stopPropagation();toggleCollapse('${esc(collapseKey)}')"><span class="sb-caret-icon">▶</span></button>
     <span class="sb-subgrp-badge">流程组</span>
     <span class="sb-name" title="${esc(label)}">${esc(label)}</span>
     ${_renderSbCount(processes.length)}
@@ -324,6 +325,20 @@ function _renderSbFlowGroup(flowGroup, processes, collapseKey) {
 
 function isStageSidebarBrowseMode() {
   return S.ui.tab === 'process' && S.ui.procView === 'stage';
+}
+
+function getProcessSidebarBrowseMode() {
+  const explicitMode = String(S.ui.processSidebarMode || 'domain');
+  return explicitMode === 'stage' ? 'stage' : 'domain';
+}
+
+function setProcessSidebarBrowseMode(mode) {
+  const nextMode = ['stage', 'domain'].includes(String(mode || ''))
+    ? String(mode)
+    : 'domain';
+  if (S.ui.processSidebarMode === nextMode) return;
+  S.ui.processSidebarMode = nextMode;
+  renderSidebar();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -336,7 +351,8 @@ function renderSidebar() {
   const stageItems = getStageItems(S.doc);
   const subDomains=[...new Set(procs.map(p=>p.subDomain||''))];
   const groups=[...new Set(entities.map(e=>e.group||''))];
-  const stageSidebarMode = isStageSidebarBrowseMode();
+  const processSidebarMode = getProcessSidebarBrowseMode();
+  const stageSidebarMode = processSidebarMode === 'stage';
   const processBucketCount = subDomains.filter(Boolean).length + (subDomains.includes('') ? 1 : 0);
   const stageCount = getStages(S.doc).length;
   const entityBucketCount = groups.filter(Boolean).length + (groups.includes('') ? 1 : 0);
@@ -375,17 +391,6 @@ function renderSidebar() {
 
   let h='';
 
-  if (stageSidebarMode && S.ui.stageId) {
-    S.ui.sbCollapse[`stage-tree-${S.ui.stageId}`] = false;
-  }
-  if (!stageSidebarMode && S.ui.procId) {
-    const activeProc = procs.find((proc) => proc.id === S.ui.procId);
-    if (activeProc) {
-      S.ui.sbCollapse[`sd-${activeProc.subDomain || ''}`] = false;
-      S.ui.sbCollapse[`fg-${activeProc.subDomain || ''}::${activeProc.flowGroup || ''}`] = false;
-    }
-  }
-
   /* ── 流程区（按业务子域分组） ── */
   h+=`<div class="sb-section">
     <div class="sb-header" data-section="process">
@@ -397,6 +402,12 @@ function renderSidebar() {
           { label: '\u8282\u70b9', value: nodeCount },
           { label: '\u4efb\u52a1', value: orchestrationTaskCount },
         ])}
+        <div class="sb-view-toggle-group" data-testid="sidebar-process-mode-switch">
+          <button class="sb-view-toggle ${processSidebarMode === 'domain' ? 'active' : ''}" type="button"
+            data-testid="sidebar-browse-domain" onclick="setProcessSidebarBrowseMode('domain')">子域视角</button>
+          <button class="sb-view-toggle ${processSidebarMode === 'stage' ? 'active' : ''}" type="button"
+            data-testid="sidebar-browse-stage" onclick="setProcessSidebarBrowseMode('stage')">阶段视角</button>
+        </div>
       </div>
       <button class="sb-add-btn" onclick="addProcess()" title="\u65b0\u5efa\u6d41\u7a0b">+</button>
     </div>
@@ -426,7 +437,8 @@ function renderSidebar() {
       const sdCollapsed=S.ui.sbCollapse[sdKey];
       const flowGroups = [...new Set(sdProcs.map((proc) => proc.flowGroup || ''))];
       h+=`<div class="sb-grp-head" data-subdomain="${esc(sdLabel)}" onclick="toggleCollapse('${sdKey}')">
-        <button type="button" class="sb-caret ${sdCollapsed ? 'is-collapsed' : 'is-expanded'}"><span class="sb-caret-icon">▶</span></button>
+        <button type="button" class="sb-caret ${sdCollapsed ? 'is-collapsed' : 'is-expanded'}"
+          onclick="event.stopPropagation();toggleCollapse('${sdKey}')"><span class="sb-caret-icon">▶</span></button>
         <span class="sb-grp-badge">业务子域</span>
         <span class="sb-name" title="${esc(sdLabel)}">${esc(sdLabel)}</span>
         ${_renderSbCount(sdProcs.length)}

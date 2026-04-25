@@ -126,6 +126,8 @@ class WorkspaceStorage(DocumentFileStore):
         return self.save(name, document)
 
     def list_trash(self) -> list[dict]:
+        if not self.trash_dir.exists():
+            return []
         entries: list[dict] = []
         seen_ids: set[str] = set()
         for entry in sorted(self.trash_dir.iterdir(), key=lambda item: item.name, reverse=True):

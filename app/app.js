@@ -99,6 +99,7 @@ const UI_NAV_HISTORY_KEYS = [
   'stateFieldName',
   'roleId',
   'procView',
+  'processSidebarMode',
   'nodePerspective',
   'stageEditorCollapsed',
   'stateEditorCollapsed',
@@ -325,6 +326,11 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
 
   const validProcViews = new Set(['stage', 'list', 'card', 'role']);
   if (!validProcViews.has(String(next.procView || ''))) next.procView = base.procView;
+
+  const validProcessSidebarModes = new Set(['stage', 'domain']);
+  if (!validProcessSidebarModes.has(String(next.processSidebarMode || ''))) {
+    next.processSidebarMode = base.processSidebarMode;
+  }
 
   const validStageViewModes = new Set(['panorama', 'detail']);
   if (!validStageViewModes.has(String(next.stageViewMode || ''))) next.stageViewMode = base.stageViewMode;
@@ -1102,6 +1108,7 @@ function createDocUiState(doc) {
     sbCollapse: _defaultSbCollapse(doc),
     sidebarCollapsed: false,
     sidebarW: getUiPrefNumber('sidebarW', 240),
+    processSidebarMode: 'domain',
     procView: 'card',
     nodePerspective: 'user',
     procPrototypeExpanded: {},

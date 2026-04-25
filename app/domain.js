@@ -92,7 +92,13 @@ function openRoleView(roleId) {
 }
 
 function addTerm() {
-  S.doc.language.push({ term: '', definition: '' });
+  addTermAfter(-1);
+}
+
+function addTermAfter(index) {
+  if (!Array.isArray(S.doc.language)) S.doc.language = [];
+  const insertIndex = Number.isInteger(index) ? Math.min(index + 1, S.doc.language.length) : S.doc.language.length;
+  S.doc.language.splice(insertIndex, 0, { term: '', definition: '' });
   markModified();
   rerenderDomainTabPreserveScroll();
 }
@@ -106,6 +112,127 @@ function removeTerm(idx) {
 function setTerm(idx, key, val) {
   S.doc.language[idx][key] = val;
   markModified();
+}
+
+function moveTerm(idx, dir) {
+  if (!Array.isArray(S.doc.language)) return;
+  const targetIndex = idx + dir;
+  if (idx < 0 || targetIndex < 0 || targetIndex >= S.doc.language.length) return;
+  [S.doc.language[idx], S.doc.language[targetIndex]] = [S.doc.language[targetIndex], S.doc.language[idx]];
+  markModified();
+  rerenderDomainTabPreserveScroll();
+}
+
+function getSubDomainCatalog() {
+  if (!S.doc?.meta || typeof S.doc.meta !== 'object') return {};
+  if (!S.doc.meta.subDomainCatalog || typeof S.doc.meta.subDomainCatalog !== 'object' || Array.isArray(S.doc.meta.subDomainCatalog)) {
+    S.doc.meta.subDomainCatalog = {};
+  }
+  return S.doc.meta.subDomainCatalog;
+}
+
+function inferSubDomainKind(name) {
+  const normalized = String(name || '').trim();
+  if (!normalized) return 'generic';
+  return /用户|账号|权限|菜单|角色|视频|设备|监控|基础数据|参数|规则|字典|日志|消息|平台|运维|接口|同步|档案/.test(normalized)
+    ? 'generic'
+    : 'core';
+}
+
+function collectDomainSubDomainItems() {
+  const itemMap = new Map();
+  const ensureItem = (name) => {
+    const normalized = String(name || '').trim();
+    if (!normalized) return null;
+    if (!itemMap.has(normalized)) {
+        itemMap.set(normalized, {
+          name: normalized,
+          processCount: 0,
+          roleCount: 0,
+        });
+      }
+      return itemMap.get(normalized);
+  };
+
+  (S.doc?.processes || []).forEach((proc) => {
+    const item = ensureItem(proc?.subDomain);
+    if (item) item.processCount += 1;
+  });
+  (S.doc?.roles || []).forEach((role) => {
+    (role?.subDomains || []).forEach((subDomain) => {
+      const item = ensureItem(subDomain);
+      if (item) item.roleCount += 1;
+    });
+  });
+
+  const catalog = getSubDomainCatalog();
+  return Array.from(itemMap.values())
+    .map((item) => ({
+      ...item,
+      kind: String(catalog[item.name]?.kind || '').trim() || inferSubDomainKind(item.name),
+    }))
+    .sort((left, right) => {
+      if (left.kind !== right.kind) return left.kind === 'core' ? -1 : 1;
+      return left.name.localeCompare(right.name, 'zh-CN');
+    });
+}
+
+function setSubDomainKind(name, kind) {
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) return;
+  const normalizedKind = kind === 'core' ? 'core' : 'generic';
+  const catalog = getSubDomainCatalog();
+  catalog[normalizedName] = {
+    ...(catalog[normalizedName] || {}),
+    kind: normalizedKind,
+  };
+  markModified();
+  rerenderDomainTabPreserveScroll();
+}
+
+function jsString(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n');
+}
+
+function renderSubDomainMapCard() {
+  const items = collectDomainSubDomainItems();
+  const coreItems = items.filter((item) => item.kind === 'core');
+  const genericItems = items.filter((item) => item.kind !== 'core');
+  const renderNode = (item) => {
+    const nextKind = item.kind === 'core' ? 'generic' : 'core';
+    const nextKindLabel = nextKind === 'core' ? '核心子域' : '通用子域';
+    return `<button class="domain-context-node ${item.kind}" type="button" data-testid="subdomain-map-node" onclick="setSubDomainKind('${esc(jsString(item.name))}','${nextKind}')" title="点击切换到${nextKindLabel}">
+    <div class="domain-context-node-main">
+      <strong>${esc(item.name)}</strong>
+      <span class="domain-context-node-meta">${item.processCount} 流程 · ${item.roleCount} 角色</span>
+    </div>
+    <span class="domain-subdomain-separator" aria-hidden="true"></span>
+  </button>`;
+  };
+
+  return `<div class="domain-info-map-block" data-testid="domain-subdomain-map-card">
+    <div class="domain-info-map-head">
+      <div class="domain-subdomain-legend">
+        <span class="subdomain-legend core">核心域 ${coreItems.length}</span>
+        <span class="subdomain-legend generic">通用域 ${genericItems.length}</span>
+      </div>
+    </div>
+    ${items.length ? `
+      <div class="domain-map-shell" data-testid="domain-subdomain-figure">
+        <span class="domain-map-region-label domain-map-region-label-core">核心子域</span>
+        <span class="domain-map-region-label domain-map-region-label-generic">通用子域</span>
+        <div class="domain-region domain-region-core" data-testid="subdomain-core-oval">
+          ${coreItems.length ? coreItems.map(renderNode).join('') : '<span class="subdomain-map-empty">暂无核心域</span>'}
+        </div>
+        <div class="domain-region domain-region-generic" data-testid="subdomain-generic-oval">
+          ${genericItems.length ? genericItems.map(renderNode).join('') : '<span class="subdomain-map-empty">暂无通用域</span>'}
+        </div>
+      </div>` : '<p class="no-refs domain-panel-empty">暂无业务子域，先从流程或角色里补充子域信息。</p>'}
+  </div>`;
 }
 
 function getLightRoleSummary(role) {
@@ -237,6 +364,9 @@ function renderDomainTab(options = {}) {
 
   h += `<div class="ctx-card domain-panel domain-info-card">
     ${renderDomainPanelHeader('业务域信息', '', domainInfoActions)}
+    <div class="domain-panel-body domain-info-card-body">
+      ${renderSubDomainMapCard()}
+    </div>
   </div>`;
 
   h += renderRoleSummaryCard();
@@ -265,10 +395,17 @@ function renderDomainTab(options = {}) {
       h += `<table class="term-table">
         <thead><tr><th>术语</th><th>定义</th><th></th></tr></thead><tbody>`;
       language.forEach((term, index) => {
-        h += `<tr>
-          <td><input type="text" value="${esc(term.term || '')}" oninput="setTerm(${index},'term',this.value)" placeholder="术语"></td>
-          <td><input type="text" value="${esc(term.definition || '')}" oninput="setTerm(${index},'definition',this.value)" placeholder="定义"></td>
-          <td><button class="field-del" onclick="removeTerm(${index})">✕</button></td>
+        h += `<tr data-testid="term-row">
+          <td><input type="text" data-testid="term-input" value="${esc(term.term || '')}" oninput="setTerm(${index},'term',this.value)" placeholder="术语"></td>
+          <td><input type="text" data-testid="term-definition-input" value="${esc(term.definition || '')}" oninput="setTerm(${index},'definition',this.value)" placeholder="定义"></td>
+          <td>
+            <div class="term-quick-actions">
+              <button class="stage-quick-btn" type="button" data-testid="term-row-add" title="在下方新增术语" onclick="addTermAfter(${index})">+</button>
+              <button class="stage-quick-btn" type="button" data-testid="term-row-move-up" title="上移" onclick="moveTerm(${index},-1)" ${index === 0 ? 'disabled' : ''}>↑</button>
+              <button class="stage-quick-btn" type="button" data-testid="term-row-move-down" title="下移" onclick="moveTerm(${index},1)" ${index === language.length - 1 ? 'disabled' : ''}>↓</button>
+              <button class="stage-quick-btn danger" type="button" data-testid="term-row-remove" title="删除术语" onclick="removeTerm(${index})">✕</button>
+            </div>
+          </td>
         </tr>`;
       });
       h += '</tbody></table>';
