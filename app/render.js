@@ -40,7 +40,7 @@ function applyZoom(id) {
     return;
   }
   /* 自定义 HTML 流程图（pf-wrap / ptf-wrap），优先整体缩放容器，避免命中内部回退线 SVG */
-  const wrap = el.querySelector('.pf-wrap, .ptf-wrap');
+  const wrap = el.querySelector('.pf-wrap, .ptf-wrap, .business-flow-wrap');
   if(wrap) {
     wrap.style.zoom = String(s);
     return;
@@ -64,7 +64,7 @@ function resetZoom(id) { ZOOM[id] = 1; applyZoom(id); }
 function initZoom(id) {
   const el  = document.getElementById(id);
   if(!el) return;
-  const wrap = el.querySelector('.pf-wrap, .ptf-wrap');
+  const wrap = el.querySelector('.pf-wrap, .ptf-wrap, .business-flow-wrap');
   /* 每次渲染后刷新 SVG 自然尺寸（SVG DOM 已替换；跳过 ef-canvas overlay SVG） */
   const svg = el.querySelector('svg');
   if(svg && !wrap && !el.querySelector('.ef-canvas')) _captureSvgSize(svg);
@@ -182,7 +182,8 @@ function startSidebarResize(e) {
 function openProcessHome(navOptions = {}) {
   queueUiNavigationHistoryFor((next) => {
     next.tab = 'process';
-    next.procView = 'card';
+    next.procView = 'stage';
+    next.stageViewMode = 'panorama';
     next.taskId = null;
     if (!next.procId && S.doc?.processes?.length) {
       next.procId = S.doc.processes[0].id;
@@ -190,7 +191,8 @@ function openProcessHome(navOptions = {}) {
     return next;
   }, navOptions);
   S.ui.tab = 'process';
-  S.ui.procView = 'card';
+  S.ui.procView = 'stage';
+  S.ui.stageViewMode = 'panorama';
   S.ui.taskId = null;
   if(!S.ui.procId && S.doc?.processes?.length) {
     S.ui.procId = S.doc.processes[0].id;
@@ -199,6 +201,10 @@ function openProcessHome(navOptions = {}) {
 }
 
 function setProcView(v, navOptions = {}) {
+  if (v === 'card' && typeof openProcessFlowView === 'function') {
+    openProcessFlowView(navOptions);
+    return;
+  }
   queueUiNavigationHistoryFor({ procView: v }, navOptions);
   S.ui.procView = v;
   render();
@@ -641,14 +647,14 @@ function startProcessDiagramResize(e) {
   e.preventDefault();
   e.stopPropagation();
   const handle = e.currentTarget;
-  const drawer = handle?.closest('.proc-drawer');
-  const diagram = drawer?.querySelector('.drawer-diag');
-  if (!drawer || !diagram) return;
+  const host = handle?.closest('.process-flow-card') || handle?.closest('.proc-drawer');
+  const diagram = host?.querySelector('.drawer-diag.taskflow-mode') || host?.querySelector('.drawer-diag');
+  if (!host || !diagram) return;
 
-  const head = drawer.querySelector('.drawer-head');
+  const head = host.querySelector('.process-flow-head') || host.querySelector('.drawer-head');
   const startY = e.clientY;
   const startH = diagram.offsetHeight;
-  const bodyMinHeight = 240;
+  const bodyMinHeight = host.classList.contains('process-flow-card') ? 180 : 240;
   handle.classList.add('dragging');
   document.body.style.cursor = 'ns-resize';
   document.body.style.userSelect = 'none';
@@ -656,8 +662,10 @@ function startProcessDiagramResize(e) {
   function clampHeight(rawHeight) {
     const headHeight = head?.offsetHeight || 0;
     const handleHeight = handle.offsetHeight || 0;
-    const maxByDrawer = drawer.clientHeight - headHeight - handleHeight - bodyMinHeight;
     const maxByViewport = Math.floor(window.innerHeight * 0.72);
+    const maxByDrawer = host.classList.contains('process-flow-card')
+      ? maxByViewport
+      : host.clientHeight - headHeight - handleHeight - bodyMinHeight;
     const maxHeight = Math.max(160, Math.min(maxByDrawer, maxByViewport));
     return Math.max(140, Math.min(maxHeight, rawHeight));
   }

@@ -64,7 +64,7 @@ const S = {
     sidebarCollapsed: false,
     sidebarW: 240,
     processSidebarMode: 'domain',
-    procView: 'card',  // 'list' | 'card' | 'role'
+    procView: 'stage',  // 'stage' | 'list'(internal editor) | 'card' | 'role'
     nodePerspective: 'user',
     procPrototypeExpanded: {},
     procRolePickerCollapsed: {},
@@ -72,7 +72,7 @@ const S = {
     procDiagramH: 200,
     procDrawerW: 480,
     stageGraphZoom: 1,
-    stageEditorCollapsed: false,
+    stageEditorCollapsed: true,
     entityDrawerW: 620,
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,
@@ -198,6 +198,34 @@ function createUiUid(prefix = 'uid') {
 }
 const UNASSIGNED_STAGE_ID = '__unassigned__';
 const UNASSIGNED_STAGE_NAME = '未设置业务阶段';
+const DEFAULT_PANORAMA_COLUMNS = [
+  { id: 'participants', name: '会员客户', scope: '账号/服务机构/参与方', badge: '' },
+  { id: 'parameters', name: '品种参数', scope: '品种/合约/商品/交割参数', badge: '' },
+  { id: 'businessHandling', name: '业务办理', scope: '仓单同步/入库/在库/出库', badge: '' },
+  { id: 'riskSupervision', name: '风险监管', scope: '监管/查询/预警/追溯', badge: '' },
+];
+const DEFAULT_PANORAMA_LANES = [
+  {
+    id: 'smart-platform-phase2',
+    name: '交割智慧监管平台2期',
+    badge: '目标平台',
+    note: '交割业务分析主对象，承接账号机构、参数同步、业务办理和监管协同。',
+  },
+  {
+    id: 'receipt-system',
+    name: '电子仓单系统',
+    badge: '已有系统',
+    note: '只作为关键环节职责参照；本轮不改造，目标职责收敛到仓单核心流转。',
+  },
+];
+const DEFAULT_PANORAMA_CELLS = [
+  { columnId: 'participants', laneId: 'smart-platform-phase2', status: '平台主责', text: '账号管理、仓库管理、质检机构管理等作为大阶段；维护、审核、变更等细节进入阶段内流程' },
+  { columnId: 'parameters', laneId: 'smart-platform-phase2', status: '平台主责', text: '品种参数管理作为大阶段；品种、合约、商品和交割参数同步维护进入阶段内流程' },
+  { columnId: 'businessHandling', laneId: 'smart-platform-phase2', status: '平台主责', text: '仓单注册、仓单注销、仓单流转等作为大阶段；交割预报、仓库/厂库仓单注册等进入阶段内流程' },
+  { columnId: 'riskSupervision', laneId: 'smart-platform-phase2', status: '平台主责', text: '风险监管作为大阶段；库存监管、风险预警、异常核验、查询追溯和统计分析进入阶段内流程' },
+  { columnId: 'parameters', laneId: 'receipt-system', status: '既有职责', text: '维护品种信息、维护合约信息，作为交割平台同步来源' },
+  { columnId: 'businessHandling', laneId: 'receipt-system', status: '既有职责', text: '仓单注册、仓单注销、仓单流转等仓单核心动作仍由电子仓单系统承载' },
+];
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -249,6 +277,11 @@ function getNodeUserSteps(node) {
 }
 function getNodeOrchestrationTasks(node) {
   return Array.isArray(node?.orchestrationTasks) ? node.orchestrationTasks : [];
+}
+function getNodeForms(node) {
+  if (!node || typeof node !== 'object') return [];
+  if (!Array.isArray(node.forms)) node.forms = [];
+  return node.forms;
 }
 function formatPrototypeUploadedAt(date = new Date()) {
   const year = date.getFullYear();
@@ -320,6 +353,127 @@ function normalizeGraphOffset(value) {
   const y = Number.isFinite(Number(value.y)) ? Math.round(Number(value.y)) : 0;
   return { x, y };
 }
+function normalizeGridSlot(value) {
+  if (!value || typeof value !== 'object') return null;
+  const row = Math.max(0, Math.round(Number(value.row) || 0));
+  const col = Math.max(0, Math.round(Number(value.col) || 0));
+  return { row, col };
+}
+function createDefaultPanoramaModel() {
+  return {
+    columns: DEFAULT_PANORAMA_COLUMNS.map((column) => ({ ...column })),
+    lanes: DEFAULT_PANORAMA_LANES.map((lane) => ({ ...lane })),
+    cells: DEFAULT_PANORAMA_CELLS.map((cell) => ({ ...cell })),
+  };
+}
+function isLegacyDefaultPanoramaModel(panorama) {
+  if (!panorama || typeof panorama !== 'object') return false;
+  const columns = Array.isArray(panorama.columns) ? panorama.columns : [];
+  const lanes = Array.isArray(panorama.lanes) ? panorama.lanes : [];
+  const legacyColumnNames = ['参与主体', '品种参数', '入库', '在库', '出库', '其他'];
+  const legacyColumnIds = ['participants', 'parameters', 'inbound', 'inStock', 'outbound', 'other'];
+  const columnIds = columns.map((column) => String(column?.id || '').trim());
+  const columnNames = columns.map((column) => String(column?.name || '').trim());
+  if (columnIds.length !== legacyColumnIds.length) return false;
+  if (!legacyColumnIds.every((id, index) => columnIds[index] === id)) return false;
+  if (!legacyColumnNames.every((name, index) => !columnNames[index] || columnNames[index] === name)) return false;
+  const laneIds = lanes.map((lane) => String(lane?.id || '').trim()).sort();
+  return laneIds.length === 2
+    && laneIds[0] === 'receipt-system'
+    && laneIds[1] === 'smart-platform-phase2';
+}
+function normalizePanoramaId(value, prefix, index, usedIds) {
+  const rawId = String(value || '').trim();
+  const baseId = rawId || `${prefix}${index}`;
+  let id = baseId;
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(id);
+  return id;
+}
+function normalizePanoramaColumnEntry(column, index = 1, usedIds = new Set()) {
+  const normalized = column && typeof column === 'object' ? column : {};
+  const fallback = DEFAULT_PANORAMA_COLUMNS[index - 1] || {};
+  const hasName = Object.prototype.hasOwnProperty.call(normalized, 'name');
+  return {
+    id: normalizePanoramaId(normalized.id || normalized.key, 'C', index, usedIds),
+    name: hasName ? String(normalized.name || '').trim() : (fallback.name || `价值流${index}`),
+    scope: String(normalized.scope || '').trim(),
+    badge: String(normalized.badge || '').trim(),
+  };
+}
+function normalizePanoramaLaneEntry(lane, index = 1, usedIds = new Set()) {
+  const normalized = lane && typeof lane === 'object' ? lane : {};
+  const fallback = DEFAULT_PANORAMA_LANES[index - 1] || {};
+  const hasName = Object.prototype.hasOwnProperty.call(normalized, 'name');
+  return {
+    id: normalizePanoramaId(normalized.id || normalized.key, 'L', index, usedIds),
+    name: hasName ? String(normalized.name || '').trim() : (fallback.name || `业务域${index}`),
+    badge: String(normalized.badge || '').trim(),
+    note: String(normalized.note || '').trim(),
+  };
+}
+function normalizePanoramaCellEntry(cell) {
+  const normalized = cell && typeof cell === 'object' ? cell : {};
+  return {
+    columnId: String(normalized.columnId || normalized.streamId || normalized.valueStreamId || '').trim(),
+    laneId: String(normalized.laneId || '').trim(),
+    status: String(normalized.status || '').trim(),
+    text: String(normalized.text || normalized.note || '').trim(),
+  };
+}
+function getPanoramaModel(doc = S.doc) {
+  if (!doc || typeof doc !== 'object') return createDefaultPanoramaModel();
+  if (!doc.panorama || typeof doc.panorama !== 'object') {
+    doc.panorama = createDefaultPanoramaModel();
+  } else if (isLegacyDefaultPanoramaModel(doc.panorama)) {
+    doc.panorama = createDefaultPanoramaModel();
+  }
+  const columnSource = Array.isArray(doc.panorama.columns) && doc.panorama.columns.length
+    ? doc.panorama.columns
+    : createDefaultPanoramaModel().columns;
+  const laneSource = Array.isArray(doc.panorama.lanes) && doc.panorama.lanes.length
+    ? doc.panorama.lanes
+    : createDefaultPanoramaModel().lanes;
+  const columnIds = new Set();
+  const laneIds = new Set();
+  const columns = columnSource.map((column, index) => normalizePanoramaColumnEntry(column, index + 1, columnIds));
+  const lanes = laneSource.map((lane, index) => normalizePanoramaLaneEntry(lane, index + 1, laneIds));
+  const validColumnIds = new Set(columns.map((column) => column.id));
+  const validLaneIds = new Set(lanes.map((lane) => lane.id));
+  const defaultCells = new Map(DEFAULT_PANORAMA_CELLS.map((cell) => [`${cell.laneId}::${cell.columnId}`, cell]));
+  const cells = new Map();
+  (Array.isArray(doc.panorama.cells) ? doc.panorama.cells : []).forEach((cell) => {
+    const normalized = normalizePanoramaCellEntry(cell);
+    if (!validColumnIds.has(normalized.columnId) || !validLaneIds.has(normalized.laneId)) return;
+    cells.set(`${normalized.laneId}::${normalized.columnId}`, normalized);
+  });
+  lanes.forEach((lane) => {
+    columns.forEach((column) => {
+      const cellKey = `${lane.id}::${column.id}`;
+      if (cells.has(cellKey)) return;
+      const defaultCell = defaultCells.get(cellKey);
+      cells.set(cellKey, defaultCell
+        ? { ...defaultCell }
+        : { columnId: column.id, laneId: lane.id, status: '', text: '' });
+    });
+  });
+  doc.panorama = {
+    columns,
+    lanes,
+    cells: Array.from(cells.values()),
+  };
+  return doc.panorama;
+}
+function getPanoramaCell(model, laneId, columnId) {
+  const normalizedLaneId = String(laneId || '').trim();
+  const normalizedColumnId = String(columnId || '').trim();
+  return (model?.cells || []).find((cell) => cell.laneId === normalizedLaneId && cell.columnId === normalizedColumnId)
+    || { laneId: normalizedLaneId, columnId: normalizedColumnId, status: '', text: '' };
+}
 function normalizeStageProcessLinkEntry(link) {
   const normalized = link && typeof link === 'object' ? link : {};
   return {
@@ -376,6 +530,12 @@ function normalizeStageEntry(stage, index = 1, processes = [], stageFlowRefs = [
     id: String(normalized.id || '').trim() || `S${index}`,
     name: String(normalized.name || '').trim() || `业务阶段${index}`,
     subDomain,
+    panoramaColumnId: String(normalized.panoramaColumnId || normalized.valueStreamId || normalized.valueStreamKey || '').trim(),
+    panoramaLaneId: String(normalized.panoramaLaneId || normalized.valueStreamLaneId || '').trim(),
+    panoramaSlot: normalizeGridSlot(normalized.panoramaSlot),
+    panoramaPos: normalized.panoramaPos && typeof normalized.panoramaPos === 'object'
+      ? normalizeGraphOffset(normalized.panoramaPos)
+      : null,
     pos: normalizeGraphOffset(normalized.pos),
     processLinks: (Array.isArray(normalized.processLinks) ? normalized.processLinks : []).map(normalizeStageProcessLinkEntry),
   };
@@ -568,6 +728,7 @@ function hydrateDocumentForUi(doc) {
   getStageLinks(doc);
   getStageFlowRefs(doc);
   getStageFlowLinks(doc);
+  getPanoramaModel(doc);
   (doc.processes || []).forEach((proc) => {
     if (!Array.isArray(proc.nodes) && Array.isArray(proc.tasks)) proc.nodes = proc.tasks;
     if (!Array.isArray(proc.nodes)) proc.nodes = [];
@@ -580,6 +741,7 @@ function hydrateDocumentForUi(doc) {
       if (!Array.isArray(node.userSteps) && Array.isArray(node.steps)) node.userSteps = node.steps;
       if (!Array.isArray(node.userSteps)) node.userSteps = [];
       if (!Array.isArray(node.orchestrationTasks)) node.orchestrationTasks = [];
+      if (!Array.isArray(node.forms)) node.forms = [];
       defineUiAlias(node, 'steps', 'userSteps');
       syncTaskRole(node);
     });

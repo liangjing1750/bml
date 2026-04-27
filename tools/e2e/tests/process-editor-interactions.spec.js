@@ -62,9 +62,9 @@ async function openTaskEditor(page, name) {
   await page.goto('/');
   await openDocument(page, name);
   await page.getByTestId('tab-process').click();
-  await page.getByTestId('process-switch-overview').click();
-  await page.locator('.ovc-body').first().click();
-  await page.locator('#proc-diagram .pf-task[data-id="T1"]').click();
+  await page.getByTestId('process-switch-card').click();
+  await page.getByTestId('process-editor-open').click();
+  await page.locator('#proc-context-diagram .pf-task[data-id="T1"], #proc-diagram .pf-task[data-id="T1"]').first().click();
   await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('登录校验');
 }
 
@@ -78,7 +78,10 @@ test('节点在当前编辑区内展示编排任务与任务级流程图', async
   await expect(page.locator('.node-perspective-btn.active')).toContainText('任务级视图');
   await expect(page.getByTestId('orchestration-section')).toBeVisible();
   await expect(page.getByTestId('user-steps-section')).toHaveCount(0);
-   await expect(page.getByTestId('global-orchestration-flow')).toBeVisible();
+  await expect(page.getByTestId('process-tasklevel-stack')).toBeVisible();
+  await expect(page.getByTestId('process-context-flow')).toBeVisible();
+  await expect(page.locator('#proc-context-diagram .pf-wrap')).toBeVisible();
+  await expect(page.getByTestId('global-orchestration-flow')).toBeVisible();
   await expect(page.getByTestId('orchestration-flow')).toBeVisible();
   await expect(page.locator('.proc-subdrawer')).toHaveCount(0);
   await expect(page.locator('.orch-card .orch-name').first()).toHaveValue('校验账号状态');
@@ -86,6 +89,90 @@ test('节点在当前编辑区内展示编排任务与任务级流程图', async
   await expect(page.locator('.ptf-node-frame')).toHaveCount(2);
   await expect(page.locator('.ptf-node-frame').first()).toContainText('登录校验');
   await expect(page.locator('.ptf-node-frame').nth(1)).toContainText('生成首页上下文');
+});
+
+test('关闭流程编辑后回到可截图的流程展示视图', async ({ page, request }) => {
+  const documentName = `process-close-editor-${Date.now()}`;
+  await createDocument(request, documentName, buildProcessEditorDoc(documentName));
+
+  await openTaskEditor(page, documentName);
+  await page.getByTestId('node-perspective-engineering').click();
+  await expect(page.getByTestId('process-tasklevel-stack')).toBeVisible();
+
+  await page.getByTestId('process-editor-close').click();
+
+  await expect(page.getByTestId('process-switch-card')).toHaveClass(/active/);
+  await expect(page.locator('.proc-drawer.open')).toHaveCount(0);
+  await expect(page.getByTestId('process-editor-open')).toBeVisible();
+  await expect(page.getByTestId('process-flow-view')).toBeVisible();
+  await expect(page.getByTestId('process-tasklevel-stack')).toBeVisible();
+  await expect(page.locator('#proc-context-diagram .pf-wrap')).toBeVisible();
+  await expect(page.locator('#proc-diagram .ptf-wrap')).toBeVisible();
+  await expect(page.locator('.process-flow-kicker')).toHaveCount(0);
+  await expect(page.getByTestId('process-flow-summary')).toHaveCount(0);
+  await expect(page.locator('.process-flow-view .drawer-diag-bar')).toHaveCount(0);
+  await expect(page.locator('.process-diagram-panel-title')).toHaveCount(0);
+
+  await page.getByTestId('process-editor-open').click();
+  await expect(page.locator('.proc-drawer.open')).toBeVisible();
+  await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('登录校验');
+});
+
+test('流程节点可以维护多个表单并映射实体字段', async ({ page, request }) => {
+  const documentName = `process-form-model-${Date.now()}`;
+  const doc = buildProcessEditorDoc(documentName);
+  doc.entities = [
+    {
+      id: 'E1',
+      name: '仓库',
+      group: '交割服务机构',
+      fields: [
+        { name: '仓库代码', type: 'string', is_key: true, note: '' },
+        { name: '仓库名称', type: 'string', is_key: false, note: '' },
+      ],
+    },
+  ];
+  await createDocument(request, documentName, doc);
+
+  await openTaskEditor(page, documentName);
+  await expect(page.getByTestId('task-forms-section')).toBeVisible();
+  await expect(page.getByTestId('task-form-card')).toHaveCount(0);
+
+  await page.getByTestId('task-form-add').click();
+  await expect(page.getByTestId('task-form-card')).toHaveCount(1);
+  await page.getByTestId('task-form-name').fill('仓库管理列表');
+  await page.getByTestId('task-form-entity').selectOption('E1');
+  await page.getByTestId('task-form-purpose').fill('筛选、列表、新增、详情');
+  await page.getByTestId('task-form-field-add').click();
+  await expect(page.getByTestId('task-form-field-row')).toHaveCount(1);
+  await page.getByTestId('task-form-field-name').fill('仓库名称');
+  await page.getByTestId('task-form-field-type').selectOption('Select');
+  await page.getByTestId('task-form-field-required').check();
+  await page.getByTestId('task-form-entity-field').selectOption('仓库名称');
+  await page.getByTestId('task-form-field-note').fill('最多50个字符');
+
+  await page.getByTestId('task-form-add').click();
+  await expect(page.getByTestId('task-form-card')).toHaveCount(2);
+  await expect.poll(() => page.evaluate(() => {
+    const node = S.doc.processes[0].nodes[0];
+    return {
+      forms: node.forms.length,
+      firstName: node.forms[0].name,
+      entityId: node.forms[0].entity_id,
+      fieldName: node.forms[0].sections[0].fields[0].name,
+      fieldType: node.forms[0].sections[0].fields[0].type,
+      required: node.forms[0].sections[0].fields[0].required,
+      mapped: node.forms[0].sections[0].fields[0].entity_field,
+    };
+  })).toEqual({
+    forms: 2,
+    firstName: '仓库管理列表',
+    entityId: 'E1',
+    fieldName: '仓库名称',
+    fieldType: 'Select',
+    required: true,
+    mapped: '仓库名称',
+  });
 });
 
 test('任务级视图切回用户步骤视图后步骤区不重复插入操作按钮', async ({ page, request }) => {
@@ -116,6 +203,7 @@ test('任务级视图支持放大缩小和重置', async ({ page, request }) => 
 
   const taskFlow = page.locator('#proc-diagram .ptf-wrap');
   await expect(taskFlow).toBeVisible();
+  await expect(page.locator('#proc-context-diagram .pf-wrap')).toBeVisible();
 
   const zoomButtons = page.locator('.drawer-diag.taskflow-mode .zoom-btn');
   await zoomButtons.nth(0).click();
@@ -254,7 +342,7 @@ test('节点角色支持多选且切换后保持编辑区位置', async ({ page,
   expect(recollapsedHeight).toBeLessThan(expandedHeight - 80);
 });
 
-test('流程图区域支持拖拽增高且局部重绘后保持高度', async ({ page, request }) => {
+test('流程图区域填满编辑区且不再保留手动高度拖拽条', async ({ page, request }) => {
   const documentName = `process-diagram-resize-${Date.now()}`;
   const doc = buildProcessEditorDoc(documentName);
   doc.processes[0].tasks[0].steps = Array.from({ length: 10 }, (_, index) => ({
@@ -266,24 +354,32 @@ test('流程图区域支持拖拽增高且局部重绘后保持高度', async ({
   await createDocument(request, documentName, doc);
   await openTaskEditor(page, documentName);
 
-  const diagram = page.locator('.proc-drawer .drawer-diag');
-  const handle = page.getByTestId('process-diagram-resize-handle');
-  const beforeHeight = await diagram.evaluate((node) => Math.round(node.getBoundingClientRect().height));
-
-  const box = await handle.boundingBox();
-  if (!box) throw new Error('流程图拖拽分隔条未渲染');
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 96, { steps: 8 });
-  await page.mouse.up();
-
-  const afterDragHeight = await diagram.evaluate((node) => Math.round(node.getBoundingClientRect().height));
-  expect(afterDragHeight).toBeGreaterThan(beforeHeight + 60);
+  const diagram = page.locator('.process-flow-card .drawer-diag').first();
+  await expect(page.getByTestId('process-diagram-resize-handle')).toHaveCount(0);
+  const beforeHeight = await diagram.evaluate((node) => {
+    const card = node.closest('.process-flow-card');
+    return {
+      diagramHeight: Math.round(node.getBoundingClientRect().height),
+      cardHeight: Math.round(card.getBoundingClientRect().height),
+      overflowX: getComputedStyle(node.querySelector('.live-diagram')).overflowX,
+      overflowY: getComputedStyle(node.querySelector('.live-diagram')).overflowY,
+    };
+  });
+  expect(beforeHeight.diagramHeight).toBeGreaterThan(beforeHeight.cardHeight * 0.45);
+  expect(beforeHeight.overflowX).toBe('scroll');
+  expect(beforeHeight.overflowY).toBe('scroll');
 
   await page.getByTestId('task-returnable-toggle').check();
 
-  const afterRerenderHeight = await diagram.evaluate((node) => Math.round(node.getBoundingClientRect().height));
-  expect(Math.abs(afterRerenderHeight - afterDragHeight)).toBeLessThanOrEqual(4);
+  const afterRerenderHeight = await diagram.evaluate((node) => {
+    const card = node.closest('.process-flow-card');
+    return {
+      diagramHeight: Math.round(node.getBoundingClientRect().height),
+      cardHeight: Math.round(card.getBoundingClientRect().height),
+    };
+  });
+  expect(afterRerenderHeight.diagramHeight).toBeGreaterThan(afterRerenderHeight.cardHeight * 0.45);
+  await expect(page.getByTestId('process-diagram-resize-handle')).toHaveCount(0);
 });
 
 test('切换可退回后保持用户步骤备注框自动高度', async ({ page, request }) => {
@@ -354,9 +450,9 @@ async function openProcessEditor(page, name) {
   await page.goto('/');
   await openDocument(page, name);
   await page.getByTestId('tab-process').click();
-  await page.getByTestId('process-switch-overview').click();
-  await page.locator('.ovc-body').first().click();
-  await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('缁熶竴鐧诲綍');
+  await page.getByTestId('process-switch-card').click();
+  await page.getByTestId('process-editor-open').click();
+  await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText('P1');
 }
 
 test('流程支持上传多个 HTML 原型并在保存后保留', async ({ page, request }) => {
@@ -465,9 +561,9 @@ async function openTaskEditorByTask(page, name, taskId, taskName) {
   await page.goto('/');
   await openDocument(page, name);
   await page.getByTestId('tab-process').click();
-  await page.getByTestId('process-switch-overview').click();
-  await page.locator('.ovc-body').first().click();
-  await page.locator(`#proc-diagram .pf-task[data-id="${taskId}"]`).click();
+  await page.getByTestId('process-switch-card').click();
+  await page.getByTestId('process-editor-open').click();
+  await page.locator(`#proc-context-diagram .pf-task[data-id="${taskId}"], #proc-diagram .pf-task[data-id="${taskId}"]`).first().click();
   await expect(page.locator('.proc-drawer .drawer-crumb').first()).toContainText(taskName);
 }
 
@@ -538,8 +634,8 @@ test('连续可退回节点的回退线锚点错开避免重叠', async ({ page,
   await page.goto('/');
   await openDocument(page, documentName);
   await page.getByTestId('tab-process').click();
-  await page.getByTestId('process-switch-overview').click();
-  await page.locator('.ovc-body').first().click();
+  await page.getByTestId('process-switch-card').click();
+  await page.getByTestId('process-editor-open').click();
   await expect(page.locator('#proc-diagram .pf-return-line')).toHaveCount(2);
 
   const anchors = await page.evaluate(() => {

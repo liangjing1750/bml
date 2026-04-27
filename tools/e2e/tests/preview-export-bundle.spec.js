@@ -89,7 +89,7 @@ test('预览页导出会下载文档包 ZIP，并保留流程原型', async ({ p
       '  "prototype_version_uid": prototype["versionUid"],',
       '  "attachment_name": attachment["name"],',
       '  "prototype_path": version["path"],',
-      '  "prototype_html": archive.read(f"{sys.argv[2]}/{version[\"path\"]}").decode("utf-8"),',
+      '  "prototype_html": archive.read(f"{sys.argv[2]}/" + version["path"]).decode("utf-8"),',
       '  "markdown": archive.read(f"{sys.argv[2]}/{sys.argv[2]}.md").decode("utf-8"),',
       '}))',
     ].join('\n'),
@@ -109,7 +109,7 @@ test('预览页导出会下载文档包 ZIP，并保留流程原型', async ({ p
   expect(inspection.names).toContain(`${documentName}/${inspection.prototype_path}`);
   expect(inspection.prototype_html).toContain('prototype-a');
   expect(inspection.markdown).toContain(`# ${documentName}`);
-  expect(inspection.markdown).toContain('业务阶段');
+  expect(inspection.markdown).toContain('全景与阶段视图');
   expect(inspection.markdown).toContain('账户接入阶段');
   expect(inspection.markdown).toContain('login-a.html');
 });

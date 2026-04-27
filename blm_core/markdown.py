@@ -40,6 +40,16 @@ FIELD_LABELS = {
     "id": "标识ID",
 }
 
+FORM_FIELD_TYPE_LABELS = {
+    "Text": "输入框",
+    "Select": "下拉选择",
+    "Date": "日期",
+    "Number": "数字",
+    "File": "附件",
+    "Readonly": "只读展示",
+    "Note": "说明文本",
+}
+
 def _format_prototype_summary(prototype_files: list[dict]) -> str:
     parts: list[str] = []
     for item in prototype_files:
@@ -432,7 +442,9 @@ class MarkdownExporter:
 
         stage_items = get_stage_items(doc)
         if stage_items:
-            line(f"## {next_section_number()}、业务阶段")
+            line(f"## {next_section_number()}、全景与阶段视图")
+            line()
+            line("### 全景视图")
             line()
             panorama_code = build_stage_panorama_mermaid(doc)
             if panorama_code:
@@ -447,7 +459,7 @@ class MarkdownExporter:
 
         processes = doc.get("processes", [])
         entities_by_id = {entity["id"]: entity for entity in doc.get("entities", [])}
-        line(f"## {next_section_number()}、流程建模")
+        line(f"## {next_section_number()}、流程视图")
         line()
         for process in processes:
             self._render_process(line, doc, process, entities_by_id)
@@ -511,11 +523,11 @@ class MarkdownExporter:
 
     def _render_stage(self, line, document: dict, stage: dict) -> None:
         stage_processes = get_stage_processes(document, stage.get("id", ""))
-        line(f"### {stage.get('id', 'S')}: {stage.get('name', '')}")
+        line(f"### 阶段视图: {stage.get('name', '') or stage.get('id', 'S')}")
         line()
         stage_meta = []
         if stage.get("subDomain"):
-            stage_meta.append(f"**业务子域**: {stage.get('subDomain', '')}")
+            stage_meta.append(f"**所属业务域**: {stage.get('subDomain', '')}")
         if stage_processes:
             process_names = "、".join(
                 f"{process.get('id', '')} {process.get('name', '')}".strip()
@@ -637,9 +649,41 @@ class MarkdownExporter:
                     line(f"**\u6d89\u53ca\u5b9e\u4f53**: {', '.join(rendered_ops)}")
                     line()
 
+                forms = node.get("forms", [])
+                if forms:
+                    self._render_node_forms(line, forms, entities_by_id)
+
                 if node.get("rules_note", "").strip():
                     line(f"**\u4e1a\u52a1\u89c4\u5219**: {node['rules_note']}")
                     line()
+        line()
+
+    def _render_node_forms(self, line, forms: list[dict], entities_by_id: dict) -> None:
+        line("##### 表单模型")
+        line()
+        for form in forms:
+            if not isinstance(form, dict):
+                continue
+            entity_id = str(form.get("entity_id") or form.get("entityId") or "").strip()
+            entity = entities_by_id.get(entity_id, {})
+            entity_name = entity.get("name") or entity_id or "不绑定实体"
+            purpose = str(form.get("purpose", "")).strip()
+            line(f"- {form.get('name') or '未命名表单'}；绑定实体：{entity_name}" + (f"；用途：{purpose}" if purpose else ""))
+            for section in form.get("sections", []) or []:
+                if not isinstance(section, dict):
+                    continue
+                section_note = str(section.get("note", "")).strip()
+                line(f"  - 分组：{section.get('name') or '未命名分组'}" + (f"；{section_note}" if section_note else ""))
+                for field in section.get("fields", []) or []:
+                    if not isinstance(field, dict):
+                        continue
+                    field_type = FORM_FIELD_TYPE_LABELS.get(field.get("type", ""), field.get("type", ""))
+                    required = " / 必填" if field.get("required") else ""
+                    entity_field = str(field.get("entity_field") or field.get("entityField") or "").strip()
+                    mapped = f" / 映射：{entity_field}" if entity_field else ""
+                    note = str(field.get("note", "")).strip()
+                    note_text = f" / {note}" if note else ""
+                    line(f"    - {field.get('name') or '未命名字段'} / {field_type}{required}{mapped}{note_text}")
         line()
 
     def _render_entity_mermaid(self, line, entities: list[dict], relations: list[dict]) -> None:

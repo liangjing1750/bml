@@ -106,18 +106,18 @@ function buildPreviewOutlineItems(doc) {
   if ((doc?.roles || []).length) items.push({ id: 'preview-roles', label: '角色', depth: 0 });
   if ((doc?.language || []).length) items.push({ id: 'preview-language', label: '统一语言/术语表', depth: 0 });
   if (getStageItems(doc).length) {
-    items.push({ id: 'preview-stages', label: '业务阶段', depth: 0 });
-    items.push({ id: 'preview-stage-panorama', label: '业务全景图', depth: 1 });
+    items.push({ id: 'preview-stages', label: '全景与阶段视图', depth: 0 });
+    items.push({ id: 'preview-stage-panorama', label: '全景视图', depth: 1 });
     getStageItems(doc).forEach((stage) => {
       items.push({
         id: previewAnchorId('stage', stage.id || stage.name || 'stage'),
-        label: stage.name || stage.id || '未命名业务阶段',
+        label: `阶段视图 · ${stage.name || stage.id || '未命名业务阶段'}`,
         depth: 1,
       });
     });
   }
   if ((doc?.processes || []).length) {
-    items.push({ id: 'preview-processes', label: '流程建模', depth: 0 });
+    items.push({ id: 'preview-processes', label: '流程视图', depth: 0 });
     (doc.processes || []).forEach((proc) => {
       items.push({
         id: previewAnchorId('proc', proc.id || proc.name || 'process'),
@@ -216,11 +216,80 @@ function buildPreviewStagePanoramaData(doc) {
       id: stage.id,
       label: stage.name || stage.id,
       meta: `${getStageProcesses(stage.id, doc).length} 个流程`,
+      _processCount: getStageProcesses(stage.id, doc).length,
+      stage,
     })),
     links: getStageLinks(doc)
       .filter((link) => stageIdSet.has(link.fromStageId) && stageIdSet.has(link.toStageId))
       .map((link) => ({ from: link.fromStageId, to: link.toStageId })),
   };
+}
+
+function buildPreviewPanoramaCellGroups(doc, nodes) {
+  const model = getPanoramaModel(doc);
+  const linkedStageIds = new Set();
+  getStageLinks(doc).forEach((link) => {
+    linkedStageIds.add(link.fromStageId);
+    linkedStageIds.add(link.toStageId);
+  });
+  const indexedNodes = nodes.map((node, index) => ({
+    ...node,
+    _valueStreamIndex: index,
+    _linked: linkedStageIds.has(node.id),
+    searchText: '',
+  }));
+  return { model, groups: groupStagesByPanoramaCell(indexedNodes, model, true) };
+}
+
+function renderPreviewMatrixStageList(stageNodes) {
+  if (!stageNodes.length) return '';
+  return `<div class="preview-matrix-stage-list">
+    ${stageNodes.map((node) => {
+      const flowCount = Math.max(0, Number(node._processCount || 0) || 0);
+      return `<span class="preview-matrix-stage" data-flow-count="${flowCount}">
+        <strong>${esc(node.label || '')}</strong>
+        ${flowCount ? `<em>${flowCount} 个流程</em>` : ''}
+      </span>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderPreviewPanoramaMatrix(doc, panorama) {
+  if (!panorama.nodes.length) return `<div class="diag-empty" data-testid="preview-stage-panorama-empty">暂无内容</div>`;
+  const { model, groups } = buildPreviewPanoramaCellGroups(doc, panorama.nodes);
+  const gridStyle = getValueStreamGridStyle(model, false);
+  return `<div class="stage-graph value-stream-graph preview-value-stream-graph" data-testid="preview-stage-panorama">
+    <div class="value-stream-scroll">
+      <div class="value-stream-matrix">
+        <div class="value-stream-header-row" style="${gridStyle}">
+          <div class="value-stream-axis">业务域 / 价值流</div>
+          ${model.columns.map((column) => `<div class="value-stream-header" data-column-id="${esc(column.id)}">
+            ${column.badge ? `<span class="value-stream-lane-badge">${esc(column.badge)}</span>` : ''}
+            <strong>${esc(column.name || '')}</strong>
+            ${column.scope ? `<span>${esc(column.scope)}</span>` : ''}
+          </div>`).join('')}
+        </div>
+        <div class="value-stream-body">
+          ${model.lanes.map((lane) => `<div class="value-stream-row" style="${gridStyle}">
+            <div class="value-stream-lane">
+              ${lane.badge ? `<span class="value-stream-lane-badge">${esc(lane.badge)}</span>` : ''}
+              <strong>${esc(lane.name || '')}</strong>
+              ${lane.note ? `<span>${esc(lane.note)}</span>` : ''}
+            </div>
+            ${model.columns.map((column) => {
+              const cell = getPanoramaCell(model, lane.id, column.id);
+              const stageNodes = groups.get(`${lane.id}::${column.id}`) || [];
+              return `<div class="value-stream-cell${stageNodes.length ? ' has-stages' : ''}">
+                ${cell.status ? `<div class="value-stream-cell-status">${esc(cell.status)}</div>` : ''}
+                ${cell.text ? `<div class="value-stream-cell-text">${esc(cell.text)}</div>` : ''}
+                ${renderPreviewMatrixStageList(stageNodes)}
+              </div>`;
+            }).join('')}
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 function buildPreviewStageDetailData(doc, stageItem) {
@@ -277,19 +346,19 @@ function renderPreviewStagesHtml(doc) {
   const stageItems = getStageItems(doc);
   if (!stageItems.length) return '';
   const panorama = buildPreviewStagePanoramaData(doc);
-  return `<h2 id="preview-stages">业务阶段</h2>
+  return `<h2 id="preview-stages">全景与阶段视图</h2>
     <div class="pv-stage-section">
-      <h3 id="preview-stage-panorama">业务全景图</h3>
-      ${renderPreviewStageGraphMarkup(panorama.nodes, panorama.links, 'stage', 'preview-stage-panorama')}
+      <h3 id="preview-stage-panorama">全景视图</h3>
+      ${renderPreviewPanoramaMatrix(doc, panorama)}
     </div>
     ${stageItems.map((stageItem) => {
       const detail = buildPreviewStageDetailData(doc, stageItem);
       const stageAnchor = previewAnchorId('stage', stageItem.id || stageItem.name || 'stage');
       const graphTestId = `preview-stage-detail-${String(stageItem.id || 'stage').replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
       return `<div class="pv-stage-section">
-        <h3 id="${stageAnchor}">业务阶段: ${esc(stageItem.name || stageItem.id)}</h3>
+        <h3 id="${stageAnchor}">阶段视图: ${esc(stageItem.name || stageItem.id)}</h3>
         <p class="pv-note">
-          <strong>业务子域</strong>: ${esc(stageItem.subDomain || '—')}
+          <strong>所属业务域</strong>: ${esc(getStageBusinessDomainLabel(stageItem) || '—')}
           | <strong>流程数</strong>: ${detail.processes.length}
           ${stageItem.virtual ? ' | <strong>说明</strong>: 未设置业务阶段' : ''}
         </p>
@@ -320,9 +389,34 @@ function formatProcessStageSummary(proc, doc = S.doc) {
   return names.join('、');
 }
 
+function renderPreviewTaskFormsHtml(forms, entityMap) {
+  if (!forms.length) return '';
+  return `<div class="pv-form-model">
+    <h5>表单模型</h5>
+    ${forms.map((form) => {
+      const entityName = form.entity_id ? (entityMap[form.entity_id]?.name || form.entity_id) : '不绑定实体';
+      return `<div class="pv-form-card">
+        <p class="pv-note"><strong>${esc(form.name || '未命名表单')}</strong> | <strong>绑定实体</strong>: ${esc(entityName)}${form.purpose ? ` | <strong>用途</strong>: ${esc(form.purpose)}` : ''}</p>
+        ${(form.sections || []).map((section) => `<div class="pv-form-section">
+          <p class="pv-note"><strong>分组</strong>: ${esc(section.name || '未命名分组')}${section.note ? ` | ${esc(section.note)}` : ''}</p>
+          ${(section.fields || []).length ? `<table><thead><tr><th>字段</th><th>类型</th><th>必填</th><th>实体字段</th><th>说明</th></tr></thead><tbody>
+            ${(section.fields || []).map((field) => `<tr>
+              <td>${esc(field.name || '')}</td>
+              <td>${esc(FORM_FIELD_TYPE_LABELS[field.type] || field.type || '')}</td>
+              <td style="text-align:center">${field.required ? '是' : ''}</td>
+              <td>${esc(field.entity_field || '')}</td>
+              <td>${esc(field.note || '')}</td>
+            </tr>`).join('')}
+          </tbody></table>` : ''}
+        </div>`).join('')}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   if (!processes.length) return '';
-  return `<h2 id="preview-processes">流程建模</h2>
+  return `<h2 id="preview-processes">流程视图</h2>
     ${processes.map((proc) => {
       const nodes = getProcNodes(proc);
       const prototypeFiles = getProcPrototypeFiles(proc);
@@ -341,6 +435,7 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
             const entityOps = node.entity_ops || [];
             const userSteps = getNodeUserSteps(node);
             const orchestrationTasks = getNodeOrchestrationTasks(node);
+            const forms = getTaskForms(node);
             return `<div class="pv-task-detail">
               <h4>${esc(node.id)}: ${esc(node.name||'')} <span class="pv-role">(${esc(roleName)})</span></h4>
               ${node.repeatable ? '<p class="pv-note">可退回节点</p>' : ''}
@@ -354,6 +449,7 @@ function renderPreviewProcessesHtml(processes, entityMap, stepLabels, orchestrat
                 const entityName = (entityMap[entityOp.entity_id]?.name) || entityOp.entity_id;
                 return `${esc(entityName)}（${esc((entityOp.ops||[]).join(','))}）`;
               }).join(', ')}</p>` : ''}
+              ${renderPreviewTaskFormsHtml(forms, entityMap)}
               ${node.rules_note?.trim() ? `<p class="pv-note"><strong>业务规则</strong>: ${esc(node.rules_note)}</p>` : ''}
             </div>`;
           }).join('')}
@@ -443,25 +539,39 @@ function appendPreviewLanguageMd(add, languageItems) {
   add('');
 }
 
+function appendPreviewPanoramaMatrixMd(add, doc, panorama) {
+  const { model, groups } = buildPreviewPanoramaCellGroups(doc, panorama.nodes);
+  add(`| 业务域 / 价值流 | ${(model.columns || []).map((column) => column.name || column.id).join(' | ')} |`);
+  add(`|---|${(model.columns || []).map(() => '---').join('|')}|`);
+  (model.lanes || []).forEach((lane) => {
+    const cells = (model.columns || []).map((column) => {
+      const cell = getPanoramaCell(model, lane.id, column.id);
+      const stageNodes = groups.get(`${lane.id}::${column.id}`) || [];
+      const stageText = stageNodes.map((node) => {
+        const flowCount = Math.max(0, Number(node._processCount || 0) || 0);
+        return flowCount ? `${node.label}（${flowCount}个流程）` : node.label;
+      }).filter(Boolean).join('、');
+      return [cell.status, cell.text, stageText].filter(Boolean).join('；');
+    });
+    add(`| ${lane.name || lane.id} | ${cells.join(' | ')} |`);
+  });
+  add('');
+}
+
 function appendPreviewStagesMd(add, doc) {
   const stageItems = getStageItems(doc);
   if (!stageItems.length) return;
   const panorama = buildPreviewStagePanoramaData(doc);
-  add('### 业务全景图');
+  add('### 全景视图');
   add('');
   if (panorama.nodes.length) {
-    add('```mermaid');
-    add('flowchart TD');
-    panorama.nodes.forEach((node) => add(`  ${node.id}["${node.label}"]`));
-    panorama.links.forEach((link) => add(`  ${link.from} --> ${link.to}`));
-    add('```');
-    add('');
+    appendPreviewPanoramaMatrixMd(add, doc, panorama);
   }
   for (const stageItem of stageItems) {
     const detail = buildPreviewStageDetailData(doc, stageItem);
-    add(`### 业务阶段: ${stageItem.name || stageItem.id}`);
+    add(`### 阶段视图: ${stageItem.name || stageItem.id}`);
     add('');
-    add(`**业务子域**: ${stageItem.subDomain || '—'}  |  **流程数**: ${detail.processes.length}`);
+    add(`**所属业务域**: ${getStageBusinessDomainLabel(stageItem) || '—'}  |  **流程数**: ${detail.processes.length}`);
     add('');
     if (detail.nodes.length) {
       add('```mermaid');
@@ -474,6 +584,23 @@ function appendPreviewStagesMd(add, doc) {
   }
 }
 
+function appendPreviewTaskFormsMd(add, forms, entityMap) {
+  if (!forms.length) return;
+  add('**表单模型**');
+  add('');
+  forms.forEach((form) => {
+    const entityName = form.entity_id ? (entityMap[form.entity_id]?.name || form.entity_id) : '不绑定实体';
+    add(`- ${form.name || '未命名表单'}；绑定实体：${entityName}${form.purpose ? `；用途：${form.purpose}` : ''}`);
+    (form.sections || []).forEach((section) => {
+      add(`  - 分组：${section.name || '未命名分组'}${section.note ? `；${section.note}` : ''}`);
+      (section.fields || []).forEach((field) => {
+        add(`    - ${field.name || '未命名字段'} / ${FORM_FIELD_TYPE_LABELS[field.type] || field.type || ''}${field.required ? ' / 必填' : ''}${field.entity_field ? ` / 映射：${field.entity_field}` : ''}${field.note ? ` / ${field.note}` : ''}`);
+      });
+    });
+  });
+  add('');
+}
+
 function appendPreviewProcessesMd(add, doc, processes, entityMap, stepLabels, orchestrationLabels, querySourceLabels) {
   for (const proc of processes) {
     const nodes = getProcNodes(proc);
@@ -482,7 +609,7 @@ function appendPreviewProcessesMd(add, doc, processes, entityMap, stepLabels, or
     add('');
     add(`**业务子域**: ${proc.subDomain||'—'}`);
     const processStageSummary = formatProcessStageSummary(proc, doc);
-    if(processStageSummary) add(`**????**: ${processStageSummary}`);
+    if(processStageSummary) add(`**业务阶段**: ${processStageSummary}`);
     if(proc.flowGroup) add(`**流程组**: ${proc.flowGroup}`);
     if(prototypeFiles.length) add(`**流程原型**: ${formatPrototypeSummary(prototypeFiles)}`);
     add('');
@@ -527,6 +654,7 @@ function appendPreviewProcessesMd(add, doc, processes, entityMap, stepLabels, or
         }).join(', ')}`);
         add('');
       }
+      appendPreviewTaskFormsMd(add, getTaskForms(node), entityMap);
       if(node.rules_note?.trim()){
         add(`**业务规则**: ${node.rules_note}`);
         add('');
@@ -608,14 +736,14 @@ function buildMdFromDoc(doc) {
 
   const stages = getStageItems(doc);
   if(stages.length){
-    add(`## ${nums[sn++]}、业务阶段`); add('');
+    add(`## ${nums[sn++]}、全景与阶段视图`); add('');
     appendPreviewStagesMd(add, doc);
     sep();
   }
 
   const procs = doc.processes||[];
   const emap  = Object.fromEntries((doc.entities||[]).map(e=>[e.id,e]));
-  add(`## ${nums[sn++]}、流程建模`); add('');
+  add(`## ${nums[sn++]}、流程视图`); add('');
   appendPreviewProcessesMd(add, doc, procs, emap, STEP_LBL, ORCH_LBL, QUERY_SOURCE_LBL);
   sep();
 

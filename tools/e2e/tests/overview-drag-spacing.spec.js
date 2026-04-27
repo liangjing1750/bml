@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
-test('概要视图拖拽后仍保持概要视图的网格间距', async ({ page }) => {
-  const documentName = `概要视图拖拽间距-${Date.now()}`;
+test('process view uses one focused flow diagram instead of the dense card wall', async ({ page }) => {
+  const documentName = `process-flow-view-${Date.now()}`;
 
   await page.goto('/');
   await page.getByTestId('toolbar-new-button').click();
@@ -11,22 +11,15 @@ test('概要视图拖拽后仍保持概要视图的网格间距', async ({ page 
   await expect(page.getByTestId('new-doc-modal')).toHaveClass(/hidden/);
   await expect(page.getByTestId('current-file-name')).toHaveText(documentName);
   await page.getByTestId('tab-process').click();
-  await page.getByTestId('process-switch-overview').click();
+  await page.getByTestId('process-switch-card').click();
 
-  const header = page.locator('.proc-card.ov-card[data-id="P1"] .ovc-header');
-  const box = await header.boundingBox();
-  if (!box) {
-    throw new Error('未找到概要视图中的流程卡片');
-  }
-
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 80, { steps: 10 });
-  await page.mouse.up();
-
-  await expect
-    .poll(() =>
-      page.locator('.proc-card.ov-card[data-id="P1"]').evaluate((element) => element.style.top)
-    )
-    .toBe('80px');
+  await expect(page.getByTestId('process-flow-view')).toBeVisible();
+  await expect(page.getByTestId('process-flow-select')).toBeVisible();
+  await expect(page.getByTestId('process-flow-summary')).toHaveCount(0);
+  await expect(page.locator('.process-flow-kicker')).toHaveCount(0);
+  await expect(page.locator('.process-flow-view .live-diagram-hint')).toHaveCount(0);
+  await expect(page.locator('#proc-diagram')).toBeVisible();
+  await expect(page.getByTestId('process-card-view')).toHaveCount(0);
+  await expect(page.getByTestId('process-overview-view')).toHaveCount(0);
+  await expect(page.locator('.proc-card')).toHaveCount(0);
 });

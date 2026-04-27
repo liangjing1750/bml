@@ -27,10 +27,135 @@ function rewriteManualRelativeUrl(url) {
   return buildDocsAssetUrl(raw);
 }
 
+function renderManualInlineMarkdown(value) {
+  const tokens = [];
+  const pushToken = (html) => {
+    const token = `@@MANUAL_INLINE_${tokens.length}@@`;
+    tokens.push({ token, html });
+    return token;
+  };
+
+  let text = String(value || '');
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => (
+    pushToken(`<img src="${esc(String(src || '').trim())}" alt="${esc(alt || '')}">`)
+  ));
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => (
+    pushToken(`<a href="${esc(String(href || '').trim())}">${esc(label || '')}</a>`)
+  ));
+  text = text.replace(/`([^`]+)`/g, (_, code) => (
+    pushToken(`<code>${esc(code || '')}</code>`)
+  ));
+
+  let html = esc(text);
+  tokens.forEach(({ token, html: tokenHtml }) => {
+    html = html.split(token).join(tokenHtml);
+  });
+  return html;
+}
+
+function renderBasicManualMarkdown(markdown) {
+  const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+  const html = [];
+  let paragraph = [];
+  let listItems = [];
+  let listTag = 'ul';
+  let inCodeBlock = false;
+  let codeLang = '';
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html.push(`<p>${renderManualInlineMarkdown(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    html.push(`<${listTag}>${listItems.map((item) => (
+      `<li>${renderManualInlineMarkdown(item)}</li>`
+    )).join('')}</${listTag}>`);
+    listItems = [];
+  };
+
+  const flushCodeBlock = () => {
+    const className = codeLang ? ` class="language-${esc(codeLang)}"` : '';
+    html.push(`<pre><code${className}>${esc(codeLines.join('\n'))}</code></pre>`);
+    inCodeBlock = false;
+    codeLang = '';
+    codeLines = [];
+  };
+
+  const pushListItem = (tagName, content) => {
+    if (listItems.length && listTag !== tagName) {
+      flushList();
+    }
+    listTag = tagName;
+    listItems.push(content);
+  };
+
+  lines.forEach((line) => {
+    const fence = line.match(/^```\s*([A-Za-z0-9_-]*)\s*$/);
+    if (fence) {
+      if (inCodeBlock) {
+        flushCodeBlock();
+      } else {
+        flushParagraph();
+        flushList();
+        inCodeBlock = true;
+        codeLang = fence[1] || '';
+        codeLines = [];
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${renderManualInlineMarkdown(heading[2])}</h${level}>`);
+      return;
+    }
+
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      pushListItem('ul', bullet[1]);
+      return;
+    }
+
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      pushListItem('ol', ordered[1]);
+      return;
+    }
+
+    paragraph.push(line.trim());
+  });
+
+  if (inCodeBlock) flushCodeBlock();
+  flushParagraph();
+  flushList();
+
+  return html.join('\n');
+}
+
 function buildManualRenderedState(docId, markdown) {
   const rawHtml = window.markedLib
     ? window.markedLib.parse(markdown || '')
-    : `<pre>${esc(markdown || '')}</pre>`;
+    : renderBasicManualMarkdown(markdown || '');
   const host = document.createElement('div');
   host.innerHTML = rawHtml;
 
@@ -183,6 +308,36 @@ function toggleManualOutlineGroup(groupId) {
   if (S.ui.tab === 'manual') renderManualTab();
 }
 
+function getActiveManualDoc() {
+  const docs = Array.isArray(S.manual.docs) ? S.manual.docs : [];
+  return docs.find((doc) => String(doc?.id || '') === S.manual.activeDocId) || null;
+}
+
+function renderManualDocList() {
+  if (S.manual.error) {
+    return `<div class="manual-empty-hint manual-error-hint">${esc(S.manual.error)}</div>`;
+  }
+  const docs = Array.isArray(S.manual.docs) ? S.manual.docs : [];
+  if (!docs.length) {
+    return '<div class="manual-empty-hint">正在加载文档列表...</div>';
+  }
+  return docs.map((doc) => {
+    const docId = String(doc?.id || '').trim();
+    if (!docId) return '';
+    const active = docId === S.manual.activeDocId;
+    return `
+      <button
+        type="button"
+        class="manual-doc-button ${active ? 'active' : ''}"
+        data-testid="manual-doc-button"
+        data-doc-id="${esc(docId)}"
+        onclick="openManualDoc('${esc(docId)}')"
+      >
+        <span class="manual-doc-button-title">${esc(doc.title || docId)}</span>
+      </button>`;
+  }).join('');
+}
+
 function renderManualOutlineList() {
   if (S.manual.error) {
     return `<div class="manual-empty-hint manual-error-hint">${esc(S.manual.error)}</div>`;
@@ -224,10 +379,19 @@ function renderManualOutlineList() {
   }).join('');
 }
 
+function returnFromManual() {
+  if (typeof goBackNavigation === 'function' && goBackNavigation()) return;
+  navigate('domain', {}, { recordHistory: false });
+}
+
 function renderManualTab() {
   const container = document.getElementById('tab-content');
   if (!container) return;
   const title = S.manual.activeTitle || '用户手册';
+  const activeDoc = getActiveManualDoc();
+  const introHtml = (!S.manual.loading && !S.manual.error && activeDoc?.summary)
+    ? `<p class="manual-doc-intro" data-testid="manual-doc-intro">${esc(activeDoc.summary)}</p>`
+    : '';
   const contentHtml = S.manual.loading
     ? '<div class="manual-loading">正在加载文档内容...</div>'
     : (S.manual.error
@@ -239,6 +403,10 @@ function renderManualTab() {
       <div class="manual-body">
         <aside class="manual-nav">
           <section class="manual-panel">
+            <div class="manual-panel-title">文档</div>
+            <div class="manual-doc-list" data-testid="manual-doc-list">${renderManualDocList()}</div>
+          </section>
+          <section class="manual-panel">
             <div class="manual-panel-title">目录</div>
             <div class="manual-outline-list">${renderManualOutlineList()}</div>
           </section>
@@ -246,8 +414,14 @@ function renderManualTab() {
         <section class="manual-reader">
           <div class="manual-reader-head">
             <h2 id="manual-current-title" data-testid="manual-title">${esc(title)}</h2>
+            <button
+              type="button"
+              class="btn btn-outline manual-back-button"
+              data-testid="manual-back-button"
+              onclick="returnFromManual()"
+            >← 返回编辑</button>
           </div>
-          <article id="manual-content" class="manual-article">${contentHtml}</article>
+          <article id="manual-content" class="manual-article">${introHtml}${contentHtml}</article>
         </section>
       </div>
     </div>`;
@@ -275,6 +449,18 @@ async function ensureManualDocsLoaded() {
     if (!S.runtime.supportsDocs) {
       S.manual.loading = false;
       S.manual.error = MANUAL_RUNTIME_ERROR;
+      if (S.ui.tab === 'manual') renderManualTab();
+      return false;
+    }
+  }
+  if (!Array.isArray(S.manual.docs) || !S.manual.docs.length) {
+    try {
+      const docs = await api.docs();
+      S.manual.docs = Array.isArray(docs) ? docs : [];
+    } catch (error) {
+      S.manual.docs = [];
+      S.manual.error = error?.message || '文档列表加载失败';
+      S.manual.loading = false;
       if (S.ui.tab === 'manual') renderManualTab();
       return false;
     }
@@ -315,12 +501,12 @@ async function bootManualTab() {
     if (S.ui.tab === 'manual') renderManualTab();
     return;
   }
-  S.manual.activeDocId = MANUAL_DOC_ID;
-  if (S.manual.activeDocId === MANUAL_DOC_ID && S.manual.html) {
+  const targetDocId = S.manual.activeDocId || MANUAL_DOC_ID;
+  if (S.manual.activeDocId === targetDocId && S.manual.html && !S.manual.error) {
     if (S.ui.tab === 'manual') renderManualTab();
     return;
   }
-  await openManualDoc(MANUAL_DOC_ID);
+  await openManualDoc(targetDocId);
 }
 
 window.renderManualTab = renderManualTab;
@@ -328,3 +514,4 @@ window.bootManualTab = bootManualTab;
 window.openManualDoc = openManualDoc;
 window.manualJumpTo = manualJumpTo;
 window.toggleManualOutlineGroup = toggleManualOutlineGroup;
+window.returnFromManual = returnFromManual;

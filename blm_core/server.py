@@ -18,22 +18,22 @@ from blm_core.storage import (
 
 DOCS_MANIFEST = [
     {
+        "id": "user-manual",
+        "title": "用户手册",
+        "filename": "BLM用户手册.md",
+        "summary": "查看工作区使用方法、合并流程、回收站和导出说明。",
+    },
+    {
         "id": "design",
         "title": "设计文档",
         "filename": "BLM设计文档.md",
         "summary": "查看当前浏览器版架构、工作流、合并和恢复机制。",
     },
     {
-        "id": "test-cases",
-        "title": "测试用例",
-        "filename": "BLM测试用例.md",
-        "summary": "查看核心回归点、测试分层和端到端验证范围。",
-    },
-    {
-        "id": "user-manual",
-        "title": "用户手册",
-        "filename": "BLM用户手册.md",
-        "summary": "查看工作区使用方法、合并流程、回收站和导出说明。",
+        "id": "modeling-thinking",
+        "title": "业务建模思考",
+        "filename": "业务建模思考.md",
+        "summary": "理解业务子域、业务阶段、业务流程和流程组之间的关系。",
     },
 ]
 DOCS_INDEX = {item["id"]: item for item in DOCS_MANIFEST}

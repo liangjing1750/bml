@@ -28,6 +28,7 @@ function createLocalDocument(name) {
     stageLinks: [],
     stageFlowRefs: [],
     stageFlowLinks: [],
+    panorama: createDefaultPanoramaModel(),
     processes: [{ id: 'P1', name: '主流程', subDomain: '', flowGroup: '', stageId: '', stagePos: { x: 0, y: 0 }, trigger: '', outcome: '', prototypeFiles: [], nodes: [] }],
     entities: [],
     relations: [],
@@ -147,9 +148,9 @@ function getUiNavigationSnapshot(sourceUi = S.ui, options = {}) {
     dataView: String(ui.dataView || 'relation'),
     stateFieldName: String(ui.stateFieldName || ''),
     roleId: ui.roleId || null,
-    procView: String(ui.procView || 'card'),
+    procView: String(ui.procView || 'stage'),
     nodePerspective: String(ui.nodePerspective || 'user'),
-    stageEditorCollapsed: Boolean(ui.stageEditorCollapsed),
+    stageEditorCollapsed: ui.stageEditorCollapsed !== false,
     stateEditorCollapsed: Boolean(ui.stateEditorCollapsed),
     stageGraphZoom: Number(ui.stageGraphZoom) || 1,
     stateDiagramZoom: Number(ui.stateDiagramZoom) || 1,
@@ -1109,7 +1110,7 @@ function createDocUiState(doc) {
     sidebarCollapsed: false,
     sidebarW: getUiPrefNumber('sidebarW', 240),
     processSidebarMode: 'domain',
-    procView: 'card',
+    procView: 'stage',
     nodePerspective: 'user',
     procPrototypeExpanded: {},
     procRolePickerCollapsed: {},
@@ -1117,7 +1118,7 @@ function createDocUiState(doc) {
     procDiagramH: getUiPrefNumber('procDiagramH', 200),
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     stageGraphZoom: 1,
-    stageEditorCollapsed: false,
+    stageEditorCollapsed: true,
     entityDrawerW: getUiPrefNumber('entityDrawerW', 620),
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,
@@ -1146,6 +1147,79 @@ document.addEventListener('keydown', (event) => {
     }
   }
 });
+
+let activeHelpTarget = null;
+let helpTooltipEl = null;
+
+function ensureHelpTooltip() {
+  if (helpTooltipEl) return helpTooltipEl;
+  helpTooltipEl = document.createElement('div');
+  helpTooltipEl.className = 'floating-help-tooltip';
+  helpTooltipEl.dataset.testid = 'inline-help-tooltip';
+  helpTooltipEl.hidden = true;
+  document.body.appendChild(helpTooltipEl);
+  return helpTooltipEl;
+}
+
+function hideHelpTooltip(target = null) {
+  if (target && activeHelpTarget !== target) return;
+  activeHelpTarget = null;
+  if (helpTooltipEl) helpTooltipEl.hidden = true;
+}
+
+function positionHelpTooltip(target) {
+  const tip = String(target?.dataset?.tip || '').trim();
+  if (!target || !tip) return;
+  if (!target.isConnected) {
+    hideHelpTooltip(target);
+    return;
+  }
+  const tooltip = ensureHelpTooltip();
+  activeHelpTarget = target;
+  tooltip.textContent = tip;
+  tooltip.hidden = false;
+  tooltip.style.left = '0px';
+  tooltip.style.top = '0px';
+
+  const margin = 10;
+  const gap = 8;
+  const targetRect = target.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+  let left = targetRect.left + targetRect.width / 2 - tooltipRect.width / 2;
+  left = Math.max(margin, Math.min(left, viewportW - tooltipRect.width - margin));
+  let top = targetRect.bottom + gap;
+  if (top + tooltipRect.height + margin > viewportH) {
+    top = targetRect.top - tooltipRect.height - gap;
+  }
+  top = Math.max(margin, Math.min(top, viewportH - tooltipRect.height - margin));
+  tooltip.style.left = `${Math.round(left)}px`;
+  tooltip.style.top = `${Math.round(top)}px`;
+}
+
+function initFloatingHelpTooltips() {
+  document.addEventListener('mouseover', (event) => {
+    const target = event.target?.closest?.('.inline-help[data-tip]');
+    if (target) positionHelpTooltip(target);
+  });
+  document.addEventListener('focusin', (event) => {
+    const target = event.target?.closest?.('.inline-help[data-tip]');
+    if (target) positionHelpTooltip(target);
+  });
+  document.addEventListener('mouseout', (event) => {
+    const target = event.target?.closest?.('.inline-help[data-tip]');
+    if (target && !target.contains(event.relatedTarget)) hideHelpTooltip(target);
+  });
+  document.addEventListener('focusout', (event) => {
+    const target = event.target?.closest?.('.inline-help[data-tip]');
+    if (target) hideHelpTooltip(target);
+  });
+  window.addEventListener('scroll', () => activeHelpTarget ? positionHelpTooltip(activeHelpTarget) : undefined, true);
+  window.addEventListener('resize', () => activeHelpTarget ? positionHelpTooltip(activeHelpTarget) : undefined);
+}
+
+initFloatingHelpTooltips();
 
 bindBeforeUnloadWarning();
 document.addEventListener('DOMContentLoaded', async () => {
