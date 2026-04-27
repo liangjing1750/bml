@@ -1263,6 +1263,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
   font-weight: 700;
 }
+.stage-detail-name-text {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+.stage-card-title .stage-name-inline-input {
+  width: min(260px, 52vw);
+  height: 28px;
+  padding: 0 8px;
+  text-align: left;
+}
+.stage-detail-title-suffix {
+  display: inline-flex;
+  align-items: center;
+}
 .stage-card-side-actions {
   display: flex;
   align-items: center;
@@ -1378,6 +1393,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
+}
+.stage-name-inline-input {
+  min-width: 0;
+  border: 1px solid #60a5fa;
+  border-radius: 5px;
+  background: #fff;
+  color: #1e3a8a;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
+}
+.stage-graph-node .stage-name-inline-input {
+  width: 100%;
+  height: 22px;
+  padding: 0 4px;
 }
 .stage-graph-node-meta {
   font-size: 11px;
@@ -1968,6 +2000,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 11px;
+  line-height: 1;
+}
+.stage-graph-node.stage-matrix-stage .stage-name-inline-input {
+  height: 20px;
   font-size: 11px;
   line-height: 1;
 }
@@ -3535,16 +3572,36 @@ input.step-type-custom { width: 88px; flex-shrink: 0; font-size: 12px; }
 .diagram-svg { overflow-x: auto; }
 
 /* ─── 模态框 ─────────────────────────────────────────────── */
-#modal-overlay, #open-modal-overlay, #history-modal-overlay, #save-as-modal-overlay, #merge-modal-overlay {
+#modal-overlay, #open-modal-overlay, #history-modal-overlay, #save-as-modal-overlay, #merge-modal-overlay, #app-dialog-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center; z-index: 1000;
+  display: grid; place-items: center;
+  padding: 24px;
+  overflow: auto;
+  z-index: 1000;
 }
 .modal {
   background: #fff; border-radius: 8px; padding: 24px; width: 360px;
   display: flex; flex-direction: column; gap: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.15);
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
 }
 .modal h3 { font-size: 16px; font-weight: 600; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+#app-dialog-overlay {
+  z-index: 1200;
+}
+.app-dialog {
+  width: min(420px, calc(100vw - 48px));
+}
+.app-dialog-message {
+  color: var(--text);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.app-dialog-input {
+  width: 100%;
+}
 .open-modal-shell {
   width: min(760px, calc(100vw - 48px));
   max-height: calc(100vh - 72px);

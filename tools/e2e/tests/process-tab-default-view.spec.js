@@ -1,6 +1,12 @@
 const { test, expect } = require('@playwright/test');
 
-const { createDocument, createNewDocument, openDocument } = require('./support/app-helpers');
+const {
+  acceptAppDialog,
+  createDocument,
+  createNewDocument,
+  openDocument,
+  submitAppPrompt,
+} = require('./support/app-helpers');
 
 function buildStagePanoramaDoc(name) {
   return {
@@ -306,7 +312,7 @@ test('business guide view uses editable document value stream matrix and vertica
     cells.map((cell) => cell.querySelectorAll('[data-testid="stage-graph-node"]').length)
   ));
   expect(Math.max(...stageCountsByCell)).toBeLessThanOrEqual(5);
-  expect(await page.getByTestId('stage-graph-node').count()).toBeLessThan(DELIVERY_BUSINESS_STAGE_NAMES.length);
+  await expect(page.getByTestId('stage-graph-node')).toHaveCount(DELIVERY_BUSINESS_STAGE_NAMES.length);
 
   await page.getByTestId('process-switch-card').click();
 
@@ -377,7 +383,7 @@ test('default delivery panorama centers smart supervision platform with compact 
   await expect.poll(() => page.getByTestId('value-stream-matrix').evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(matrixWidthBeforeZoom);
 });
 
-test('smart supervision platform stages use coarse business stages before other', async ({ page, request }) => {
+test('smart supervision platform panorama shows maintained fine-grained stages', async ({ page, request }) => {
   const documentName = `process-smart-platform-panorama-${Date.now()}`;
   await createDocument(request, documentName, buildSmartPlatformPanoramaDoc(documentName));
 
@@ -386,17 +392,19 @@ test('smart supervision platform stages use coarse business stages before other'
   await page.getByTestId('tab-process').click();
 
   const participantStageCount = await page.locator('[data-cell-id="smart-platform-phase2::participants"] [data-testid="stage-graph-node"]').count();
-  expect(participantStageCount).toBeLessThanOrEqual(5);
-  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"] [data-testid="stage-graph-node"]')).toHaveCount(3);
+  expect(participantStageCount).toBe(9);
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"] [data-testid="stage-graph-node"]')).toHaveCount(9);
   await expect(page.locator('[data-cell-id="smart-platform-phase2::parameters"] [data-testid="stage-graph-node"]')).toHaveCount(1);
   await expect(page.locator('[data-cell-id="smart-platform-phase2::businessHandling"] [data-testid="stage-graph-node"]')).toHaveCount(2);
   await expect(page.locator('[data-cell-id="smart-platform-phase2::riskSupervision"] [data-testid="stage-graph-node"]')).toHaveCount(1);
-  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('账号管理');
-  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('仓库管理');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('登录接入');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('角色与菜单鉴权');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('仓库主体维护');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('仓房维护');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('垛位维护');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('提货地点与点位');
   await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).toContainText('质检机构管理');
-  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).not.toContainText('仓房维护');
-  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"]')).not.toContainText('垛位维护');
-  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"] [data-testid="stage-graph-node"]').filter({ hasText: '仓库管理' })).toHaveAttribute('data-flow-count', '0');
+  await expect(page.locator('[data-cell-id="smart-platform-phase2::participants"] [data-testid="stage-graph-node"]').filter({ hasText: '仓库管理' })).toHaveCount(0);
   await expect(page.locator('[data-cell-id="smart-platform-phase2::businessHandling"]')).toContainText('仓单注册');
   await expect(page.locator('[data-cell-id="smart-platform-phase2::businessHandling"]')).toContainText('仓单流转');
   await expect(page.locator('[data-cell-id="receipt-system::businessHandling"] [data-testid="stage-graph-node"]')).toHaveCount(0);
@@ -474,19 +482,19 @@ test('business user edits panorama directly in the matrix canvas', async ({ page
   await page.locator('[data-testid="matrix-column-add-after"][data-column-id="C1"]').click();
   await expect(page.getByTestId('value-stream-header')).toHaveCount(4);
   await expect(page.locator('[data-testid="matrix-column-name"][data-column-id="C4"]')).toHaveValue('');
-  await page.once('dialog', (dialog) => dialog.accept());
   await page.locator('[data-testid="matrix-column-delete"][data-column-id="C4"]').click();
+  await acceptAppDialog(page);
   await expect(page.getByTestId('value-stream-header')).toHaveCount(3);
 
   await page.locator('[data-testid="matrix-lane-add-after"][data-lane-id="L1"]').click();
   await expect(page.getByTestId('value-stream-row')).toHaveCount(3);
   await expect(page.locator('[data-testid="matrix-lane-name"][data-lane-id="L3"]')).toHaveValue('');
-  await page.once('dialog', (dialog) => dialog.accept());
   await page.locator('[data-testid="matrix-lane-delete"][data-lane-id="L3"]').click();
+  await acceptAppDialog(page);
   await expect(page.getByTestId('value-stream-row')).toHaveCount(2);
 
-  page.once('dialog', (dialog) => dialog.accept('新增监管阶段'));
   await page.locator('[data-testid="matrix-stage-add"][data-cell-id="L1::C2"]').click();
+  await submitAppPrompt(page, '新增监管阶段');
   await expect(page.locator('[data-cell-id="L1::C2"] [data-testid="stage-graph-node"]').filter({ hasText: '新增监管阶段' })).toBeVisible();
 
   await page.locator('[data-cell-id="L1::C1"] [data-node-id="S1"]').dragTo(page.locator('.value-stream-cell[data-cell-id="L2::C2"]'));
@@ -605,12 +613,20 @@ test('stage panorama matrix edit mode keeps stage actions in the canvas', async 
   await expect(page.getByTestId('matrix-stage-add').first()).toBeVisible();
   await expect(page.getByTestId('matrix-stage-delete').first()).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept('Stage D'));
+  const stageB = page.locator('[data-testid="stage-graph-node"][data-node-id="S2"]');
+  await stageB.dblclick();
+  await expect(page.getByTestId('stage-name-inline-input')).toHaveValue('Stage B');
+  await page.getByTestId('stage-name-inline-input').fill('Stage B 已改名');
+  await page.keyboard.press('Enter');
+  await expect(stageB).toContainText('Stage B 已改名');
+  await expect.poll(() => page.evaluate(() => S.doc.stages.find((stage) => stage.id === 'S2')?.name)).toBe('Stage B 已改名');
+
   await page.getByTestId('matrix-stage-add').first().click();
+  await submitAppPrompt(page, 'Stage D');
   await expect(page.getByTestId('stage-graph-node')).toHaveCount(4);
   await expect(page.getByTestId('stage-graph-node').filter({ hasText: 'Stage D' })).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByTestId('stage-graph-node').filter({ hasText: 'Stage D' }).getByTestId('matrix-stage-delete').click();
+  await acceptAppDialog(page);
   await expect(page.getByTestId('stage-graph-node')).toHaveCount(3);
   await expect(page.getByTestId('stage-panorama-graph')).toBeVisible();
   await expect(page.getByTestId('stage-detail-graph')).toHaveCount(0);

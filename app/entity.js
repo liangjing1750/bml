@@ -1378,8 +1378,11 @@ function addEntity(group) {
   navigate('data', { entityId: id });
 }
 
-function removeEntity(id) {
-  if(!confirm('确认删除此实体？')) return;
+async function removeEntity(id) {
+  if(!await showAppConfirm('确认删除此实体？', {
+    title: '删除实体',
+    confirmLabel: '删除',
+  })) return;
   S.doc.entities=S.doc.entities.filter(e=>e.id!==id);
   S.doc.relations=(S.doc.relations||[]).filter(r=>r.from!==id&&r.to!==id);
   for(const proc of S.doc.processes)

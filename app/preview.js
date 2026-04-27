@@ -238,7 +238,7 @@ function buildPreviewPanoramaCellGroups(doc, nodes) {
     _linked: linkedStageIds.has(node.id),
     searchText: '',
   }));
-  return { model, groups: groupStagesByPanoramaCell(indexedNodes, model, true) };
+  return { model, groups: groupStagesByPanoramaCell(indexedNodes, model, false) };
 }
 
 function renderPreviewMatrixStageList(stageNodes) {

@@ -69,7 +69,7 @@ function addRole() {
   rerenderDomainTabPreserveScroll();
 }
 
-function removeRole(roleId) {
+async function removeRole(roleId) {
   const usage = getRoleUsage(roleId);
   if (usage.length) {
     alert(`当前角色正在被 ${usage.length} 个任务使用，不能直接删除。`);
@@ -77,7 +77,10 @@ function removeRole(roleId) {
   }
   const role = getRoleById(roleId);
   if (!role) return;
-  if (!confirm(`确认删除角色“${role.name}”？`)) return;
+  if (!await showAppConfirm(`确认删除角色“${role.name}”？`, {
+    title: '删除角色',
+    confirmLabel: '删除',
+  })) return;
   S.doc.roles = getRoles().filter((item) => item.id !== roleId);
   ensureSelectedRole();
   markModified();

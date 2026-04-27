@@ -73,6 +73,7 @@ const S = {
     procDrawerW: 480,
     stageGraphZoom: 1,
     stageEditorCollapsed: true,
+    stageNameEditId: '',
     entityDrawerW: 620,
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,

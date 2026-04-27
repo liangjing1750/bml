@@ -22,6 +22,43 @@ async function createNewDocument(page, name) {
   await expect(page.getByTestId('current-file-name')).toHaveText(name);
 }
 
+async function expectAppDialogCentered(page) {
+  await expect(page.getByTestId('app-dialog')).not.toHaveClass(/hidden/);
+  const metrics = await page.getByTestId('app-dialog').evaluate((overlay) => {
+    const dialog = overlay.querySelector('.app-dialog');
+    const overlayRect = overlay.getBoundingClientRect();
+    const dialogRect = dialog.getBoundingClientRect();
+    return {
+      overlayCenterX: overlayRect.left + overlayRect.width / 2,
+      overlayCenterY: overlayRect.top + overlayRect.height / 2,
+      dialogCenterX: dialogRect.left + dialogRect.width / 2,
+      dialogCenterY: dialogRect.top + dialogRect.height / 2,
+    };
+  });
+  expect(Math.abs(metrics.overlayCenterX - metrics.dialogCenterX)).toBeLessThanOrEqual(2);
+  expect(Math.abs(metrics.overlayCenterY - metrics.dialogCenterY)).toBeLessThanOrEqual(2);
+}
+
+async function expectAppDialogMessage(page, text) {
+  await expect(page.getByTestId('app-dialog')).not.toHaveClass(/hidden/);
+  await expect(page.getByTestId('app-dialog-message')).toContainText(text);
+}
+
+async function acceptAppDialog(page) {
+  await page.getByTestId('app-dialog-confirm').click();
+  await expect(page.getByTestId('app-dialog')).toHaveClass(/hidden/);
+}
+
+async function cancelAppDialog(page) {
+  await page.getByTestId('app-dialog-cancel').click();
+  await expect(page.getByTestId('app-dialog')).toHaveClass(/hidden/);
+}
+
+async function submitAppPrompt(page, value) {
+  await page.getByTestId('app-dialog-input').fill(value);
+  await acceptAppDialog(page);
+}
+
 async function dragResizeHandle(page, handleLocator, deltaX) {
   const box = await handleLocator.boundingBox();
   if (!box) {
@@ -39,5 +76,10 @@ module.exports = {
   createDocument,
   openDocument,
   createNewDocument,
+  expectAppDialogCentered,
+  expectAppDialogMessage,
+  acceptAppDialog,
+  cancelAppDialog,
+  submitAppPrompt,
   dragResizeHandle,
 };

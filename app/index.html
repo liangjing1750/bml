@@ -144,6 +144,18 @@
   </div>
 </div>
 
+<div id="app-dialog-overlay" class="hidden" data-testid="app-dialog" onclick="closeAppDialogFromBackdrop(event)">
+  <div class="modal app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title" onclick="event.stopPropagation()">
+    <h3 id="app-dialog-title">提示</h3>
+    <p id="app-dialog-message" class="app-dialog-message" data-testid="app-dialog-message"></p>
+    <input id="app-dialog-input" class="app-dialog-input hidden" type="text" data-testid="app-dialog-input">
+    <div class="modal-footer">
+      <button id="app-dialog-cancel" type="button" class="btn btn-ghost" data-testid="app-dialog-cancel" onclick="resolveAppDialog(false)">取消</button>
+      <button id="app-dialog-confirm" type="button" class="btn btn-primary" data-testid="app-dialog-confirm" onclick="resolveAppDialog(true)">确定</button>
+    </div>
+  </div>
+</div>
+
 <script src="state.js"></script>
 <script src="api.js"></script>
 <script src="render.js"></script>

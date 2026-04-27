@@ -1,14 +1,157 @@
 ﻿'use strict';
 
 const UNSAVED_CHANGES_MESSAGE = '当前有未保存修改，继续操作会丢失这些内容。是否继续？';
+const nativeAlert = window.alert.bind(window);
+const nativeConfirm = window.confirm.bind(window);
+const nativePrompt = window.prompt.bind(window);
 
-function confirmDiscardUnsavedChanges(actionLabel = '') {
+let activeAppDialog = null;
+
+function getAppDialogElements() {
+  return {
+    overlay: document.getElementById('app-dialog-overlay'),
+    title: document.getElementById('app-dialog-title'),
+    message: document.getElementById('app-dialog-message'),
+    input: document.getElementById('app-dialog-input'),
+    cancel: document.getElementById('app-dialog-cancel'),
+    confirm: document.getElementById('app-dialog-confirm'),
+  };
+}
+
+function getFallbackDialogResult(type, message, defaultValue) {
+  if (type === 'confirm') return Promise.resolve(nativeConfirm(message));
+  if (type === 'prompt') return Promise.resolve(nativePrompt(message, defaultValue));
+  nativeAlert(message);
+  return Promise.resolve(true);
+}
+
+function handleAppDialogKeydown(event) {
+  if (!activeAppDialog) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    resolveAppDialog(false);
+    return;
+  }
+  if (event.key === 'Enter' && document.activeElement?.tagName !== 'TEXTAREA') {
+    event.preventDefault();
+    resolveAppDialog(true);
+  }
+}
+
+function showAppDialog({
+  type = 'alert',
+  title = '提示',
+  message = '',
+  confirmLabel = '确定',
+  cancelLabel = '取消',
+  defaultValue = '',
+} = {}) {
+  const elements = getAppDialogElements();
+  if (!elements.overlay || !elements.title || !elements.message || !elements.input || !elements.cancel || !elements.confirm) {
+    return getFallbackDialogResult(type, String(message || ''), defaultValue);
+  }
+
+  if (activeAppDialog?.resolve) {
+    resolveAppDialog(false);
+  }
+
+  return new Promise((resolve) => {
+    activeAppDialog = {
+      type,
+      resolve,
+      previousFocus: document.activeElement,
+    };
+    elements.title.textContent = title;
+    elements.message.textContent = String(message || '');
+    elements.input.value = String(defaultValue || '');
+    elements.input.classList.toggle('hidden', type !== 'prompt');
+    elements.input.disabled = type !== 'prompt';
+    elements.cancel.textContent = cancelLabel;
+    elements.confirm.textContent = confirmLabel;
+    elements.cancel.classList.toggle('hidden', type === 'alert');
+    elements.overlay.dataset.dialogType = type;
+    elements.overlay.classList.remove('hidden');
+    document.addEventListener('keydown', handleAppDialogKeydown);
+    requestAnimationFrame(() => {
+      if (type === 'prompt') elements.input.focus();
+      else elements.confirm.focus();
+    });
+  });
+}
+
+function resolveAppDialog(accepted) {
+  if (!activeAppDialog) return;
+  const state = activeAppDialog;
+  const elements = getAppDialogElements();
+  const type = state.type;
+  let result = true;
+  if (type === 'confirm') result = Boolean(accepted);
+  if (type === 'prompt') result = accepted ? elements.input?.value || '' : null;
+
+  elements.overlay?.classList.add('hidden');
+  elements.input?.classList.add('hidden');
+  elements.cancel?.classList.remove('hidden');
+  document.removeEventListener('keydown', handleAppDialogKeydown);
+  activeAppDialog = null;
+  state.resolve(result);
+  setTimeout(() => {
+    if (state.previousFocus && typeof state.previousFocus.focus === 'function') {
+      state.previousFocus.focus();
+    }
+  }, 0);
+}
+
+function closeAppDialogFromBackdrop(event) {
+  if (event.target === event.currentTarget) {
+    resolveAppDialog(false);
+  }
+}
+
+function showAppAlert(message, options = {}) {
+  return showAppDialog({
+    type: 'alert',
+    title: options.title || '提示',
+    message,
+    confirmLabel: options.confirmLabel || '知道了',
+  });
+}
+
+function showAppConfirm(message, options = {}) {
+  return showAppDialog({
+    type: 'confirm',
+    title: options.title || '请确认',
+    message,
+    confirmLabel: options.confirmLabel || '确认',
+    cancelLabel: options.cancelLabel || '取消',
+  });
+}
+
+function showAppPrompt(message, defaultValue = '', options = {}) {
+  return showAppDialog({
+    type: 'prompt',
+    title: options.title || '请输入',
+    message,
+    defaultValue,
+    confirmLabel: options.confirmLabel || '确定',
+    cancelLabel: options.cancelLabel || '取消',
+  });
+}
+
+window.alert = (message) => {
+  showAppAlert(message);
+};
+
+async function confirmDiscardUnsavedChanges(actionLabel = '') {
   if (!S.modified) return true;
   const actionText = String(actionLabel || '').trim();
   const message = actionText
     ? `当前有未保存修改，继续${actionText}会丢失这些内容。是否继续？`
     : UNSAVED_CHANGES_MESSAGE;
-  return window.confirm(message);
+  return showAppConfirm(message, {
+    title: '未保存修改',
+    confirmLabel: '继续',
+    cancelLabel: '取消',
+  });
 }
 
 function bindBeforeUnloadWarning() {
@@ -350,6 +493,7 @@ function getPreservedDocUiState(doc, sourceUi = {}) {
   next.stageGraphZoom = Math.max(0.6, Math.min(1.8, Number(next.stageGraphZoom) || base.stageGraphZoom));
   next.roleQuery = String(next.roleQuery || '');
   next.procEditorFocusSelector = String(next.procEditorFocusSelector || '');
+  next.stageNameEditId = '';
 
   const processes = Array.isArray(doc?.processes) ? doc.processes : [];
   if (!processes.some((proc) => proc?.id === next.procId)) {
@@ -658,7 +802,10 @@ async function saveWorkspaceDocument(targetName, document, { currentName = '', a
       alert(`已存在同名文档“${normalizedName}”，请使用其他名称。`);
       return null;
     }
-    if (!window.confirm(`已存在同名文档“${normalizedName}”，是否覆盖？`)) {
+    if (!await showAppConfirm(`已存在同名文档“${normalizedName}”，是否覆盖？`, {
+      title: '覆盖文档',
+      confirmLabel: '覆盖',
+    })) {
       return null;
     }
   }
@@ -792,8 +939,8 @@ const App = {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
   },
 
-  cmdNew() {
-    if (!confirmDiscardUnsavedChanges('新建文档')) return;
+  async cmdNew() {
+    if (!await confirmDiscardUnsavedChanges('新建文档')) return;
     document.getElementById('new-doc-name').value = '';
     openModalById('modal-overlay');
     setTimeout(() => document.getElementById('new-doc-name')?.focus(), 50);
@@ -854,7 +1001,7 @@ const App = {
   },
 
   async restoreHistory(name, snapshotId) {
-    if (!confirmDiscardUnsavedChanges('恢复历史版本')) return;
+    if (!await confirmDiscardUnsavedChanges('恢复历史版本')) return;
     const result = await api.restoreHistory(name, snapshotId);
     if (result.error) return alert(result.error);
     resetRecoveryState();
@@ -864,7 +1011,7 @@ const App = {
   },
 
   async restoreTrash(entryId) {
-    if (!confirmDiscardUnsavedChanges('恢复回收站文档')) return;
+    if (!await confirmDiscardUnsavedChanges('恢复回收站文档')) return;
     const result = await api.restoreTrash(entryId);
     if (result.error) return alert(result.error);
     resetRecoveryState();
@@ -887,7 +1034,7 @@ const App = {
   },
 
   async openFile(name) {
-    if (!confirmDiscardUnsavedChanges(`打开“${name}”`)) return;
+    if (!await confirmDiscardUnsavedChanges(`打开“${name}”`)) return;
     App.closeOpenModal();
     const doc = await api.load(name);
     if (doc.meta && !doc.meta.domain) doc.meta.domain = name;
@@ -895,8 +1042,11 @@ const App = {
   },
 
   async deleteFile(name) {
-    if (S.currentFile === name && !confirmDiscardUnsavedChanges(`删除“${name}”`)) return;
-    if (!confirm(`确认删除 "${name}"？`)) return;
+    if (S.currentFile === name && !await confirmDiscardUnsavedChanges(`删除“${name}”`)) return;
+    if (!await showAppConfirm(`确认删除 "${name}"？`, {
+      title: '删除文档',
+      confirmLabel: '删除',
+    })) return;
     await api.del(name);
     if (S.currentFile === name) {
       S.currentFile = null;
@@ -1119,6 +1269,7 @@ function createDocUiState(doc) {
     procDrawerW: getUiPrefNumber('procDrawerW', 480),
     stageGraphZoom: 1,
     stageEditorCollapsed: true,
+    stageNameEditId: '',
     entityDrawerW: getUiPrefNumber('entityDrawerW', 620),
     stateDiagramZoom: 1,
     stateEditorCollapsed: false,

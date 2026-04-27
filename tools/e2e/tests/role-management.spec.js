@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-const { createDocument, openDocument } = require('./support/app-helpers');
+const { acceptAppDialog, createDocument, openDocument } = require('./support/app-helpers');
 
 function buildRoleDoc(documentName) {
   return {
@@ -189,8 +189,8 @@ test('业务域页只允许删除未使用角色的轻量词典项', async ({ pa
   await expect(usedRoleWrap.locator('.role-light-remove')).toHaveCount(0);
   await expect(unusedRoleWrap.locator('.role-light-remove')).toHaveCount(1);
 
-  page.once('dialog', (dialog) => dialog.accept());
   await unusedRoleWrap.locator('.role-light-remove').click();
+  await acceptAppDialog(page);
 
   await expect(page.locator('[data-role-id="R2"]')).toHaveCount(0);
 });

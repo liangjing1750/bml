@@ -1,6 +1,13 @@
 const { test, expect } = require('@playwright/test');
 
-const { createDocument, createNewDocument, openDocument } = require('./support/app-helpers');
+const {
+  acceptAppDialog,
+  cancelAppDialog,
+  createDocument,
+  createNewDocument,
+  expectAppDialogMessage,
+  openDocument,
+} = require('./support/app-helpers');
 
 function buildDocument(name, date = '') {
   return {
@@ -35,19 +42,12 @@ test('未保存修改时切换文档会先确认', async ({ page, request }) => 
     await page.getByTestId('toolbar-open-button').click();
     await expect(page.locator('#open-modal-overlay')).not.toHaveClass(/hidden/);
 
-    const dialogMessagePromise = new Promise((resolve) => {
-      page.once('dialog', async (dialog) => {
-        const message = dialog.message();
-        await handleDialog(dialog);
-        resolve(message);
-      });
-    });
-
     await page.locator('.file-list-item').filter({ hasText: targetName }).first().click();
-    expect(await dialogMessagePromise).toContain('未保存');
+    await expectAppDialogMessage(page, '未保存');
+    await handleDialog();
   }
 
-  await tryOpenTarget((dialog) => dialog.dismiss());
+  await tryOpenTarget(() => cancelAppDialog(page));
   await expect(page.getByTestId('current-file-name')).toHaveText(sourceName);
   await expect(page.getByTestId('modified-badge')).toBeVisible();
   await expect(page.locator('#open-modal-overlay')).not.toHaveClass(/hidden/);
@@ -55,7 +55,7 @@ test('未保存修改时切换文档会先确认', async ({ page, request }) => 
   await page.locator('#open-modal-overlay').click({ position: { x: 8, y: 8 } });
   await expect(page.locator('#open-modal-overlay')).toHaveClass(/hidden/);
 
-  await tryOpenTarget((dialog) => dialog.accept());
+  await tryOpenTarget(() => acceptAppDialog(page));
   await expect(page.getByTestId('current-file-name')).toHaveText(targetName);
   await expect(page.getByTestId('modified-badge')).toBeHidden();
 });

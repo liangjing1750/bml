@@ -589,8 +589,11 @@ function addStageFlowNode(stageId) {
   renderSidebar();
   rerenderStageWorkbench({ focusSelector: `[data-testid="stage-flow-name-input"][data-process-id="${id}"]` });
 }
-function removeProcess(id) {
-  if(!confirm('确认删除此流程及所有任务？')) return;
+async function removeProcess(id) {
+  if(!await showAppConfirm('确认删除此流程及所有任务？', {
+    title: '删除流程',
+    confirmLabel: '删除',
+  })) return;
   const removedRefIds = new Set(getProcessStageRefs(id, S.doc).map((ref) => ref.id));
   S.doc.processes = S.doc.processes.filter(p=>p.id!==id);
   getStages(S.doc).forEach((stage) => {
@@ -1233,6 +1236,7 @@ function openStagePanorama(stageId = S.ui.stageId || getStageItems(S.doc)[0]?.id
   S.ui.stageViewMode = 'panorama';
   S.ui.stageId = stageId;
   S.ui.stageEditorCollapsed = true;
+  S.ui.stageNameEditId = '';
   renderProcessTab();
 }
 
@@ -1250,6 +1254,7 @@ function openStageDetail(stageId = S.ui.stageId || getStageItems(S.doc)[0]?.id |
   S.ui.stageViewMode = 'detail';
   S.ui.stageId = stageId;
   S.ui.stageEditorCollapsed = true;
+  S.ui.stageNameEditId = '';
   renderProcessTab();
 }
 
@@ -1268,6 +1273,7 @@ function navigateStageView(stageId, mode = 'detail', navOptions = {}) {
   S.ui.stageViewMode = mode === 'panorama' ? 'panorama' : 'detail';
   S.ui.stageId = stageId || getStageItems(S.doc)[0]?.id || null;
   S.ui.stageEditorCollapsed = true;
+  S.ui.stageNameEditId = '';
   S.ui.taskId = null;
   render();
 }
@@ -1383,11 +1389,15 @@ function moveStage(stageId, dir) {
   rerenderStageWorkbench();
 }
 
-function removeStage(stageId) {
+async function removeStage(stageId) {
   if (isVirtualStageId(stageId)) return;
   const stage = findStage(stageId, S.doc);
   if (!stage) return;
-  if (!confirm(`确认删除业务阶段 ${stage.name || stage.id} 吗？阶段内流程不会删除，但会变成未设置业务阶段。`)) return;
+  if (!await showAppConfirm(`确认删除业务阶段 ${stage.name || stage.id} 吗？阶段内流程不会删除，但会变成未设置业务阶段。`, {
+    title: '删除业务阶段',
+    confirmLabel: '删除',
+  })) return;
+  if (String(S.ui.stageNameEditId || '') === String(stageId || '')) S.ui.stageNameEditId = '';
   S.doc.stages = getStages(S.doc).filter((item) => item.id !== stageId);
   S.doc.stageLinks = getStageLinks(S.doc).filter((link) => link.fromStageId !== stageId && link.toStageId !== stageId);
   const removedRefIds = new Set(getStageProcessRefs(stageId, S.doc).map((ref) => ref.id));
@@ -1446,6 +1456,67 @@ function setStage(stageId, key, value) {
   markModified();
 }
 
+function isStageNameInlineEditing(stageId) {
+  return S.ui.stageEditorCollapsed === false && String(S.ui.stageNameEditId || '') === String(stageId || '');
+}
+
+function startStageNameEdit(stageId, event = null) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  if (S.ui.stageEditorCollapsed !== false) return;
+  const stage = findStage(stageId, S.doc);
+  if (!stage) return;
+  S.ui.stageNameEditId = stage.id;
+  rerenderStageWorkbench({
+    focusSelector: '[data-testid="stage-name-inline-input"]',
+    selectText: true,
+  });
+}
+
+function finishStageNameEdit(stageId, nextName, options = {}) {
+  const normalizedStageId = String(stageId || '');
+  if (String(S.ui.stageNameEditId || '') !== normalizedStageId) return;
+  const stage = findStage(normalizedStageId, S.doc);
+  S.ui.stageNameEditId = '';
+  const normalizedName = String(nextName || '').trim();
+  if (stage && normalizedName && normalizedName !== String(stage.name || '')) {
+    stage.name = normalizedName;
+    markModified();
+    renderSidebar();
+  }
+  if (!options.skipRender) rerenderStageWorkbench();
+}
+
+function cancelStageNameEdit(stageId) {
+  if (String(S.ui.stageNameEditId || '') !== String(stageId || '')) return;
+  S.ui.stageNameEditId = '';
+  rerenderStageWorkbench();
+}
+
+function handleStageNameEditKeydown(event, stageId) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    finishStageNameEdit(stageId, event.currentTarget.value);
+    return;
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelStageNameEdit(stageId);
+  }
+}
+
+function renderStageNameInlineEditor(stageId, label, canEdit, className = 'stage-graph-node-title') {
+  const stageLabel = String(label || stageId || '');
+  if (canEdit && isStageNameInlineEditing(stageId)) {
+    return `<input class="stage-name-inline-input ${className}" data-testid="stage-name-inline-input" data-stage-id="${esc(stageId)}"
+      aria-label="阶段名称" type="text" value="${esc(stageLabel)}"
+      onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" ondblclick="event.stopPropagation()"
+      onkeydown="handleStageNameEditKeydown(event,'${esc(stageId)}')"
+      onblur="finishStageNameEdit('${esc(stageId)}',this.value)">`;
+  }
+  return `<span class="${className}"${canEdit ? ` title="双击修改阶段名称" ondblclick="startStageNameEdit('${esc(stageId)}',event)"` : ''}>${esc(stageLabel)}</span>`;
+}
+
 function nextPanoramaColumnId(model = getPanoramaModel(S.doc)) {
   const usedIds = new Set((model?.columns || []).map((column) => column.id));
   let index = 1;
@@ -1489,7 +1560,7 @@ function movePanoramaColumn(columnId, dir) {
   rerenderStageWorkbench();
 }
 
-function removePanoramaColumn(columnId) {
+async function removePanoramaColumn(columnId) {
   const model = getPanoramaModel(S.doc);
   if (model.columns.length <= 1) return;
   const nextColumns = model.columns.filter((column) => column.id !== columnId);
@@ -1499,7 +1570,10 @@ function removePanoramaColumn(columnId) {
   const message = affectedStages.length
     ? `确认删除价值流「${column?.name || columnId}」吗？其中 ${affectedStages.length} 个阶段会保留，但会变成未归类，需要重新放入其他单元格。`
     : `确认删除价值流「${column?.name || columnId}」吗？`;
-  if (!confirm(message)) return;
+  if (!await showAppConfirm(message, {
+    title: '删除价值流',
+    confirmLabel: '删除',
+  })) return;
   model.columns = nextColumns;
   model.cells = model.cells.filter((cell) => cell.columnId !== columnId);
   getStages(S.doc).forEach((stage) => {
@@ -1539,7 +1613,7 @@ function movePanoramaLane(laneId, dir) {
   rerenderStageWorkbench();
 }
 
-function removePanoramaLane(laneId) {
+async function removePanoramaLane(laneId) {
   const model = getPanoramaModel(S.doc);
   if (model.lanes.length <= 1) return;
   const nextLanes = model.lanes.filter((lane) => lane.id !== laneId);
@@ -1549,7 +1623,10 @@ function removePanoramaLane(laneId) {
   const message = affectedStages.length
     ? `确认删除业务域「${lane?.name || laneId}」吗？其中 ${affectedStages.length} 个阶段会保留，但会变成未归类，需要重新放入其他单元格。`
     : `确认删除业务域「${lane?.name || laneId}」吗？`;
-  if (!confirm(message)) return;
+  if (!await showAppConfirm(message, {
+    title: '删除业务域',
+    confirmLabel: '删除',
+  })) return;
   model.lanes = nextLanes;
   model.cells = model.cells.filter((cell) => cell.laneId !== laneId);
   getStages(S.doc).forEach((stage) => {
@@ -1568,10 +1645,12 @@ function setPanoramaCell(laneId, columnId, key, value) {
   markModified();
 }
 
-function addStageFromMatrixCell(laneId, columnId) {
+async function addStageFromMatrixCell(laneId, columnId) {
   const model = getPanoramaModel(S.doc);
   if (!hasPanoramaLane(model, laneId) || !hasPanoramaColumn(model, columnId)) return;
-  const name = window.prompt('请输入业务阶段名称', '');
+  const name = await showAppPrompt('请输入业务阶段名称', '', {
+    title: '新增业务阶段',
+  });
   if (name === null) return;
   const stageName = String(name || '').trim();
   if (!stageName) return;
@@ -1836,6 +1915,9 @@ function rerenderStageWorkbench(options = {}) {
         } catch (_) {
           field.focus();
         }
+        if (options.selectText && typeof field.select === 'function') {
+          field.select();
+        }
       }
     }
   });
@@ -1845,6 +1927,7 @@ function setStageEditorCollapsed(nextValue) {
   const normalized = Boolean(nextValue);
   if (Boolean(S.ui.stageEditorCollapsed) === normalized) return;
   S.ui.stageEditorCollapsed = normalized;
+  if (normalized) S.ui.stageNameEditId = '';
   renderProcessTab();
 }
 
@@ -1926,6 +2009,10 @@ function endStageNodeDrag(event) {
   stageDragState = null;
   if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
     if (kind === 'stage') {
+      if (S.ui.stageEditorCollapsed === false && event.detail >= 2) {
+        startStageNameEdit(nodeId, event);
+        return;
+      }
       if ((S.ui.stageViewMode || 'panorama') === 'panorama' && S.ui.stageEditorCollapsed === false) {
         selectStageForPanorama(nodeId);
       } else {
@@ -2573,16 +2660,18 @@ function renderMatrixStageBoard(lane, column, stageNodes, editing) {
       const slot = getMatrixStageSlot(node, index);
       const flowCount = Math.max(0, Number(node._processCount || 0) || 0);
       const nodeTitle = flowCount ? `${node.label}（${flowCount} 个流程）` : (node.label || '');
-      return `<button class="stage-graph-node stage-kind stage-matrix-stage${focusedStageId && node.id === focusedStageId ? ' is-selected' : ''}" type="button"
+      const canRenameStage = Boolean(editing && !node.stage?.virtual);
+      return `<div class="stage-graph-node stage-kind stage-matrix-stage${focusedStageId && node.id === focusedStageId ? ' is-selected' : ''}" role="button" tabindex="0"
         style="left:${pos.x}px;top:${pos.y}px;width:${MATRIX_STAGE_CARD_W}px"
         data-node-id="${esc(node.id)}" data-testid="stage-graph-node" title="${esc(nodeTitle)}"
         data-member-count="${flowCount}" data-flow-count="${flowCount}"
         data-grid-row="${slot.row}" data-grid-col="${slot.col}"
+        ondblclick="startStageNameEdit('${esc(node.id)}',event)"
         onmousedown="startStageNodeDrag('stage','${esc(node.id)}',event)">
-        <span class="stage-graph-node-title">${esc(node.label)}</span>
+        ${renderStageNameInlineEditor(node.id, node.label, canRenameStage)}
         ${flowCount > 0 ? `<span class="stage-node-count" aria-label="流程数量">${flowCount}</span>` : ''}
         ${editing ? `<span class="matrix-stage-delete" data-testid="matrix-stage-delete" title="删除阶段" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();removeStage('${esc(node.id)}')">✕</span>` : ''}
-      </button>`;
+      </div>`;
     }).join('')}
     ${editing ? `<button class="matrix-stage-add" type="button" data-testid="matrix-stage-add" data-cell-id="${esc(cellId)}" onclick="addStageFromMatrixCell('${esc(lane.id)}','${esc(column.id)}')">＋ 阶段</button>` : ''}
   </div>`;
@@ -2650,7 +2739,7 @@ function renderStagePanoramaMatrixMarkup({ nodes, links, emptyText = '暂无内�
     _linked: linkedStageIds.has(node.id),
   }));
   const editing = isStagePanoramaEditing();
-  const groupedStages = groupStagesByPanoramaCell(indexedNodes, model, !editing);
+  const groupedStages = groupStagesByPanoramaCell(indexedNodes, model, false);
   const gridStyle = getValueStreamGridStyle(model, editing);
   const zoom = getStageGraphZoom();
   const matrixBaseWidth = getValueStreamMatrixBaseWidth(model, editing);
@@ -3161,10 +3250,13 @@ function renderStageWorkbench() {
   const stageWarning = showDetail && detailGraph.processes.length > 7
     ? '<span class="stage-header-warning">建议拆分阶段</span>'
     : '';
+  const detailStageName = showDetail
+    ? renderStageNameInlineEditor(stageItem.id, stageItem.name || stageItem.id, showEditor && !stageItem.virtual, 'stage-detail-name-text')
+    : '';
   const detailHeader = showDetail ? `<div class="stage-compact-head" data-testid="stage-compact-head">
     <button class="btn btn-ghost-sm" type="button" onclick="openStagePanorama()">业务全景</button>
     <span class="stage-breadcrumb-sep">/</span>
-    <div class="stage-card-title">${esc(stageItem.name || stageItem.id)} · 阶段详情 ${stageWarning}</div>
+    <div class="stage-card-title" data-testid="stage-detail-title">${detailStageName}<span class="stage-detail-title-suffix"> · 阶段详情 ${stageWarning}</span></div>
   </div>` : '';
   return `<div class="stage-workbench" data-testid="process-stage-view">
     <div class="stage-main-shell" style="margin-right:${editorOffset}px">
